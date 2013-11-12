@@ -1,0 +1,47 @@
+From 6bf72c587d25132f8b3e9985a7d27f071163e015 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 30 Sep 2013 12:41:58 -0400
+Subject: [PATCH 21/28] Ticket 47513 - Set localrundir outside of the "with-fhs" block
+
+Description:  Previously if you built 389 without --with-fhs, localrundir would
+              not be set.  Set localrundir above the with-fhs section, and then
+              only reset as needed.
+
+https://fedorahosted.org/389/ticket/47531
+
+Reviewed by: rmeggins(Thanks!)
+(cherry picked from commit a78fa58cce3c3ba67ac3ade40430e55bf431a45e)
+---
+ configure    |    2 ++
+ configure.ac |    2 ++
+ 2 files changed, 4 insertions(+), 0 deletions(-)
+
+diff --git a/configure b/configure
+index e52aeec..064e319 100755
+--- a/configure
++++ b/configure
+@@ -17952,6 +17952,8 @@ if test "$with_fhs" = "yes" -a "$with_fhs_opt" = "yes"; then
+ fi
+ 
+ 
++localrundir='/run'
++
+ # installation paths - by default, we store everything
+ # under the prefix.  The with-fhs option will use /usr,
+ # /etc, and /var.  The with-fhs-opt option will use the
+diff --git a/configure.ac b/configure.ac
+index e3ca730..2376b34 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -231,6 +231,8 @@ AC_PREFIX_DEFAULT([/opt/$PACKAGE_NAME])
+ 
+ m4_include(m4/fhs.m4)
+ 
++localrundir='/run'
++
+ # installation paths - by default, we store everything
+ # under the prefix.  The with-fhs option will use /usr,
+ # /etc, and /var.  The with-fhs-opt option will use the
+-- 
+1.7.1
+

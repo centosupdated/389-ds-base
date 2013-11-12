@@ -1,0 +1,32 @@
+From 0dfb9d9e0de8288a3bfed5180a947239fcc9d5aa Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Sat, 15 Jun 2013 16:45:23 -0700
+Subject: [PATCH 43/44] Ticket 47379 - DNA plugin failed to fetch replication
+ agreement
+
+Description : Schema file 10dna-plugin.ldif modified in the commit
+3e2262e1c0410bdf4f9b9211aef13deb28f174d1 had a tab which should
+be white spaces.  It made the schema parsing fail and the server
+uninstallable.  This patch replaces the tab with white spaces.
+(cherry picked from commit 5f0580abd55b4fb34a954f0314c1188c43921363)
+(cherry picked from commit 0b4d359a3e1d8ae7e3ea7e00a22449eb2b1233e0)
+---
+ ldap/schema/10dna-plugin.ldif | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/schema/10dna-plugin.ldif b/ldap/schema/10dna-plugin.ldif
+index ac9b5f4..74f5f8b 100644
+--- a/ldap/schema/10dna-plugin.ldif
++++ b/ldap/schema/10dna-plugin.ldif
+@@ -218,7 +218,7 @@ objectClasses: ( 2.16.840.1.113730.3.2.324 NAME 'dnaPluginConfig'
+         dnaThreshold $
+         dnaNextRange $
+         dnaRangeRequestTimeout $        
+-	dnaRemoteBindDN $
++        dnaRemoteBindDN $
+         dnaRemoteBindCred $
+         cn
+  )
+-- 
+1.8.1.4
+

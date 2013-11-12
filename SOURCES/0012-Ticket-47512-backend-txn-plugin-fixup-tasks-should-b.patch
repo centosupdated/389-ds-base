@@ -1,0 +1,264 @@
+From 9817459cec5df74f9270adc80cd2af5d80567068 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 13 Sep 2013 15:16:31 -0400
+Subject: [PATCH 12/28] Ticket 47512 - backend txn plugin fixup tasks should be done in a txn
+
+Description:  If a plugin is a backend txn plugin, then its fixup tasks should
+              also be done in a transaction.
+
+https://fedorahosted.org/389/ticket/47512
+
+Reviewed by: richm(Thanks!)
+(cherry picked from commit e439c4679b6e422103ec39a08c2013a37c0a7dd0)
+(cherry picked from commit 76bad9a5751f1ecb2f792faf1f0687acf6661112)
+---
+ ldap/servers/plugins/automember/automember.c    |   32 +++++++++-
+ ldap/servers/plugins/linkedattrs/fixup_task.c   |   80 ++++++++++++++++++++--
+ ldap/servers/plugins/linkedattrs/linked_attrs.c |    3 +-
+ ldap/servers/plugins/linkedattrs/linked_attrs.h |    2 +
+ 4 files changed, 106 insertions(+), 11 deletions(-)
+
+diff --git a/ldap/servers/plugins/automember/automember.c b/ldap/servers/plugins/automember/automember.c
+index 02dcc0d..c7168cb 100644
+--- a/ldap/servers/plugins/automember/automember.c
++++ b/ldap/servers/plugins/automember/automember.c
+@@ -2135,7 +2135,7 @@ out:
+ void automember_rebuild_task_thread(void *arg){
+     Slapi_Task *task = (Slapi_Task *)arg;
+     struct configEntry *config = NULL;
+-    Slapi_PBlock *search_pb = NULL;
++    Slapi_PBlock *search_pb = NULL, *fixup_pb = NULL;
+     Slapi_Entry **entries = NULL;
+     task_data *td = NULL;
+     PRCList *list = NULL;
+@@ -2176,6 +2176,27 @@ void automember_rebuild_task_thread(void *arg){
+         goto out;
+     }
+     slapi_pblock_get(search_pb, SLAPI_PLUGIN_INTOP_SEARCH_ENTRIES, &entries);
++
++    /*
++     * If this is a backend txn plugin, start the transaction
++     */
++    if (plugin_is_betxn) {
++        Slapi_Backend *be = slapi_be_select(td->base_dn);
++
++        if (be) {
++            fixup_pb = slapi_pblock_new();
++            slapi_pblock_set(fixup_pb, SLAPI_BACKEND, be);
++            if(slapi_back_transaction_begin(fixup_pb) != LDAP_SUCCESS){
++                slapi_log_error(SLAPI_LOG_FATAL, AUTOMEMBER_PLUGIN_SUBSYSTEM,
++                        "automember_rebuild_task_thread: failed to start transaction\n");
++            }
++        } else {
++            slapi_log_error(SLAPI_LOG_FATAL, AUTOMEMBER_PLUGIN_SUBSYSTEM,
++                    "automember_rebuild_task_thread: failed to get be backend from %s\n",
++                    slapi_sdn_get_dn(td->base_dn));
++        }
++    }
++
+     /*
+      *  Grab the config read lock, and loop over the entries
+      */
+@@ -2205,6 +2226,15 @@ void automember_rebuild_task_thread(void *arg){
+     slapi_free_search_results_internal(search_pb);
+ 
+ out:
++    if (plugin_is_betxn && fixup_pb) {
++        if (i == 0 || result != 0) { /* no updates performed */
++            slapi_back_transaction_abort(fixup_pb);
++        } else {
++            slapi_back_transaction_commit(fixup_pb);
++        }
++        slapi_pblock_destroy(fixup_pb);
++    }
++
+     if(result){
+         /* error */
+         slapi_task_log_notice(task, "Automember rebuild task aborted.  Error (%d)", result);
+diff --git a/ldap/servers/plugins/linkedattrs/fixup_task.c b/ldap/servers/plugins/linkedattrs/fixup_task.c
+index 9fa7f6f..537544d 100644
+--- a/ldap/servers/plugins/linkedattrs/fixup_task.c
++++ b/ldap/servers/plugins/linkedattrs/fixup_task.c
+@@ -139,11 +139,11 @@ linked_attrs_fixup_task_destructor(Slapi_Task *task)
+ static void
+ linked_attrs_fixup_task_thread(void *arg)
+ {
+-	int rc = 0;
+ 	Slapi_Task *task = (Slapi_Task *)arg;
+ 	task_data *td = NULL;
+ 	PRCList *main_config = NULL;
+ 	int found_config = 0;
++	int rc = 0;
+ 
+ 	/* Fetch our task data from the task */
+ 	td = (task_data *)slapi_task_get_data(task);
+@@ -218,8 +218,10 @@ static void
+ linked_attrs_fixup_links(struct configEntry *config)
+ {
+     Slapi_PBlock *pb = slapi_pblock_new();
++    Slapi_PBlock *fixup_pb = NULL;
+     char *del_filter = NULL;
+     char *add_filter = NULL;
++    int rc = 0;
+ 
+     del_filter = slapi_ch_smprintf("%s=*", config->managedtype);
+     add_filter = slapi_ch_smprintf("%s=*", config->linktype);
+@@ -228,12 +230,33 @@ linked_attrs_fixup_links(struct configEntry *config)
+     slapi_lock_mutex(config->lock);
+ 
+     if (config->scope) {
++        /*
++         * If this is a backend txn plugin, start the transaction
++         */
++        if (plugin_is_betxn) {
++            Slapi_DN *fixup_dn = slapi_sdn_new_dn_byref(config->scope);
++            Slapi_Backend *be = slapi_be_select(fixup_dn);
++
++            if (be) {
++                fixup_pb = slapi_pblock_new();
++                slapi_pblock_set(fixup_pb, SLAPI_BACKEND, be);
++                if(slapi_back_transaction_begin(fixup_pb) != LDAP_SUCCESS){
++                    slapi_log_error(SLAPI_LOG_FATAL, LINK_PLUGIN_SUBSYSTEM,
++                            "linked_attrs_fixup_links: failed to start transaction\n");
++                }
++            } else {
++                slapi_log_error(SLAPI_LOG_FATAL, LINK_PLUGIN_SUBSYSTEM,
++                        "linked_attrs_fixup_links: failed to get be backend from %s\n",
++                        config->scope);
++            }
++        }
++
+         /* Find all entries with the managed type present
+          * within the scope and remove the managed type. */
+         slapi_search_internal_set_pb(pb, config->scope, LDAP_SCOPE_SUBTREE,
+                 del_filter, 0, 0, 0, 0, linked_attrs_get_plugin_id(), 0);
+ 
+-        slapi_search_internal_callback_pb(pb, config->managedtype, 0,
++        rc = slapi_search_internal_callback_pb(pb, config->managedtype, 0,
+                 linked_attrs_remove_backlinks_callback, 0);
+ 
+         /* Clean out pblock for reuse. */
+@@ -246,16 +269,46 @@ linked_attrs_fixup_links(struct configEntry *config)
+ 
+         slapi_search_internal_callback_pb(pb, config, 0,
+                 linked_attrs_add_backlinks_callback, 0);
++        /*
++         *  Finish the transaction.
++         */
++        if (plugin_is_betxn && fixup_pb){
++            if(rc == 0){
++                slapi_back_transaction_commit(fixup_pb);
++            } else {
++            	slapi_back_transaction_abort(fixup_pb);
++            }
++            slapi_pblock_destroy(fixup_pb);
++        }
+     } else {
+         /* Loop through all non-private backend suffixes and
+          * remove the managed type from any entry that has it.
+          * We then find any entry with the linktype present and
+          * generate the proper backlinks. */
+         void *node = NULL;
+-        Slapi_DN * suffix = slapi_get_first_suffix (&node, 0);
++        config->suffix = slapi_get_first_suffix (&node, 0);
++
++        while (config->suffix) {
++            /*
++             * If this is a backend txn plugin, start the transaction
++             */
++            if (plugin_is_betxn) {
++                Slapi_Backend *be = slapi_be_select(config->suffix);
++                if (be) {
++                    fixup_pb = slapi_pblock_new();
++                    slapi_pblock_set(fixup_pb, SLAPI_BACKEND, be);
++                    if(slapi_back_transaction_begin(fixup_pb) != LDAP_SUCCESS){
++                        slapi_log_error(SLAPI_LOG_FATAL, LINK_PLUGIN_SUBSYSTEM,
++                                "linked_attrs_fixup_links: failed to start transaction\n");
++                    }
++                } else {
++                    slapi_log_error(SLAPI_LOG_FATAL, LINK_PLUGIN_SUBSYSTEM,
++                            "linked_attrs_fixup_links: failed to get be backend from %s\n",
++                            slapi_sdn_get_dn(config->suffix));
++                }
++            }
+ 
+-        while (suffix) {
+-            slapi_search_internal_set_pb(pb, slapi_sdn_get_dn(suffix),
++            slapi_search_internal_set_pb(pb, slapi_sdn_get_dn(config->suffix),
+                                          LDAP_SCOPE_SUBTREE, del_filter,
+                                          0, 0, 0, 0,
+                                          linked_attrs_get_plugin_id(), 0);
+@@ -266,18 +319,29 @@ linked_attrs_fixup_links(struct configEntry *config)
+             /* Clean out pblock for reuse. */
+             slapi_pblock_init(pb);
+ 
+-            slapi_search_internal_set_pb(pb, slapi_sdn_get_dn(suffix),
++            slapi_search_internal_set_pb(pb, slapi_sdn_get_dn(config->suffix),
+                                          LDAP_SCOPE_SUBTREE, add_filter,
+                                          0, 0, 0, 0,
+                                          linked_attrs_get_plugin_id(), 0);
+ 
+-            slapi_search_internal_callback_pb(pb, config, 0,
++            rc = slapi_search_internal_callback_pb(pb, config, 0,
+                     linked_attrs_add_backlinks_callback, 0);
+ 
+             /* Clean out pblock for reuse. */
+             slapi_pblock_init(pb);
+ 
+-            suffix = slapi_get_next_suffix (&node, 0);
++            config->suffix = slapi_get_next_suffix (&node, 0);
++            /*
++             *  Finish the transaction.
++             */
++            if (plugin_is_betxn && fixup_pb){
++                if(rc == 0){
++                    slapi_back_transaction_commit(fixup_pb);
++                } else {
++                	slapi_back_transaction_abort(fixup_pb);
++                }
++                slapi_pblock_destroy(fixup_pb);
++            }
+         }
+     }
+ 
+diff --git a/ldap/servers/plugins/linkedattrs/linked_attrs.c b/ldap/servers/plugins/linkedattrs/linked_attrs.c
+index 30a8653..1945828 100644
+--- a/ldap/servers/plugins/linkedattrs/linked_attrs.c
++++ b/ldap/servers/plugins/linkedattrs/linked_attrs.c
+@@ -55,6 +55,7 @@ static Slapi_RWLock *g_config_lock;
+ static void *_PluginID = NULL;
+ static char *_PluginDN = NULL;
+ static int g_plugin_started = 0;
++int plugin_is_betxn = 0;
+ 
+ static Slapi_PluginDesc pdesc = { LINK_FEATURE_DESC,
+                                   VENDOR,
+@@ -164,8 +165,6 @@ linked_attrs_get_plugin_dn()
+     return _PluginDN;
+ }
+ 
+-static int plugin_is_betxn = 0;
+-
+ /*
+  * Plug-in initialization functions
+  */
+diff --git a/ldap/servers/plugins/linkedattrs/linked_attrs.h b/ldap/servers/plugins/linkedattrs/linked_attrs.h
+index d0909ca..4721151 100644
+--- a/ldap/servers/plugins/linkedattrs/linked_attrs.h
++++ b/ldap/servers/plugins/linkedattrs/linked_attrs.h
+@@ -82,6 +82,7 @@ struct configEntry {
+     char *linktype;
+     char *managedtype;
+     char *scope;
++    Slapi_DN *suffix;
+     Slapi_Mutex *lock;
+ };
+ 
+@@ -142,3 +143,4 @@ int linked_attrs_fixup_task_add(Slapi_PBlock *pb, Slapi_Entry *e,
+  * misc
+  */
+ int linked_attrs_is_started();
++extern int plugin_is_betxn;
+-- 
+1.7.1
+

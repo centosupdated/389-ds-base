@@ -1,0 +1,30 @@
+From 6d7e8a82b045ff2184605c61117130c2202c0aa0 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 23 Sep 2013 12:21:15 -0400
+Subject: [PATCH 15/28] Ticket 47509 - Cleanallruv jenkins error
+
+Fixed invalid array element that was out of bounds.
+
+https://fedorahosted.org/389/ticket/47509
+(cherry picked from commit 24bec17a925c99fe5a655f983e53fc72a34c69ac)
+(cherry picked from commit 023e1889758cdd2b3a215414180e7f1fdfd8aa5f)
+---
+ .../plugins/replication/repl5_replica_config.c     |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index fb0b746..94c23c0 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -2453,7 +2453,7 @@ delete_cleaned_rid_config(cleanruv_data *clean_data)
+                 /*
+                  *  Now delete the attribute
+                  */
+-                vals[5] = NULL;
++                vals[4] = NULL;
+                 mod.mod_op  = LDAP_MOD_DELETE|LDAP_MOD_BVALUES;
+                 mod.mod_type = (char *)type_replicaCleanRUV;
+                 mod.mod_bvalues = vals;
+-- 
+1.7.1
+

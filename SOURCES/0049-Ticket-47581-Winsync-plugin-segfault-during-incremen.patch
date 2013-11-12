@@ -1,0 +1,52 @@
+From f8e95c2189dca53daf98d3ae7249c20ca9fc4541 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Fri, 1 Nov 2013 18:22:47 -0700
+Subject: [PATCH 49/49] Ticket #47581 - Winsync plugin segfault during
+ incremental backoff (phase 2)
+
+Fix description: Apply the previous patch Ticket #47581 against the
+replication plug-in (repl5_inc_protocol.c):
+Make sure to delete the backoff timer when
+1) a replication agreement is removed and the protocol is deleted, and
+2) a new backoff timer set and there is already a backoff timer set up.
+
+https://fedorahosted.org/389/ticket/47581
+
+Reviewed by rmeggins (Thank you, Rich!!)
+(cherry picked from commit 8eecc43e0160e132949ed504162b4536d6040620)
+(cherry picked from commit 962fc45a15a4bc2e0d13d3d8b12225105ef43dbb)
+(cherry picked from commit 0df4c665401db297f303ad91f5e892b1e604e63a)
+---
+ ldap/servers/plugins/replication/repl5_inc_protocol.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/ldap/servers/plugins/replication/repl5_inc_protocol.c b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+index fa442fe..612fe46 100644
+--- a/ldap/servers/plugins/replication/repl5_inc_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+@@ -509,6 +509,11 @@ repl5_inc_waitfor_async_results(result_data *rd)
+ static void
+ repl5_inc_delete(Private_Repl_Protocol **prpp)
+ {
++	repl5_inc_private *prp_priv = (repl5_inc_private *)(*prpp)->private;
++	/* if backoff is set, delete it (from EQ, as well) */ 
++	if (prp_priv->backoff) { 
++		backoff_delete(&prp_priv->backoff); 
++	} 
+ 	/* First, stop the protocol if it isn't already stopped */
+ 	if (!(*prpp)->stopped) {
+ 		(*prpp)->stopped = 1;
+@@ -837,6 +842,10 @@ repl5_inc_run(Private_Repl_Protocol *prp)
+                   state2name(current_state));
+           } else {
+               /* Set up the backoff timer to wake us up at the appropriate time */
++              /* if previous backoff set up, delete it. */
++              if (prp_priv->backoff) {
++                  backoff_delete(&prp_priv->backoff);
++              }
+               if (use_busy_backoff_timer){
+                   /* we received a busy signal from the consumer, wait for a while */
+                   if (!busywaittime){
+-- 
+1.8.1.4
+

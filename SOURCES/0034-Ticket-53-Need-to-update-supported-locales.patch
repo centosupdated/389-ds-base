@@ -1,0 +1,93 @@
+From 5b782cffd0c2779dc7d156aec9e9e5f970e6bf40 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Fri, 4 Oct 2013 11:38:33 -0700
+Subject: [PATCH 34/39] Ticket #53 - Need to update supported locales
+ commit e0c78d5b87d4d798a936eba9c90f5db5347bcb3c did not include
+ the upgreade script: 60upgradeconfigfiles.pl.
+ Note: This is a part of 389-ds-base-1.3.2.0.
+ (cherry picked from commit 64e0b3799971fa17aae7260ae238e9f68f66c3bd)
+ (cherry picked from commit 5950daa74ef929d6543b04baf2255c65e606a97d)
+
+---
+ ldap/admin/src/scripts/60upgradeconfigfiles.pl |   69 ++++++++++++++++++++++++
+ 1 files changed, 69 insertions(+), 0 deletions(-)
+ create mode 100644 ldap/admin/src/scripts/60upgradeconfigfiles.pl
+
+diff --git a/ldap/admin/src/scripts/60upgradeconfigfiles.pl b/ldap/admin/src/scripts/60upgradeconfigfiles.pl
+new file mode 100644
+index 0000000..4b37353
+--- /dev/null
++++ b/ldap/admin/src/scripts/60upgradeconfigfiles.pl
+@@ -0,0 +1,69 @@
++use File::Copy;
++use Mozilla::LDAP::LDIF;
++use DSCreate qw(installSchema);
++
++sub runinst {
++    my ($inf, $inst, $dseldif, $conn) = @_;
++
++    if (!$inf->{slapd}->{config_dir} or (! -d $inf->{slapd}->{config_dir})) {
++        return ('error_reading_config_dir', $inf->{slapd}->{config_dir});
++    }
++
++    # these files are obsolete, or we want to replace
++    # them with newer versions
++    my @toremove = qw(slapd-collations.conf);
++
++    # make a backup directory to store the deleted config file, then
++    # don't really delete it, just move it to that directory
++    my $mode = (stat($inf->{slapd}->{config_dir}))[2];
++    my $bakdir = $inf->{slapd}->{bak_dir} . ".bak";
++    if (! -d $bakdir) {
++        $! = 0; # clear
++        mkdir $bakdir, $mode;
++        if ($!) {
++            return ('error_creating_directory', $bakdir, $!);
++        }
++    }
++
++    my @errs;
++    for my $file (@toremove) {
++        my $oldname = $inf->{slapd}->{config_dir} . "/" . $file;
++        next if (! -f $oldname); # does not exist - skip - already (re)moved
++        my $newname = "$bakdir/$file";
++        $! = 0; # clear
++        rename $oldname, $newname;
++        if ($!) {
++            push @errs, ["error_renaming_config", $oldname, $newname, $!];
++        }
++    }
++
++    my $configsrcdir = $inf->{slapd}->{config_dir} . "/../config"; 
++    for my $file (@toremove) {
++        my $srcname = "$configsrcdir/$file";
++        my $newname = $inf->{slapd}->{config_dir} . "/" . $file;
++
++        copy $srcname, $newname;
++        if ($!) {
++            push @errs, ["error_renaming_config", $srcname, $newname, $!];
++        }
++    }
++
++    # If we've encountered any errors up to this point, restore
++    # the original file.
++    if (@errs) {
++        # restore the original files
++        for my $file (@toremove) {
++            my $oldname = "$bakdir/$file";
++            next if (! -f $oldname); # does not exist - not backed up
++            my $newname = $inf->{slapd}->{config_dir} . "/" . $file;
++            next if (-f $newname); # not removed
++            rename $oldname, $newname;
++        }
++        return @errs;
++    }
++
++    if (-d $bakdir) {
++        system("rm -rf $bakdir");
++    }
++    return ();
++}
+-- 
+1.7.1
+

@@ -1,0 +1,68 @@
+From 49245a17ee2e3c3f97ec2d7cd3bc45a744ed2ac8 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 14 Aug 2013 15:32:36 -0400
+Subject: [PATCH 11/28] Ticket 47461 - logconv.pl - Use of comma-less variable list is deprecated
+
+Description:  In newer versions of perl commas are needed to separate variables
+              when "formatting" output.  Also fixed a typo.
+
+https://fedorahosted.org/389/ticket/47461
+
+Reviewed by: nhosoi(Thanks!)
+(cherry picked from commit 7e9cae5fa2292168e88e87eee2f9249171a1e9d8)
+(cherry picked from commit 3e7ee7ca886feb56b3b26df97882c40d81bfff55)
+---
+ ldap/admin/src/logconv.pl |   30 +++++++++++++++---------------
+ 1 files changed, 15 insertions(+), 15 deletions(-)
+
+diff --git a/ldap/admin/src/logconv.pl b/ldap/admin/src/logconv.pl
+index efc5970..77088ff 100755
+--- a/ldap/admin/src/logconv.pl
++++ b/ldap/admin/src/logconv.pl
+@@ -594,7 +594,7 @@ print "Restarts:                     $serverRestartCount\n";
+ print "Total Connections:            $connectionCount\n";
+ print " - StartTLS Connections:      $startTLSCount\n";
+ print " - LDAPS Connections:         $sslCount\n";
+-print " - LDAPI Conections:          $ldapiCount\n";
++print " - LDAPI Connections:         $ldapiCount\n";
+ print "Peak Concurrent Connections:  $maxsimConnection\n";
+ print "Total Operations:             $allOps\n";
+ print "Total Results:                $allResults\n";
+@@ -614,20 +614,20 @@ $compareStat = sprintf "(%.2f/sec)  (%.2f/min)\n",$cmpCount/$totalTimeInSecs, $c
+ $bindCountStat = sprintf "(%.2f/sec)  (%.2f/min)\n",$bindCount/$totalTimeInSecs, $bindCount/($totalTimeInSecs/60);
+ 
+ format STDOUT =
+-Searches:                     @<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<
+-                              $srchCount,        $searchStat
+-Modifications:                @<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<
+-                              $modCount,           $modStat
+-Adds:                         @<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<
+-                              $addCount,           $addStat
+-Deletes:                      @<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<
+-                              $delCount,        $deleteStat
+-Mod RDNs:                     @<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<
+-                              $modrdnCount,        $modrdnStat
+-Compares:                     @<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<
+-                              $cmpCount,       $compareStat
+-Binds:                        @<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<
+-                              $bindCount           $bindCountStat
++Searches:                     @<<<<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++                              $srchCount,   $searchStat,
++Modifications:                @<<<<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++                              $modCount,    $modStat,
++Adds:                         @<<<<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++                              $addCount,    $addStat,
++Deletes:                      @<<<<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++                              $delCount,    $deleteStat,
++Mod RDNs:                     @<<<<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++                              $modrdnCount, $modrdnStat,
++Compares:                     @<<<<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++                              $cmpCount,    $compareStat,
++Binds:                        @<<<<<<<<<<<< @<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++                              $bindCount,   $bindCountStat,
+ .
+ write STDOUT;
+ 
+-- 
+1.7.1
+

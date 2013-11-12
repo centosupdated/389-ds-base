@@ -1,0 +1,85 @@
+From 86cc92be7b84f4583bf9ed616848ef178f73d475 Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Wed, 25 Sep 2013 08:51:12 -0600
+Subject: [PATCH 10/28] Ticket #47504 idlistscanlimit per index/type/value
+
+https://fedorahosted.org/389/ticket/47504
+Reviewed by: nhosoi (Thanks!)
+Branch: rhel-7.0
+Fix Description: This patch broke replication.  The problem is that we cannot
+compare the allidslimit to 0 unless the value is explicitly set by
+index_get_allids.  The fix is to only return ALLIDS if the allidslimit was
+explicitly set to 0 by index_get_allids.
+Platforms tested: RHEL6 x86_64
+Flag Day: no
+Doc impact: no
+(cherry picked from commit 058d01d7479204a2507dab822cd81e32c37be862)
+(cherry picked from commit e5405e627439ccaf370d90c42e65c0a987e33e73)
+---
+ ldap/servers/slapd/back-ldbm/index.c |   20 ++++++++++++--------
+ 1 files changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/index.c b/ldap/servers/slapd/back-ldbm/index.c
+index d5ca16a..f4de2fa 100644
+--- a/ldap/servers/slapd/back-ldbm/index.c
++++ b/ldap/servers/slapd/back-ldbm/index.c
+@@ -52,7 +52,7 @@
+ static const char *errmsg = "database index operation failed";
+ 
+ static int   is_indexed (const char* indextype, int indexmask, char** index_rules);
+-static int index_get_allids( int default_allids, const char *indextype, struct attrinfo *ai, const struct berval *val, unsigned int flags );
++static int index_get_allids( int *allids, const char *indextype, struct attrinfo *ai, const struct berval *val, unsigned int flags );
+ 
+ static Slapi_Value **
+ valuearray_minus_valuearray(
+@@ -985,8 +985,11 @@ index_read_ext_allids(
+ 		slapi_pblock_get(pb, SLAPI_SEARCH_IS_AND, &is_and);
+ 	}
+ 	ai_flags = is_and ? INDEX_ALLIDS_FLAG_AND : 0;
+-	allidslimit = index_get_allids( allidslimit, indextype, ai, val, ai_flags );
+-	if (allidslimit == 0) {
++	/* the caller can pass in a value of 0 - just ignore those - but if the index
++	 * config sets the allidslimit to 0, this means to skip the index
++	 */
++	if (index_get_allids( &allidslimit, indextype, ai, val, ai_flags ) &&
++	    (allidslimit == 0)) {
+ 		idl = idl_allids( be );
+ 		if (unindexed != NULL) *unindexed = 1;
+ 		LDAPDebug1Arg( LDAP_DEBUG_BACKLDBM, "<= index_read %lu candidates "
+@@ -2400,9 +2403,9 @@ valuearray_minus_valuearray(
+ #define AI_HAS_TYPE 0x02
+ #define AI_HAS_FLAG 0x01
+ static int
+-index_get_allids( int default_allids, const char *indextype, struct attrinfo *ai, const struct berval *val, unsigned int flags )
++index_get_allids( int *allids, const char *indextype, struct attrinfo *ai, const struct berval *val, unsigned int flags )
+ {
+-    int allids = default_allids;
++    int found = 0;
+     Slapi_Value sval;
+     struct index_idlistsizeinfo *iter; /* iterator */
+     int cookie = 0;
+@@ -2410,7 +2413,7 @@ index_get_allids( int default_allids, const char *indextype, struct attrinfo *ai
+     struct index_idlistsizeinfo *best_match = NULL;
+ 
+     if (!ai->ai_idlistinfo) {
+-        return allids;
++        return found;
+     }
+ 
+     if (val) { /* val should already be a Slapi_Value, but some paths do not use Slapi_Value */
+@@ -2454,9 +2457,10 @@ index_get_allids( int default_allids, const char *indextype, struct attrinfo *ai
+     }
+ 
+     if (best_match) {
+-        allids = best_match->ai_idlistsizelimit;
++        *allids = best_match->ai_idlistsizelimit;
++        found = 1; /* found a match */
+     }
+ 
+-    return allids;
++    return found;
+ }
+ 
+-- 
+1.7.1
+

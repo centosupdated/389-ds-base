@@ -1,0 +1,29 @@
+From 98f1dd2ac6a367de42bb12a8c3d69f8cc434ebce Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Fri, 8 Nov 2013 13:50:41 -0800
+Subject: [PATCH 45/49] Ticket 47379 - DNA plugin failed to fetch replication
+ agreement
+
+Jenkins error: dna.c
+
+(partially cherry picked from commit 23063fc5844873d44ad2021aaabfbc1472ef981a)
+---
+ ldap/servers/plugins/dna/dna.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/dna/dna.c b/ldap/servers/plugins/dna/dna.c
+index 40522a6..90a66c6 100644
+--- a/ldap/servers/plugins/dna/dna.c
++++ b/ldap/servers/plugins/dna/dna.c
+@@ -1617,7 +1617,7 @@ dna_get_shared_servers(struct configEntry *config_entry, PRCList **servers)
+                 }
+                 /* see if we defined a server manually */
+                 if(server->remote_bind_method){
+-                    char *reason;
++                    char *reason = NULL;
+                     int err = 0;
+ 
+                     if(strcasecmp(server->remote_bind_method, DNA_METHOD_DIGESTMD5) == 0 ||
+-- 
+1.8.1.4
+

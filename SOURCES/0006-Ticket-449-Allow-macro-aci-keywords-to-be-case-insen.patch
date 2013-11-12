@@ -1,0 +1,217 @@
+From 5a96717edfa061bf797eec36361deeab64a854f4 Mon Sep 17 00:00:00 2001
+From: Nathan Kinder <nkinder@redhat.com>
+Date: Wed, 11 Sep 2013 18:23:14 -0700
+Subject: [PATCH 6/7] Ticket 449 - Allow macro aci keywords to be
+ case-insensitive
+
+This allows the macro aci keywords ($attr and $dn) to be
+case-insensitive.  We were allowing the keywords to be set
+regardless of case, but we were only processing them properly
+if they were lowercase.  This patch makes the processing
+case-insensitive as well.
+
+I also added validation of the attribute name that is appended
+to the $attr keyword.  We previously performed no validation.  The
+patch ensures that the attribute name is legal per RFC 4512, but
+we don't check if it is defined in the schema.  This will allow an
+aci to be set prior to adding the attribute to the schema.  It
+also allows attributes that are used in an extensibleObject entry
+to work properly with macro acis.
+(cherry picked from commit a7e9f7b2f4df38d81b1cbf6bc53c79d0d56bc36c)
+---
+ ldap/servers/plugins/acl/acllas.c   | 34 +++++++++++++++++-----------------
+ ldap/servers/plugins/acl/aclparse.c | 34 ++++++++++++++++++++++++++++++----
+ ldap/servers/plugins/acl/aclutil.c  |  6 +++---
+ 3 files changed, 50 insertions(+), 24 deletions(-)
+
+diff --git a/ldap/servers/plugins/acl/acllas.c b/ldap/servers/plugins/acl/acllas.c
+index 5bcb482..ee113bc 100644
+--- a/ldap/servers/plugins/acl/acllas.c
++++ b/ldap/servers/plugins/acl/acllas.c
+@@ -584,9 +584,9 @@ DS_LASUserDnEval(NSErr_t *errp, char *attr_name, CmpOp_t comparator,
+ 		} else {
+ 			/* URL format */
+ 			
+-			if ((strstr (user, ACL_RULE_MACRO_DN_KEY) != NULL) ||
+-				(strstr (user, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) ||
+-				(strstr (user, ACL_RULE_MACRO_ATTR_KEY) != NULL)) {			
++			if ((strcasestr (user, ACL_RULE_MACRO_DN_KEY) != NULL) ||
++				(strcasestr (user, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) ||
++				(strcasestr (user, ACL_RULE_MACRO_ATTR_KEY) != NULL)) {			
+ 				
+ 				matched = aclutil_evaluate_macro( s_user, &lasinfo,
+ 													ACL_EVAL_USER);
+@@ -856,9 +856,9 @@ DS_LASGroupDnEval(NSErr_t *errp, char *attr_name, CmpOp_t comparator,
+ 					"Group not evaluated(%s)\n", groupName);
+ 			break;
+ 		} else {			
+-			if ((strstr (groupName, ACL_RULE_MACRO_DN_KEY) != NULL) ||
+-				(strstr (groupName, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) ||
+-				(strstr (groupName, ACL_RULE_MACRO_ATTR_KEY) != NULL)) {			
++			if ((strcasestr (groupName, ACL_RULE_MACRO_DN_KEY) != NULL) ||
++				(strcasestr (groupName, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) ||
++				(strcasestr (groupName, ACL_RULE_MACRO_ATTR_KEY) != NULL)) {			
+ 				matched = aclutil_evaluate_macro( groupName, &lasinfo,
+ 													ACL_EVAL_GROUP);
+ 				slapi_log_error ( SLAPI_LOG_ACL, plugin_name,
+@@ -1075,9 +1075,9 @@ DS_LASRoleDnEval(NSErr_t *errp, char *attr_name, CmpOp_t comparator,
+ 		} else {
+ 
+ 			/* Take care of param strings */
+-			if ((strstr (role, ACL_RULE_MACRO_DN_KEY) != NULL) ||
+-				(strstr (role, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) ||
+-				(strstr (role, ACL_RULE_MACRO_ATTR_KEY) != NULL)) {			
++			if ((strcasestr (role, ACL_RULE_MACRO_DN_KEY) != NULL) ||
++				(strcasestr (role, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) ||
++				(strcasestr (role, ACL_RULE_MACRO_ATTR_KEY) != NULL)) {			
+ 				
+ 				matched = aclutil_evaluate_macro( role, &lasinfo,
+ 													ACL_EVAL_ROLE);
+@@ -2598,9 +2598,9 @@ DS_LASGroupDnAttrEval(NSErr_t *errp, char *attr_name, CmpOp_t comparator,
+ 
+ 		/* In this case "grppupdnattr="ldap:///base??attr" */
+ 
+-		if ((strstr (attrName, ACL_RULE_MACRO_DN_KEY) != NULL) ||
+-			(strstr (attrName, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) ||
+-			(strstr (attrName, ACL_RULE_MACRO_ATTR_KEY) != NULL)) {			
++		if ((strcasestr (attrName, ACL_RULE_MACRO_DN_KEY) != NULL) ||
++			(strcasestr (attrName, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) ||
++			(strcasestr (attrName, ACL_RULE_MACRO_ATTR_KEY) != NULL)) {			
+ 				
+ 				matched = aclutil_evaluate_macro( attrName, &lasinfo,
+ 													ACL_EVAL_GROUPDNATTR);
+@@ -4157,12 +4157,12 @@ acllas_replace_dn_macro( char *rule, char *matched_val, lasInfo *lasinfo) {
+ 	int has_macro_levels = 0;
+ 	
+ 	/* Determine what the rule's got once */
+-	if ( strstr(rule, ACL_RULE_MACRO_DN_KEY) != NULL) {
++	if ( strcasestr(rule, ACL_RULE_MACRO_DN_KEY) != NULL) {
+ 		/* ($dn) exists */
+ 		has_macro_dn = 1;
+ 	}
+ 
+-	if ( strstr(rule, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) {
++	if ( strcasestr(rule, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL) {
+ 		/* [$dn] exists */
+ 		has_macro_levels = 1;
+ 	}
+@@ -4266,7 +4266,7 @@ acllas_replace_attr_macro( char *rule, lasInfo *lasinfo)
+ 	int l;
+ 	Slapi_Attr *attr = NULL;
+ 	
+-	str = strstr(rule, ACL_RULE_MACRO_ATTR_KEY);
++	str = strcasestr(rule, ACL_RULE_MACRO_ATTR_KEY);
+ 	if ( str == NULL ) {
+ 
+ 		charray_add(&a, slapi_ch_strdup(rule));
+@@ -4275,7 +4275,7 @@ acllas_replace_attr_macro( char *rule, lasInfo *lasinfo)
+ 	} else {
+ 	
+ 		working_rule = slapi_ch_strdup(rule);
+-		str = strstr(working_rule, ACL_RULE_MACRO_ATTR_KEY);
++		str = strcasestr(working_rule, ACL_RULE_MACRO_ATTR_KEY);
+ 		charray_add(&working_list, working_rule );
+ 		
+ 		while( str != NULL) {
+@@ -4373,7 +4373,7 @@ acllas_replace_attr_macro( char *rule, lasInfo *lasinfo)
+ 			slapi_ch_free_string(&macro_str);
+ 			slapi_ch_free_string(&macro_attr_name);
+ 			
+-			str = strstr(working_rule, ACL_RULE_MACRO_ATTR_KEY);
++			str = strcasestr(working_rule, ACL_RULE_MACRO_ATTR_KEY);
+ 		
+         }/* while */
+ 		
+diff --git a/ldap/servers/plugins/acl/aclparse.c b/ldap/servers/plugins/acl/aclparse.c
+index cabc39f..29203da 100644
+--- a/ldap/servers/plugins/acl/aclparse.c
++++ b/ldap/servers/plugins/acl/aclparse.c
+@@ -276,8 +276,8 @@ __aclp__parse_aci(char *str, aci_t  *aci_item, char **errbuf)
+ 			 * have a target and it must have a macro.
+ 			*/
+ 		
+-			if ((strstr(str, ACL_RULE_MACRO_DN_KEY) != NULL) ||
+-			    (strstr(str, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL)) {
++			if ((strcasestr(str, ACL_RULE_MACRO_DN_KEY) != NULL) ||
++			    (strcasestr(str, ACL_RULE_MACRO_DN_LEVELS_KEY) != NULL)) {
+ 			
+ 				/* Must have a targetmacro */
+ 				if ( !(aci_item->aci_type & ACI_TARGET_MACRO_DN)) {
+@@ -497,15 +497,41 @@ __aclp__sanity_check_acltxt (aci_t *aci_item, char *str)
+ 				return ACL_INCORRECT_ACI_VERSION;
+ 			}
+ 		} else if ((s = strstr(word, "($")) || (s = strstr(word, "[$"))) {
++			int attr_macro = -1;
++
++			/* See if this is a valid macro keyword. */
+ 			if ((0 != strncasecmp(s, ACL_RULE_MACRO_DN_KEY,
+ 			                      sizeof(ACL_RULE_MACRO_DN_KEY) - 1)) &&
+ 			    (0 != strncasecmp(s, ACL_RULE_MACRO_DN_LEVELS_KEY,
+ 			                      sizeof(ACL_RULE_MACRO_DN_LEVELS_KEY) - 1)) &&
+-			    (0 != strncasecmp(s, ACL_RULE_MACRO_ATTR_KEY,
+-			                      sizeof(ACL_RULE_MACRO_ATTR_KEY) - 1))) {
++			    (0 != (attr_macro = strncasecmp(s, ACL_RULE_MACRO_ATTR_KEY,
++			                      sizeof(ACL_RULE_MACRO_ATTR_KEY) - 1)))) {
+ 				slapi_ch_free ( (void **) &newstr );
+ 				return ACL_SYNTAX_ERR;
+ 			}
++
++			/* For the $attr macro, validate that the attribute name is
++			 * legal per RFC 4512. */
++			if (attr_macro == 0) {
++				int start = 1;
++				char *p = NULL;
++
++				for (p = s + sizeof(ACL_RULE_MACRO_ATTR_KEY) - 1;
++					p && *p && *p != ')'; p++) {
++					if (start) {
++						if (!isalpha(*p)) {
++							slapi_ch_free ( (void **) &newstr );
++							return ACL_SYNTAX_ERR;
++						}
++						start = 0;
++					} else {
++						if (!(isalnum(*p) || (*p == '-'))) {
++							slapi_ch_free ( (void **) &newstr );
++							return ACL_SYNTAX_ERR;
++						}
++					}
++				}
++			}
+ 		}
+ 	}
+ 	slapi_ch_free ( (void **) &newstr );
+diff --git a/ldap/servers/plugins/acl/aclutil.c b/ldap/servers/plugins/acl/aclutil.c
+index f33b11e..1b8bc12 100644
+--- a/ldap/servers/plugins/acl/aclutil.c
++++ b/ldap/servers/plugins/acl/aclutil.c
+@@ -1247,7 +1247,7 @@ acl_replace_str(char * s, char *substr, char* replace_with_str) {
+ 		char *working_s, *suffix, *prefix, *patched;
+ 		int replace_with_len, substr_len, prefix_len, suffix_len;
+ 
+-		if (strstr(s, substr) == NULL) {
++		if (strcasestr(s, substr) == NULL) {
+ 			return(slapi_ch_strdup(s));
+ 		} else {
+ 
+@@ -1257,7 +1257,7 @@ acl_replace_str(char * s, char *substr, char* replace_with_str) {
+ 		
+ 			working_s = slapi_ch_strdup(s);	
+ 			prefix = working_s;
+-			str = strstr(prefix, substr);
++			str = strcasestr(prefix, substr);
+ 			
+ 			while (str != NULL) {
+ 				
+@@ -1284,7 +1284,7 @@ acl_replace_str(char * s, char *substr, char* replace_with_str) {
+ 
+ 				working_s = patched;
+ 				prefix = working_s;
+-				str = strstr(prefix, substr);		
++				str = strcasestr(prefix, substr);		
+ 				
+ 			}
+ 
+-- 
+1.8.1.4
+

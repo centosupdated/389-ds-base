@@ -1,0 +1,28 @@
+From c2eced0f1f3db24daf4b86b280d78ddcc0170184 Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Tue, 8 Oct 2013 13:59:59 -0600
+Subject: [PATCH 39/39] ticket #47550 wip
+ (cherry picked from commit 82377636267787be5182457d619d5a0b662d2658)
+ (cherry picked from commit 181fde98aee96868189bc5557c5f33fefa026952)
+ (cherry picked from commit 13dd9625b01d820526d7187e524669ee83edfe62)
+
+---
+ ldap/admin/src/logconv.pl |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/ldap/admin/src/logconv.pl b/ldap/admin/src/logconv.pl
+index 8b423ca..e7d7507 100755
+--- a/ldap/admin/src/logconv.pl
++++ b/ldap/admin/src/logconv.pl
+@@ -1911,7 +1911,7 @@ sub parseLineNormal
+ 		elsif (m/- U1/){ $hashes->{rsrc}->{"U1"}++; }
+ 		else { $hashes->{rsrc}->{"other"}++; }
+ 	}
+-	if ($usage =~ /g/ || $usage =~ /c/ || $usage =~ /i/ || $verb eq "yes"){
++	if ($usage =~ /g/ || $usage =~ /c/ || $usage =~ /i/ || $usage =~ /f/ || $verb eq "yes"){
+ 		$exc = "no";
+ 		if ($_ =~ /connection from *([0-9A-fa-f\.\:]+)/i ) {
+ 			for (my $xxx = 0; $xxx < $#excludeIP; $xxx++){
+-- 
+1.7.1
+

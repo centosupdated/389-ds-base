@@ -1,0 +1,48 @@
+From b28da0d94c219c9ccfae51ee603d92220de23084 Mon Sep 17 00:00:00 2001
+From: "Thierry bordaz (tbordaz)" <tbordaz@redhat.com>
+Date: Wed, 11 Sep 2013 11:08:58 +0200
+Subject: [PATCH 7/7] Ticket 47489 - Under specific values of nsDS5ReplicaName,
+ replication may get broken or updates missing
+
+Bug Description:
+	If the 'nsDS5ReplicaName' (of a replica), contains the database suffix (e.g. 'db', 'db3' or 'db4).
+	Then replication plugin fails to open the changelog. It could conduct to changelog being recreated or some
+	last updates to be corrupted.
+	A consequence that I can reproduce, is that some updates may be removed from the changelog and missing
+	updates on consumers.
+	This could conduct to replication break, if for example an entry created is not replicated and then later updated.
+
+Fix Description:
+	The fix consist to use 'PL_strrstr' rather than 'strstr' to check the database suffix is valid
+
+https://fedorahosted.org/389/ticket/47489
+
+Reviewed by: Rich Megginson (thanks Rich !)
+
+Platforms tested: Fedora 17
+
+Flag Day: no
+
+Doc impact: no
+(cherry picked from commit 7a7609d88caf9c0971e694d7eeb78f30aea7fec9)
+(cherry picked from commit ac8aad8260d3e5ed403e2d4a9967447a97925ba7)
+---
+ ldap/servers/plugins/replication/cl5_api.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/replication/cl5_api.c b/ldap/servers/plugins/replication/cl5_api.c
+index 0a70d6b..7bedc2c 100644
+--- a/ldap/servers/plugins/replication/cl5_api.c
++++ b/ldap/servers/plugins/replication/cl5_api.c
+@@ -6161,7 +6161,7 @@ static int _cl5FileEndsWith(const char *filename, const char *ext)
+ 	{
+ 		return 0;
+ 	}
+-	p = strstr(filename, ext);
++	p = PL_strrstr(filename, ext);
+ 	if (NULL == p)
+ 	{
+ 		return 0;
+-- 
+1.8.1.4
+

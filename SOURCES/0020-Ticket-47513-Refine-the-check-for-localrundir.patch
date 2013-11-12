@@ -1,0 +1,57 @@
+From bb542f7825922e9494d90c9279601d43442ba761 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 30 Sep 2013 12:11:34 -0400
+Subject: [PATCH 20/28] Ticket 47513 - Refine the check for @localrundir@
+
+Bug Description:  if @localrundir@ is not set, then the wrong value is used for tmpfiles.d
+
+Fix Description:  Improve the checking/setting of the localrundir.  set_path_attribute() is not
+                  the correct subroutine to call as it can incorrectly add the prefix again
+                  if @localrundir@ is not set.  Created new function to just add the prefix -
+                  only if @localrundir@ is set.
+
+https://fedorahosted.org/389/ticket/47513
+
+Reviewed by: richm(Thanks!)
+(cherry picked from commit 9e38a3be20c87141221b52ce992a713cba9eae3b)
+(cherry picked from commit bb1fc9688887a4b2ba6020bab0f4b9ecbfb7c576)
+---
+ ldap/admin/src/scripts/DSCreate.pm.in |   15 +++++++++++++--
+ 1 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/admin/src/scripts/DSCreate.pm.in b/ldap/admin/src/scripts/DSCreate.pm.in
+index 3957277..fb834df 100644
+--- a/ldap/admin/src/scripts/DSCreate.pm.in
++++ b/ldap/admin/src/scripts/DSCreate.pm.in
+@@ -799,6 +799,17 @@ sub set_path_attribute {
+     }
+ }
+ 
++sub set_localrundir {
++    my $val = shift;
++    my $prefix = shift;
++
++    if ($val) {
++        return "$prefix" . "$val";
++    } else {
++        return "";
++    }
++}
++
+ sub setDefaults {
+     my $inf = shift;
+     # set default values
+@@ -1082,8 +1093,8 @@ sub updateTmpfilesDotD {
+         # Type Path          Mode UID  GID  Age
+         # d    /var/run/user 0755 root root 10d
+         # we don't use age
+-        my $localrundir = set_path_attribute("@localrundir@", $inf->{slapd}->{localstatedir}, $inf->{General}->{prefix});
+-        if( -d "$localrundir"){
++        my $localrundir = set_localrundir("@localrundir@", $inf->{General}->{prefix});
++        if( $localrundir != "" && -d "$localrundir"){
+             $rundir = "$localrundir/@PACKAGE_NAME@";
+             $lockdir = "$localrundir/lock/@PACKAGE_NAME@/slapd-$inf->{slapd}->{ServerIdentifier}";
+             $parentdir = "$localrundir/lock/@PACKAGE_NAME@";
+-- 
+1.7.1
+

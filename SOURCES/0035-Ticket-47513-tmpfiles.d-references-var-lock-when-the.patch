@@ -1,0 +1,35 @@
+From a11be5cc2bbf57f646d2ddb1554d0ce1416dbe33 Mon Sep 17 00:00:00 2001
+From: Nathan Kinder <nkinder@redhat.com>
+Date: Thu, 10 Oct 2013 16:50:51 -0700
+Subject: [PATCH 35/39] Ticket 47513 - tmpfiles.d references /var/lock when they should reference /run/lock
+
+The previous patch was using numeric comparison instead of string
+comparison to check if localrundir was empty.  This was causing our
+tmpfiles.d configuration to use the settings from the inf file,
+which evaluates to /var/run when using --with-fhs.
+
+This patch uses a proper string comparison which results in using
+/run in the tmpfiles.d config as desired.
+(cherry picked from commit 0394b2bb9cae3016eeb975ed194e8c7258ed868b)
+(cherry picked from commit 0bd980dcc8068c5922ad7ec750622685ed612e48)
+(cherry picked from commit 848f5c8eed60573fc52ee58595510af6e8d0eb2b)
+---
+ ldap/admin/src/scripts/DSCreate.pm.in |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/ldap/admin/src/scripts/DSCreate.pm.in b/ldap/admin/src/scripts/DSCreate.pm.in
+index fb834df..d37cd7b 100644
+--- a/ldap/admin/src/scripts/DSCreate.pm.in
++++ b/ldap/admin/src/scripts/DSCreate.pm.in
+@@ -1094,7 +1094,7 @@ sub updateTmpfilesDotD {
+         # d    /var/run/user 0755 root root 10d
+         # we don't use age
+         my $localrundir = set_localrundir("@localrundir@", $inf->{General}->{prefix});
+-        if( $localrundir != "" && -d "$localrundir"){
++        if( $localrundir ne "" && -d "$localrundir"){
+             $rundir = "$localrundir/@PACKAGE_NAME@";
+             $lockdir = "$localrundir/lock/@PACKAGE_NAME@/slapd-$inf->{slapd}->{ServerIdentifier}";
+             $parentdir = "$localrundir/lock/@PACKAGE_NAME@";
+-- 
+1.7.1
+

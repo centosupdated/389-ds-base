@@ -1,0 +1,43 @@
+From 6ed6227cb6cead962e36505c3094f5db302f1ffb Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 10 Sep 2013 15:39:22 -0400
+Subject: [PATCH 5/7] Ticket 47507 - automember rebuild task not working as
+ expected
+
+Bug Description:  If the basedn specified in the task is not beneath the automember scope,
+                  the entry is skipped.
+
+                  Example:
+                           automember scope:  ou=people,dc=example,dc=com
+                           task basedn:       dc=example,dc=com  --> using this dn will cause
+                                                                     all the candidate entries
+                                                                     to be skipped.
+
+Fix Description:  Regardless what the task basedn is, the candidate entry dn needs to be
+                  checked against the scope of the autommeber config.
+
+https://fedorahosted.org/389/ticket/47507
+
+Revewied by: nhosoi(Thanks!!)
+(cherry picked from commit d2637ddddc73f66f8ad874a511b4880884d36950)
+(cherry picked from commit 6bdc635caffe8bc031cbc1d7dba1a43f292249a8)
+---
+ ldap/servers/plugins/automember/automember.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/automember/automember.c b/ldap/servers/plugins/automember/automember.c
+index 2ba3314..02dcc0d 100644
+--- a/ldap/servers/plugins/automember/automember.c
++++ b/ldap/servers/plugins/automember/automember.c
+@@ -2192,7 +2192,7 @@ void automember_rebuild_task_thread(void *arg){
+             while (list != g_automember_config) {
+                 config = (struct configEntry *)list;
+                 /* Does the entry meet scope and filter requirements? */
+-                if (slapi_dn_issuffix(slapi_sdn_get_dn(td->base_dn), config->scope) &&
++                if (slapi_dn_issuffix(slapi_entry_get_dn(entries[i]), config->scope) &&
+                     (slapi_filter_test_simple(entries[i], config->filter) == 0))
+                 {
+                     automember_update_membership(config, entries[i], NULL);
+-- 
+1.8.1.4
+

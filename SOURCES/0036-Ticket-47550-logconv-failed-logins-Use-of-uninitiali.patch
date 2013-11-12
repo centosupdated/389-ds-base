@@ -1,0 +1,35 @@
+From e2a880b2ff070573151b6ffaf78137710259b26c Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Thu, 10 Oct 2013 15:55:29 -0600
+Subject: [PATCH 36/39] Ticket #47550 logconv: failed logins: Use of uninitialized value in numeric comparison at logconv.pl line 949
+
+https://fedorahosted.org/389/ticket/47550
+Reviewed by: nhosoi (Thanks!)
+Branch: 389-ds-base-1.3.1
+Fix Description: Copy/paste error.  Changed badPassword to badPasswordIp.
+Platforms tested: RHEL6 x86_64
+Flag Day: no
+Doc impact: no
+(cherry picked from commit 322fd7996aa810db1b51882d8d1103e11a36cc62)
+(cherry picked from commit 86000e43d69267d0b6b8110dcdba43352868c173)
+(cherry picked from commit 5844c565267cf23f8a1c4ca5177d26cd82809392)
+---
+ ldap/admin/src/logconv.pl |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/ldap/admin/src/logconv.pl b/ldap/admin/src/logconv.pl
+index 7381a66..8b423ca 100755
+--- a/ldap/admin/src/logconv.pl
++++ b/ldap/admin/src/logconv.pl
+@@ -946,7 +946,7 @@ if ($verb eq "yes" || $usage =~ /f/ ){
+ 			}
+ 			print "\nFrom the IP address(s) :\n\n";
+ 			$bpCount = 0;
+-			foreach my $ip (sort {$badPassword{$b} <=> $badPassword{$a} } keys %badPasswordIp){
++			foreach my $ip (sort {$badPasswordIp{$b} <=> $badPasswordIp{$a} } keys %badPasswordIp){
+ 				if ($bpCount > $sizeCount){ last;}
+ 				$bpCount++;
+ 				printf "%-4s        %-16s\n", $badPasswordIp{$ip}, $ip;
+-- 
+1.7.1
+

@@ -1,0 +1,165 @@
+From 93b7d05d9547d498e9cb38da350153d4db340ca6 Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Wed, 18 Sep 2013 12:32:23 -0600
+Subject: [PATCH 08/28] Ticket #47516 replication stops with excessive clock skew
+
+https://fedorahosted.org/389/ticket/47516
+Reviewed by: nhosoi (Thanks!)
+Branch: master
+Fix Description: Add a new configuration parameter to cn=config
+nsslapd-ignore-time-skew: on|off - default off
+If nsslapd-ignore-time-skew: on, the replication consumer will log errors
+about excessive time skew, but will allow replication to proceed, and will
+not return a time skew error to the replication supplier.
+Platforms tested: RHEL6 x86_64
+Flag Day: no
+Doc impact: yes - document new config param
+(cherry picked from commit 1f2c15119f12b2da83da2305a432bc310ee0d84b)
+---
+ ldap/servers/plugins/replication/repl_extop.c |   11 +++++++-
+ ldap/servers/slapd/libglobs.c                 |   33 ++++++++++++++++++++++++-
+ ldap/servers/slapd/proto-slap.h               |    2 +
+ ldap/servers/slapd/slap.h                     |    2 +
+ 4 files changed, 45 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl_extop.c b/ldap/servers/plugins/replication/repl_extop.c
+index 47348b7..f41cc7d 100644
+--- a/ldap/servers/plugins/replication/repl_extop.c
++++ b/ldap/servers/plugins/replication/repl_extop.c
+@@ -835,12 +835,19 @@ multimaster_extop_StartNSDS50ReplicationRequest(Slapi_PBlock *pb)
+ 				rc = replica_update_csngen_state_ext (replica, supplier_ruv, replicacsn); /* too much skew */
+ 				if (rc == CSN_LIMIT_EXCEEDED)
+ 				{
+-					response = NSDS50_REPL_EXCESSIVE_CLOCK_SKEW;
++					extern int config_get_ignore_time_skew();
++
+ 					slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name,
+ 									"conn=%" NSPRIu64 " op=%d repl=\"%s\": "
+ 									"Excessive clock skew from supplier RUV\n",
+ 									(long long unsigned int)connid, opid, repl_root);
+-					goto send_response;
++					if (!config_get_ignore_time_skew()) {
++						response = NSDS50_REPL_EXCESSIVE_CLOCK_SKEW;
++						goto send_response;
++					} else {
++						/* else just continue */
++						rc = 0;
++					}
+ 				}
+ 				else if (rc != 0)
+ 				{
+diff --git a/ldap/servers/slapd/libglobs.c b/ldap/servers/slapd/libglobs.c
+index 1a889fd..f8c5b01 100644
+--- a/ldap/servers/slapd/libglobs.c
++++ b/ldap/servers/slapd/libglobs.c
+@@ -257,6 +257,7 @@ slapi_onoff_t init_sasl_mapping_fallback;
+ slapi_onoff_t init_return_orig_type;
+ slapi_onoff_t init_enable_turbo_mode;
+ slapi_int_t init_listen_backlog_size;
++slapi_onoff_t init_ignore_time_skew;
+ #ifdef MEMPOOL_EXPERIMENTAL
+ slapi_onoff_t init_mempool_switch;
+ #endif
+@@ -1047,7 +1048,11 @@ static struct config_get_and_set {
+ 	{CONFIG_LISTEN_BACKLOG_SIZE, config_set_listen_backlog_size,
+ 		NULL, 0,
+ 		(void**)&global_slapdFrontendConfig.listen_backlog_size, CONFIG_INT,
+-		(ConfigGetFunc)config_get_listen_backlog_size, &init_listen_backlog_size}
++		(ConfigGetFunc)config_get_listen_backlog_size, &init_listen_backlog_size},
++	{CONFIG_IGNORE_TIME_SKEW, config_set_ignore_time_skew,
++		NULL, 0,
++		(void**)&global_slapdFrontendConfig.ignore_time_skew,
++		CONFIG_ON_OFF, (ConfigGetFunc)config_get_ignore_time_skew, &init_ignore_time_skew}
+ #ifdef MEMPOOL_EXPERIMENTAL
+ 	,{CONFIG_MEMPOOL_SWITCH_ATTRIBUTE, config_set_mempool_switch,
+ 		NULL, 0,
+@@ -1488,6 +1493,7 @@ FrontendConfig_init () {
+   init_enable_turbo_mode = cfg->enable_turbo_mode = LDAP_ON;
+ 
+   init_listen_backlog_size = cfg->listen_backlog_size = DAEMON_LISTEN_SIZE;
++  init_ignore_time_skew = cfg->ignore_time_skew = LDAP_OFF;
+ #ifdef MEMPOOL_EXPERIMENTAL
+   init_mempool_switch = cfg->mempool_switch = LDAP_ON;
+   cfg->mempool_maxfreelist = 1024;
+@@ -6910,6 +6916,18 @@ config_get_unhashed_pw_switch()
+ }
+ 
+ int
++config_get_ignore_time_skew(void)
++{
++    int retVal;
++    slapdFrontendConfig_t *slapdFrontendConfig = getFrontendConfig();
++    CFG_LOCK_READ(slapdFrontendConfig);
++    retVal = slapdFrontendConfig->ignore_time_skew;
++    CFG_UNLOCK_READ(slapdFrontendConfig);
++
++    return retVal;
++}
++
++int
+ config_set_enable_turbo_mode( const char *attrname, char *value,
+                             char *errorbuf, int apply )
+ {
+@@ -6923,6 +6941,19 @@ config_set_enable_turbo_mode( const char *attrname, char *value,
+ }
+ 
+ int
++config_set_ignore_time_skew( const char *attrname, char *value,
++                            char *errorbuf, int apply )
++{
++    int retVal = LDAP_SUCCESS;
++    slapdFrontendConfig_t *slapdFrontendConfig = getFrontendConfig();
++
++    retVal = config_set_onoff(attrname, value,
++                              &(slapdFrontendConfig->ignore_time_skew),
++                              errorbuf, apply);
++    return retVal;
++}
++
++int
+ config_set_listen_backlog_size( const char *attrname, char *value,
+ 		char *errorbuf, int apply )
+ {
+diff --git a/ldap/servers/slapd/proto-slap.h b/ldap/servers/slapd/proto-slap.h
+index 60fa4e4..37f5f85 100644
+--- a/ldap/servers/slapd/proto-slap.h
++++ b/ldap/servers/slapd/proto-slap.h
+@@ -396,6 +396,7 @@ int config_set_unhashed_pw_switch(const char *attrname, char *value, char *error
+ int config_set_return_orig_type_switch(const char *attrname, char *value, char *errorbuf, int apply);
+ int config_set_sasl_maxbufsize(const char *attrname, char *value, char *errorbuf, int apply );
+ int config_set_listen_backlog_size(const char *attrname, char *value, char *errorbuf, int apply);
++int config_set_ignore_time_skew(const char *attrname, char *value, char *errorbuf, int apply);
+ 
+ #if !defined(_WIN32) && !defined(AIX)
+ int config_set_maxdescriptors( const char *attrname, char *value, char *errorbuf, int apply );
+@@ -569,6 +570,7 @@ int config_get_listen_backlog_size(void);
+ 
+ PLHashNumber hashNocaseString(const void *key);
+ PRIntn hashNocaseCompare(const void *v1, const void *v2);
++int config_get_ignore_time_skew();
+ 
+ int is_abspath(const char *);
+ char* rel2abspath( char * );
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index b1246c5..eaa824d 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -2094,6 +2094,7 @@ typedef struct _slapdEntryPoints {
+ #ifndef DAEMON_LISTEN_SIZE
+ #define DAEMON_LISTEN_SIZE 128
+ #endif
++#define CONFIG_IGNORE_TIME_SKEW "nsslapd-ignore-time-skew"
+ 
+ #ifdef MEMPOOL_EXPERIMENTAL
+ #define CONFIG_MEMPOOL_SWITCH_ATTRIBUTE "nsslapd-mempool"
+@@ -2335,6 +2336,7 @@ typedef struct _slapdFrontendConfig {
+   slapi_onoff_t ignore_vattrs;
+   slapi_onoff_t unhashed_pw_switch;	/* switch to on/off/nolog unhashed pw */
+   slapi_onoff_t enable_turbo_mode;
++  slapi_onoff_t ignore_time_skew;
+ } slapdFrontendConfig_t;
+ 
+ /* possible values for slapdFrontendConfig_t.schemareplace */
+-- 
+1.7.1
+
