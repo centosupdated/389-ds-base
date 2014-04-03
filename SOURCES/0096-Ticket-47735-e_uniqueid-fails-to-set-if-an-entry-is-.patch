@@ -1,0 +1,78 @@
+From a0489deaa9b3f72dca120f3b1622039f92a3e437 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Thu, 13 Mar 2014 13:06:43 -0700
+Subject: [PATCH] Ticket #47735 - e_uniqueid fails to set if an entry is a
+ conflict entry
+
+Description: In commit e2b8468f459647261812f542485f3481d39bd26c,
+to get the base type length when a state info is stripped from
+the attribute type, the fix in str2entry_state_information_from_type
+blindly returned the base type length for the ordinary sub-typed
+attributes.  This patch fixes it so that only when the state info
+is removed, the length is reset.
+
+https://fedorahosted.org/389/ticket/47735
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!!)
+(cherry picked from commit a7ac181d60b1f2ecd3640d0b610eba300b7c3cdb)
+(cherry picked from commit 4ffa8247ab9dcc45137f07511d62ea33c24f76df)
+(cherry picked from commit 093a146853e6bb44b08c36a1da22735633adbd4a)
+(cherry picked from commit 2bb0f1b2b9b1c69118d8c8db1c5426eb7d7690ea)
+---
+ ldap/servers/slapd/entry.c | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/entry.c b/ldap/servers/slapd/entry.c
+index 0d018a9..5306da2 100644
+--- a/ldap/servers/slapd/entry.c
++++ b/ldap/servers/slapd/entry.c
+@@ -104,13 +104,11 @@ str2entry_state_information_from_type(struct berval *atype,
+                                       int *attr_state)
+ {
+ 	char *p = NULL;
++	char *semicolonp = NULL;
+ 	if ((NULL == atype) || (NULL == atype->bv_val)) {
+ 		return;
+ 	}
+ 	p = PL_strchr(atype->bv_val, ';');
+-	if (p) {
+-		atype->bv_len = p - atype->bv_val;
+-	}
+ 	*value_state= VALUE_PRESENT;
+ 	*attr_state= ATTRIBUTE_PRESENT;
+ 	while(p!=NULL)
+@@ -169,19 +167,31 @@ str2entry_state_information_from_type(struct berval *atype,
+ 					csn_init_by_csn ( *maxcsn, *attributedeletioncsn );
+ 				}
+ 			}
++			if (NULL == semicolonp) {
++				semicolonp = p; /* the first semicolon */
++			}
+ 		}
+ 		else if(strncmp(p+1,"deletedattribute", 16)==0)
+ 		{
+ 			p[0]='\0';
+ 			*attr_state= ATTRIBUTE_DELETED;
++			if (NULL == semicolonp) {
++				semicolonp = p; /* the first semicolon */
++			}
+ 		}
+ 		else if(strncmp(p+1,"deleted", 7)==0)
+ 		{
+ 			p[0]='\0';
+ 			*value_state= VALUE_DELETED;
++			if (NULL == semicolonp) {
++				semicolonp = p; /* the first semicolon */
++			}
+ 		}
+ 		p= strchr(p+1, ';');
+ 	}
++	if (semicolonp) {
++		atype->bv_len = semicolonp - atype->bv_val;
++	}
+ }
+ 
+ /* rawdn is not consumed.  Caller needs to free it. */
+-- 
+1.8.1.4
+

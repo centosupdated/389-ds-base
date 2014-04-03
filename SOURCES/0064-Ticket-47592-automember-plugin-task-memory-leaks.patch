@@ -1,0 +1,54 @@
+From 2429e72646b1bb30f8566b59dd370eb2ff1ac131 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 27 Nov 2013 10:58:43 -0500
+Subject: [PATCH 64/65] Ticket 47592 - automember plugin task memory leaks
+
+The search pblock was not destroyed at the end of the export and rebuild
+tasks.
+
+https://fedorahosted.org/389/ticket/47592
+
+Reviewed by: richm(Thanks!)
+(cherry picked from commit 085c6d494f90231f2e572a668ab601c321bffb01)
+(cherry picked from commit c9c7d545a987f8f52c9752ba1181d1885b74480c)
+---
+ ldap/servers/plugins/automember/automember.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/plugins/automember/automember.c b/ldap/servers/plugins/automember/automember.c
+index 3214ea1..cfea69d 100644
+--- a/ldap/servers/plugins/automember/automember.c
++++ b/ldap/servers/plugins/automember/automember.c
+@@ -2256,7 +2256,6 @@ void automember_rebuild_task_thread(void *arg){
+         }
+     }
+     automember_config_unlock();
+-    slapi_free_search_results_internal(search_pb);
+ 
+ out:
+     if (plugin_is_betxn && fixup_pb) {
+@@ -2267,6 +2266,8 @@ out:
+         }
+         slapi_pblock_destroy(fixup_pb);
+     }
++    slapi_free_search_results_internal(search_pb);
++    slapi_pblock_destroy(search_pb);
+ 
+     if(result){
+         /* error */
+@@ -2470,9 +2471,11 @@ void automember_export_task_thread(void *arg){
+         }
+     }
+     automember_config_unlock();
+-    slapi_free_search_results_internal(search_pb);
+ 
+ out:
++    slapi_free_search_results_internal(search_pb);
++    slapi_pblock_destroy(search_pb);
++
+     if(ldif_fd){
+         PR_Close(ldif_fd);
+     }
+-- 
+1.8.1.4
+

@@ -1,0 +1,35 @@
+From 6cf6bea5372a57ffeee304c601e665f13861353c Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 25 Feb 2014 16:54:22 -0800
+Subject: [PATCH] Ticket 408 - create a normalized dn cache
+
+covscan Defect type: FORWARD_NULL
+15. 389-ds-base-1.3.1.6/ldap/servers/slapd/dn.c:3036:var_deref_op -
+    Dereferencing null pointer "node".
+Introduced by commit 1d6dd39fb8b0ef8eb42ec9ef8c3d325e27a3d3c1
+Fix: Check if "node" is null or not before referencing.
+Note: Found second FORWARD_NULL in addition to
+      commit 5ac08038a05877b4240755801debd5e5a3a94c6f,
+(cherry picked from commit ea13cda8f49646be8a9a5e468b2819bd2d91ca87)
+(cherry picked from commit dfa36fd4a7ab243a5692e7792d19e67e63b1e397)
+(cherry picked from commit 347ffb722f7d376e0ad2c565ada533f0dad3cfb8)
+---
+ ldap/servers/slapd/dn.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/dn.c b/ldap/servers/slapd/dn.c
+index 4a11a18..003e9b7 100644
+--- a/ldap/servers/slapd/dn.c
++++ b/ldap/servers/slapd/dn.c
+@@ -3030,7 +3030,7 @@ ndn_cache_free()
+     }
+ 
+     node = ndn_cache->tail;
+-    while(ndn_cache->cache_count){
++    while(node && ndn_cache->cache_count){
+         flush_node = node;
+         /* update the lru */
+         next = node->prev;
+-- 
+1.8.1.4
+

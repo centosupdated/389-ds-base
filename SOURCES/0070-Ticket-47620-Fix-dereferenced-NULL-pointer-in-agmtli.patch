@@ -1,0 +1,36 @@
+From 3d941308ae833a59cad81951793b6374a8c15a56 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 17 Dec 2013 13:11:03 -0500
+Subject: [PATCH 70/78] Ticket 47620 - Fix dereferenced NULL pointer in
+ agmtlist_modify_callback()
+
+The server would dereference a NULL point if an attribute was deleted from a replication
+agreement.
+
+https://fedorahosted.org/389/ticket/47620
+
+Reviewed by: rmeggins(Thanks!)
+(cherry picked from commit 8baed897f504e75478b5dbbe736c1eaf6d2d7fa9)
+(cherry picked from commit 60d263f7bc52e4b5186a01c38868763a275abadc)
+---
+ ldap/servers/plugins/replication/repl5_agmtlist.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_agmtlist.c b/ldap/servers/plugins/replication/repl5_agmtlist.c
+index 5219c92..6e8b82c 100644
+--- a/ldap/servers/plugins/replication/repl5_agmtlist.c
++++ b/ldap/servers/plugins/replication/repl5_agmtlist.c
+@@ -245,7 +245,9 @@ agmtlist_modify_callback(Slapi_PBlock *pb, Slapi_Entry *entryBefore, Slapi_Entry
+ 	for (i = 0; NULL != mods && NULL != mods[i]; i++)
+ 	{
+ 		slapi_ch_free_string(&val);
+-		val = slapi_berval_get_string_copy (mods[i]->mod_bvalues[0]);
++		if (mods[i]->mod_bvalues && mods[i]->mod_bvalues[0])
++			val = slapi_berval_get_string_copy (mods[i]->mod_bvalues[0]);
++		}
+ 		if (slapi_attr_types_equivalent(mods[i]->mod_type, type_nsds5ReplicaInitialize))
+ 		{
+             /* we don't allow delete attribute operations unless it was issued by
+-- 
+1.8.1.4
+

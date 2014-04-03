@@ -1,0 +1,42 @@
+From b910f02f74410f44d0285d77b15e5d399df3c1a8 Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Mon, 9 Dec 2013 17:00:32 -0700
+Subject: [PATCH 74/78] Ticket #47623 fix memleak caused by 47347
+
+https://fedorahosted.org/389/ticket/47623
+Reviewed by: nhosoi (Thanks!)
+Branch: 389-ds-base-1.3.1
+Fix Description: Only need to create the mutex when creating a new PR object.
+Platforms tested: RHEL6 x86_64
+Flag Day: no
+Doc impact: no
+(cherry picked from commit 98ccb602058270e97a3702ae2b81c17635af8d27)
+(cherry picked from commit 65c51555c0ecc94c5d93f09124168697ba1db6b3)
+(cherry picked from commit 8a2c666df491b7c8666f8a70a5038b35c43fbc3b)
+---
+ ldap/servers/slapd/pagedresults.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/pagedresults.c b/ldap/servers/slapd/pagedresults.c
+index 78bd6b0..a835d6b 100644
+--- a/ldap/servers/slapd/pagedresults.c
++++ b/ldap/servers/slapd/pagedresults.c
+@@ -122,6 +122,7 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+                            sizeof(PagedResults) * maxlen);
+             }
+             *index = maxlen; /* the first position in the new area */
++            conn->c_pagedresults.prl_list[*index].pr_mutex = PR_NewLock();
+         } else {
+             for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++) {
+                 if (!conn->c_pagedresults.prl_list[i].pr_current_be) {
+@@ -131,7 +132,6 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+             }
+         }
+         conn->c_pagedresults.prl_count++;
+-        conn->c_pagedresults.prl_list[*index].pr_mutex = PR_NewLock();
+     } else {
+         /* Repeated paged results request.
+          * PagedResults is already allocated. */
+-- 
+1.8.1.4
+

@@ -1,0 +1,39 @@
+From 13dee95761221c2849523acf3276242416a7a01a Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Tue, 26 Nov 2013 08:14:07 -0700
+Subject: [PATCH 61/65] Ticket #47596 attrcrypt fails to find unlocked key
+
+https://fedorahosted.org/389/ticket/47596
+Reviewed by: nkinder (Thanks!)
+Branch: 389-ds-base-1.3.1
+Fix Description: Additional fix to the previous fix.  As it turns out, the
+function PK11_IsLoggedIn() only returns true if the slot has been unlocked
+with a pin or password.  If the slot does not need a login at all, because
+the cert/key db has no password, PK11_IsLoggedIn will return false.  The code
+must check for PK11_NeedLogin too.
+Platforms tested: RHEL6 x86_64
+Flag Day: no
+Doc impact: no
+(cherry picked from commit e66c4cecc47eff659a72a51c1e1722fb41c1dfbc)
+(cherry picked from commit f608a943745e51fe4b5dbfb18bada2e2d13e0d6a)
+(cherry picked from commit 5d2a20b4881d5374a9088ed1504b2d7e753976bb)
+---
+ ldap/servers/slapd/ssl.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/ssl.c b/ldap/servers/slapd/ssl.c
+index 8b80acb..61809aa 100644
+--- a/ldap/servers/slapd/ssl.c
++++ b/ldap/servers/slapd/ssl.c
+@@ -1602,7 +1602,7 @@ slapd_get_unlocked_key_for_cert(CERTCertificate *cert, void *pin_arg)
+ 			slapi_log_error(SLAPI_LOG_TRACE, "slapd_get_unlocked_key_for_cert",
+ 					"Missing slot for slot list element for certificate [%s]\n",
+ 					certsubject);
+-		} else if (PK11_IsLoggedIn(slot, pin_arg)) {
++		} else if (!PK11_NeedLogin(slot) || PK11_IsLoggedIn(slot, pin_arg)) {
+ 			key = PK11_FindKeyByDERCert(slot, cert, pin_arg);
+ 			slapi_log_error(SLAPI_LOG_TRACE, "slapd_get_unlocked_key_for_cert",
+ 					"Found unlocked slot [%s] token [%s] for certificate [%s]\n",
+-- 
+1.8.1.4
+

@@ -1,0 +1,56 @@
+From 1eece8d6d6dc88eb214927992840e5edf270786b Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 16 Dec 2013 09:48:12 -0500
+Subject: [PATCH 69/78] Ticket 47620 - Fix logically dead code.
+
+Coverity issues:  12419 & 12420
+
+https://fedorahosted.org/389/ticket/47620
+
+Reviewed by: rmeggins(Thanks!)
+(cherry picked from commit 080cb44f5eaa794375a8e69b6e1ac09fcae9a961)
+(cherry picked from commit c094a9f1a758dabd1164bf979a4ac22bb3720d63)
+---
+ ldap/servers/plugins/replication/repl5_agmtlist.c       | 12 +-----------
+ ldap/servers/plugins/replication/repl5_replica_config.c |  2 +-
+ 2 files changed, 2 insertions(+), 12 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_agmtlist.c b/ldap/servers/plugins/replication/repl5_agmtlist.c
+index bd14202..5219c92 100644
+--- a/ldap/servers/plugins/replication/repl5_agmtlist.c
++++ b/ldap/servers/plugins/replication/repl5_agmtlist.c
+@@ -277,17 +277,7 @@ agmtlist_modify_callback(Slapi_PBlock *pb, Slapi_Entry *entryBefore, Slapi_Entry
+                     break;   
+                 }
+ 
+-			    /* Start replica initialization */
+-                if (val == NULL)
+-                {
+-                    PR_snprintf (errortext, SLAPI_DSE_RETURNTEXT_SIZE, "No value supplied for attr (%s)", mods[i]->mod_type);
+-                    slapi_log_error(SLAPI_LOG_REPL, repl_plugin_name, "agmtlist_modify_callback: %s\n",
+-                                    errortext);	  
+-                    *returncode = LDAP_UNWILLING_TO_PERFORM;
+-                    rc = SLAPI_DSE_CALLBACK_ERROR;
+-                    break;
+-                }
+-            
++                /* Start replica initialization */
+                 if (strcasecmp (val, "start") == 0)
+                 {                        
+                     start_initialize = 1;
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index 74e1fb7..853bcde 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -495,7 +495,7 @@ replica_config_modify (Slapi_PBlock *pb, Slapi_Entry* entryBefore, Slapi_Entry*
+                     *returncode = LDAP_SUCCESS;
+                 }
+                 else if (strcasecmp (config_attr, type_replicaProtocolTimeout) == 0 ){
+-                    if (apply_mods && config_attr_value && config_attr_value[0])
++                    if (apply_mods)
+                     {
+                         long ptimeout = 0;
+ 
+-- 
+1.8.1.4
+

@@ -1,0 +1,45 @@
+From e585f17556d12f96683665aed7699a78a89c9ab4 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Tue, 18 Feb 2014 11:40:16 +0100
+Subject: [PATCH] Ticket 47704 - invalid sizelimits in aci group evaluation
+
+Bug Description:  aci group evaluation fails because of sizelimit exceeded
+			but it is exceeded because it is -1476887876 or another
+			negative integer becasue operation parameter are a union
+			based on operation types and so for otehr than search
+			the value is dependent on the operation params
+
+Fix Description:   treat any negative integer like -1 (unlimited). A better fix
+			would be to introduce a specific configuration param or
+			to abondon the limit in group evaluation at all. But this
+			could introduce backward compatibility problems and
+			will be handled in ticket 47703 for newer versions
+
+https://fedorahosted.org/389/ticket/47704
+
+Reviewed by: Rich, thanks
+(cherry picked from commit 377266ebb2ff488aa3cc4b96990c002db7e6103e)
+---
+ ldap/servers/plugins/acl/acl_ext.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/ldap/servers/plugins/acl/acl_ext.c b/ldap/servers/plugins/acl/acl_ext.c
+index ee2dd0f..b9cec43 100644
+--- a/ldap/servers/plugins/acl/acl_ext.c
++++ b/ldap/servers/plugins/acl/acl_ext.c
+@@ -836,6 +836,12 @@ acl_init_aclpb ( Slapi_PBlock *pb , Acl_PBlock *aclpb, const char *ndn, int copy
+ 	slapi_pblock_get( pb, SLAPI_SEARCH_SIZELIMIT, &aclpb->aclpb_max_member_sizelimit );
+ 	if ( aclpb->aclpb_max_member_sizelimit == 0 ) {
+ 		aclpb->aclpb_max_member_sizelimit = SLAPD_DEFAULT_LOOKTHROUGHLIMIT;
++	} else if ( aclpb->aclpb_max_member_sizelimit < -1 ) {
++		/* handle the case of a negtive size limit either set or due
++		 * to bug bz1065971. The member size limit should be dropped,
++		 * but for backward compatibility to the best we can
++		 */
++		aclpb->aclpb_max_member_sizelimit = -1;
+ 	}
+ 	slapi_pblock_get( pb, SLAPI_OPERATION_TYPE, &aclpb->aclpb_optype );
+ 
+-- 
+1.8.1.4
+

@@ -1,0 +1,563 @@
+From 39af2e9e98c895c5145090865d5ab7cde6cc12fd Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 6 Dec 2013 16:57:41 -0500
+Subject: [PATCH 65/65] Ticket 47620 - 389-ds rejects
+ nsds5ReplicaProtocolTimeout attribute
+
+Bug Description:  Attempting to add/modify/delete nsds5ReplicaProtocolTimeout
+                  results in an error 53 (unwilling to perform).
+
+Fix Description:  Allow nsds5ReplicaProtocolTimeout to be updated in agreements
+                  and the replica configuration.  Also, made the config timeout
+                  setting dynamic.
+
+https://fedorahosted.org/389/ticket/47620
+
+Reviewed by: rmeggins(Thanks!)
+(cherry picked from commit 58fca2c4e4f2120cb6e5fb249008be8f551e944c)
+(cherry picked from commit 490360fd96121d06fa8813e182b44d045257be98)
+---
+ ldap/servers/plugins/replication/repl5.h           | 12 +++--
+ ldap/servers/plugins/replication/repl5_agmt.c      | 54 ++++++++++++++++------
+ ldap/servers/plugins/replication/repl5_agmtlist.c  | 27 +++++++++--
+ .../plugins/replication/repl5_inc_protocol.c       | 23 +++++++--
+ .../plugins/replication/repl5_prot_private.h       |  1 -
+ ldap/servers/plugins/replication/repl5_protocol.c  | 13 ++----
+ ldap/servers/plugins/replication/repl5_replica.c   | 54 ++++++++++++++--------
+ .../plugins/replication/repl5_replica_config.c     | 25 +++++++++-
+ .../plugins/replication/repl5_tot_protocol.c       | 17 +++++--
+ 9 files changed, 169 insertions(+), 57 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5.h b/ldap/servers/plugins/replication/repl5.h
+index 92a9229..321a285 100644
+--- a/ldap/servers/plugins/replication/repl5.h
++++ b/ldap/servers/plugins/replication/repl5.h
+@@ -386,9 +386,15 @@ char **agmt_get_attrs_to_strip(Repl_Agmt *ra);
+ int agmt_set_attrs_to_strip(Repl_Agmt *ra, Slapi_Entry *e);
+ int agmt_set_timeout(Repl_Agmt *ra, long timeout);
+ void agmt_update_done(Repl_Agmt *ra, int is_total);
+-int agmt_get_protocol_timeout(Repl_Agmt *agmt);
+ 
+ typedef struct replica Replica;
++PRUint64 agmt_get_protocol_timeout(Repl_Agmt *agmt);
++void agmt_set_protocol_timeout(Repl_Agmt *agmt, PRUint64 timeout);
++void agmt_update_maxcsn(Replica *r, Slapi_DN *sdn, int op, LDAPMod **mods, CSN *csn);
++void add_agmt_maxcsns(Slapi_Entry *e, Replica *r);
++void agmt_set_maxcsn(Repl_Agmt *ra);
++void agmt_remove_maxcsn(Repl_Agmt *ra);
++int agmt_maxcsn_to_smod (Replica *r, Slapi_Mod *smod);
+ 
+ /* In repl5_agmtlist.c */
+ int agmtlist_config_init();
+@@ -494,7 +500,6 @@ void prot_notify_window_opened (Repl_Protocol *rp);
+ void prot_notify_window_closed (Repl_Protocol *rp);
+ Object *prot_get_replica_object(Repl_Protocol *rp);
+ void prot_replicate_now(Repl_Protocol *rp);
+-int prot_get_timeout(Repl_Protocol *rp);
+ 
+ Repl_Protocol *agmt_get_protocol(Repl_Agmt *ra);
+ 
+@@ -591,7 +596,8 @@ char *replica_get_dn(Replica *r);
+ void replica_check_for_tasks(Replica*r, Slapi_Entry *e);
+ void replica_update_state (time_t when, void *arg);
+ void replica_reset_csn_pl(Replica *r);
+-int replica_get_protocol_timeout(Replica *r);
++PRUint64 replica_get_protocol_timeout(Replica *r);
++void replica_set_protocol_timeout(Replica *r, PRUint64 timeout);
+ int replica_get_backoff_min(Replica *r);
+ int replica_get_backoff_max(Replica *r);
+ void replica_set_backoff_min(Replica *r, int min);
+diff --git a/ldap/servers/plugins/replication/repl5_agmt.c b/ldap/servers/plugins/replication/repl5_agmt.c
+index 90d94f8..b0da172 100644
+--- a/ldap/servers/plugins/replication/repl5_agmt.c
++++ b/ldap/servers/plugins/replication/repl5_agmt.c
+@@ -142,7 +142,9 @@ typedef struct repl5agmt {
+ 	char **attrs_to_strip; /* for fractional replication, if a "mod" is empty, strip out these attributes:
+ 	                        * modifiersname, modifytimestamp, internalModifiersname, internalModifyTimestamp, etc */
+ 	int agreement_type;
+-	PRUint64 protocol_timeout;
++	Slapi_Counter *protocol_timeout;
++	char *maxcsn; /* agmt max csn */
++	Slapi_RWLock *attr_lock; /* RW lock for all the stripped attrs */
+ } repl5agmt;
+ 
+ /* Forward declarations */
+@@ -265,6 +267,14 @@ agmt_new_from_entry(Slapi_Entry *e)
+ 			slapi_entry_get_dn_const(e));
+ 		goto loser;
+ 	}
++	if ((ra->attr_lock = slapi_new_rwlock()) == NULL)
++	{
++		slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name, "Unable to create new attr lock "
++			"for replication agreement \"%s\" - agreement ignored.\n",
++			slapi_entry_get_dn_const(e));
++		goto loser;
++	}
++	ra->protocol_timeout = slapi_counter_new();
+ 
+ 	/* Find all the stuff we need for the agreement */
+ 
+@@ -338,19 +348,14 @@ agmt_new_from_entry(Slapi_Entry *e)
+ 	tmpstr = slapi_entry_attr_get_charptr(e, type_nsds5ReplicaRoot);
+ 	if (NULL != tmpstr)
+ 	{
++		PRUint64 ptimeout = 0;
++
+ 		ra->replarea = slapi_sdn_new_dn_passin(tmpstr);
+ 
+ 		/* If this agmt has its own timeout, grab it, otherwise use the replica's protocol timeout */
+-		ra->protocol_timeout = slapi_entry_attr_get_int(e, type_replicaProtocolTimeout);
+-		if(ra->protocol_timeout == 0){
+-			/* grab the replica protocol timeout */
+-			Object *replobj = replica_get_replica_from_dn(ra->replarea);
+-			if(replobj){
+-				Replica *replica =(Replica*)object_get_data (replobj);
+-				ra->protocol_timeout = replica_get_protocol_timeout(replica);
+-			} else {
+-				ra->protocol_timeout = DEFAULT_PROTOCOL_TIMEOUT;
+-			}
++		ptimeout = slapi_entry_attr_get_int(e, type_replicaProtocolTimeout);
++		if(ptimeout){
++			slapi_counter_set_value(ra->protocol_timeout, ptimeout);
+ 		}
+ 	}
+ 
+@@ -613,6 +618,17 @@ agmt_delete(void **rap)
+ 	if(ra->attrs_to_strip){
+ 		slapi_ch_array_free(ra->attrs_to_strip);
+ 	}
++	if(ra->maxcsn){
++		slapi_ch_free_string(&ra->maxcsn);
++	}
++	schedule_destroy(ra->schedule);
++	slapi_ch_free_string(&ra->long_name);
++
++	slapi_counter_destroy(&ra->protocol_timeout);
++
++	/* free the locks */
++	PR_DestroyLock(ra->lock);
++	slapi_destroy_rwlock(ra->attr_lock);
+ 
+ 	schedule_destroy(ra->schedule);
+ 	slapi_ch_free((void **)&ra->long_name);
+@@ -2663,9 +2679,21 @@ agmt_update_done(Repl_Agmt *agmt, int is_total)
+     windows_update_done(agmt, is_total);
+ }
+ 
+-int
++PRUint64
+ agmt_get_protocol_timeout(Repl_Agmt *agmt)
+ {
+-    return (int)agmt->protocol_timeout;
++	if(agmt){
++		return slapi_counter_get_value(agmt->protocol_timeout);
++	} else {
++		return 0;
++	}
++}
++
++void
++agmt_set_protocol_timeout(Repl_Agmt *agmt, PRUint64 timeout)
++{
++	if(agmt){
++		slapi_counter_set_value(agmt->protocol_timeout, timeout);
++	}
+ }
+ 
+diff --git a/ldap/servers/plugins/replication/repl5_agmtlist.c b/ldap/servers/plugins/replication/repl5_agmtlist.c
+index 1167b0c..04891b7 100644
+--- a/ldap/servers/plugins/replication/repl5_agmtlist.c
++++ b/ldap/servers/plugins/replication/repl5_agmtlist.c
+@@ -209,6 +209,7 @@ agmtlist_modify_callback(Slapi_PBlock *pb, Slapi_Entry *entryBefore, Slapi_Entry
+ 	LDAPMod **mods;
+     char buff [SLAPI_DSE_RETURNTEXT_SIZE];
+     char *errortext = returntext ? returntext : buff;
++    char *val = NULL;
+     int rc = SLAPI_DSE_CALLBACK_OK;
+     Slapi_Operation *op;
+     void *identity;
+@@ -243,16 +244,21 @@ agmtlist_modify_callback(Slapi_PBlock *pb, Slapi_Entry *entryBefore, Slapi_Entry
+ 	slapi_pblock_get(pb, SLAPI_MODIFY_MODS, &mods);
+ 	for (i = 0; NULL != mods && NULL != mods[i]; i++)
+ 	{
++		slapi_ch_free_string(&val);
+ 		if (slapi_attr_types_equivalent(mods[i]->mod_type, type_nsds5ReplicaInitialize))
+ 		{
+             /* we don't allow delete attribute operations unless it was issued by
+                the replication plugin - handled above */
+             if (mods[i]->mod_op & LDAP_MOD_DELETE)
+             {
+-                if(strcasecmp (mods[i]->mod_type, type_nsds5ReplicaCleanRUVnotified) == 0){
++                if(strcasecmp (mods[i]->mod_type, type_nsds5ReplicaCleanRUVnotified) == 0 ){
+                     /* allow the deletion of cleanallruv agmt attr */
+                     continue;
+                 }
++                if(strcasecmp (mods[i]->mod_type, type_replicaProtocolTimeout) == 0){
++                    agmt_set_protocol_timeout(agmt, 0);
++                    continue;
++                }
+ 
+                 slapi_log_error(SLAPI_LOG_REPL, repl_plugin_name, "agmtlist_modify_callback: " 
+                                 "deletion of %s attribute is not allowed\n", type_nsds5ReplicaInitialize);	
+@@ -262,8 +268,6 @@ agmtlist_modify_callback(Slapi_PBlock *pb, Slapi_Entry *entryBefore, Slapi_Entry
+             }
+             else
+             {
+-                char *val;
+-
+                 if (mods[i]->mod_bvalues && mods[i]->mod_bvalues[0])
+                     val = slapi_berval_get_string_copy (mods[i]->mod_bvalues[0]);
+                 else
+@@ -304,7 +308,6 @@ agmtlist_modify_callback(Slapi_PBlock *pb, Slapi_Entry *entryBefore, Slapi_Entry
+                              val, mods[i]->mod_type);
+                     slapi_log_error(SLAPI_LOG_REPL, repl_plugin_name, "agmtlist_modify_callback: %s\n", errortext);
+                 }
+-                slapi_ch_free ((void**)&val);
+             }
+ 		}
+ 		else if (slapi_attr_types_equivalent(mods[i]->mod_type,
+@@ -511,6 +514,21 @@ agmtlist_modify_callback(Slapi_PBlock *pb, Slapi_Entry *entryBefore, Slapi_Entry
+                 rc = SLAPI_DSE_CALLBACK_ERROR;
+             }
+         }
++        else if (slapi_attr_types_equivalent(mods[i]->mod_type, type_replicaProtocolTimeout)){
++            if (val){
++                long ptimeout = atol(val);
++
++                if(ptimeout <= 0){
++                    *returncode = LDAP_UNWILLING_TO_PERFORM;
++                    slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name, "attribute %s value (%s) is invalid, "
++                                    "must be a number greater than zero.\n",
++                                    type_replicaProtocolTimeout, val);
++                    rc = SLAPI_DSE_CALLBACK_ERROR;
++                    break;
++                }
++                agmt_set_protocol_timeout(agmt, ptimeout);
++            }
++        }
+         else if (0 == windows_handle_modify_agreement(agmt, mods[i]->mod_type, e))
+         {
+             slapi_log_error(SLAPI_LOG_REPL, repl_plugin_name, "agmtlist_modify_callback: " 
+@@ -561,6 +579,7 @@ done:
+ 	{
+ 		agmtlist_release_agmt(agmt);
+ 	}
++	slapi_ch_free_string(&val);
+ 
+ 	return rc;
+ }
+diff --git a/ldap/servers/plugins/replication/repl5_inc_protocol.c b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+index 612fe46..05074b0 100644
+--- a/ldap/servers/plugins/replication/repl5_inc_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+@@ -1921,10 +1921,24 @@ send_updates(Private_Repl_Protocol *prp, RUV *remote_update_vector, PRUint32 *nu
+ static int
+ repl5_inc_stop(Private_Repl_Protocol *prp)
+ {
+-	int return_value;
+ 	PRIntervalTime start, maxwait, now;
++	Replica *replica = NULL;
++	PRUint64 timeout;
++	int return_value;
++
++	if((timeout = agmt_get_protocol_timeout(prp->agmt)) == 0){
++		timeout = DEFAULT_PROTOCOL_TIMEOUT;
++		if(prp->replica_object){
++			object_acquire(prp->replica_object);
++			replica = object_get_data(prp->replica_object);
++			if((timeout = replica_get_protocol_timeout(replica)) == 0){
++				timeout = DEFAULT_PROTOCOL_TIMEOUT;
++			}
++			object_release(prp->replica_object);
++		}
++	}
+ 
+-	maxwait = PR_SecondsToInterval(prp->timeout);
++	maxwait = PR_SecondsToInterval(timeout);
+ 	prp->terminate = 1;
+ 	event_notify(prp, EVENT_PROTOCOL_SHUTDOWN);
+ 	start = PR_IntervalNow();
+@@ -1939,8 +1953,8 @@ repl5_inc_stop(Private_Repl_Protocol *prp)
+ 		/* Isn't listening. Do something drastic. */
+ 		return_value = -1;
+ 		slapi_log_error(SLAPI_LOG_REPL, repl_plugin_name,
+-				"%s: repl5_inc_stop: protocol does not stop after %d seconds\n",
+-				agmt_get_long_name(prp->agmt), (int)prp->timeout);
++				"%s: repl5_inc_stop: protocol does not stop after %llu seconds\n",
++				agmt_get_long_name(prp->agmt), (long long unsigned int)timeout);
+ 	}
+ 	else
+ 	{
+@@ -2044,7 +2058,6 @@ Repl_5_Inc_Protocol_new(Repl_Protocol *rp)
+     prp->notify_window_closed = repl5_inc_notify_window_closed;
+ 	prp->update_now = repl5_inc_update_now;
+ 	prp->replica_object = prot_get_replica_object(rp);
+-	prp->timeout = prot_get_timeout(rp);
+ 	if ((prp->lock = PR_NewLock()) == NULL)
+ 	{
+ 		goto loser;
+diff --git a/ldap/servers/plugins/replication/repl5_prot_private.h b/ldap/servers/plugins/replication/repl5_prot_private.h
+index 37072ee..586e1eb 100644
+--- a/ldap/servers/plugins/replication/repl5_prot_private.h
++++ b/ldap/servers/plugins/replication/repl5_prot_private.h
+@@ -75,7 +75,6 @@ typedef struct private_repl_protocol
+ 	int repl50consumer; /* Flag to tell us if this is a 5.0-style consumer we're talking to */
+ 	int repl71consumer; /* Flag to tell us if this is a 7.1-style consumer we're talking to */
+ 	int repl90consumer; /* Flag to tell us if this is a 9.0-style consumer we're talking to */
+-	PRUint64 timeout;
+ } Private_Repl_Protocol;
+ 
+ extern Private_Repl_Protocol *Repl_5_Inc_Protocol_new();
+diff --git a/ldap/servers/plugins/replication/repl5_protocol.c b/ldap/servers/plugins/replication/repl5_protocol.c
+index 34fe8a0..0e9668d 100644
+--- a/ldap/servers/plugins/replication/repl5_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_protocol.c
+@@ -71,8 +71,7 @@ typedef struct repl_protocol
+ 	Object *replica_object; /* Local replica. If non-NULL, replica object is acquired */
+ 	int state;
+ 	int next_state;
+-	PRUint64 protocol_timeout;
+-        PRThread *agmt_thread;
++	PRThread *agmt_thread;
+ 	PRLock *lock;
+ } repl_protocol;
+ 
+@@ -134,16 +133,17 @@ prot_new(Repl_Agmt *agmt, int protocol_state)
+ 		rp->prp_total = private_protocol_factory(rp, PROTOCOL_WINDOWS_TOTAL);
+ 		rp->delete_conn = windows_conn_delete;
+ 	}
+-	rp->protocol_timeout = agmt_get_protocol_timeout(agmt);
+-
+ 	/* XXXggood register callback handlers for entries updated, and
+ 		schedule window enter/leave. */
+ 	
+ 	goto done;
++
+ loser:
+ 	prot_delete(&rp);
++
+ done:
+ 	slapi_sdn_free(&replarea_sdn);
++
+ 	return rp;
+ }
+ 
+@@ -593,8 +593,3 @@ private_protocol_factory(Repl_Protocol *rp, int type)
+ 	return prp;
+ }
+ 
+-int
+-prot_get_timeout(Repl_Protocol *rp)
+-{
+-	return (int)rp->protocol_timeout;
+-}
+diff --git a/ldap/servers/plugins/replication/repl5_replica.c b/ldap/servers/plugins/replication/repl5_replica.c
+index 8a1c590..02d4e74 100644
+--- a/ldap/servers/plugins/replication/repl5_replica.c
++++ b/ldap/servers/plugins/replication/repl5_replica.c
+@@ -87,7 +87,7 @@ struct replica {
+ 	PRBool state_update_inprogress; /* replica state is being updated */
+ 	PRLock *agmt_lock;          	/* protects agreement creation, start and stop */
+ 	char *locking_purl;				/* supplier who has exclusive access */
+-	PRUint64 protocol_timeout;		/* protocol shutdown timeout */
++	Slapi_Counter *protocol_timeout;	/* protocol shutdown timeout */
+ 	PRUint64 backoff_min;			/* backoff retry minimum */
+ 	PRUint64 backoff_max;			/* backoff retry maximum */
+ };
+@@ -164,26 +164,26 @@ replica_new(const Slapi_DN *root)
+ Replica *
+ replica_new_from_entry (Slapi_Entry *e, char *errortext, PRBool is_add_operation)
+ {
+-    int rc = 0;
+-    Replica *r;
++	int rc = 0;
++	Replica *r;
+ 	char *repl_name = NULL;
+ 
+-    if (e == NULL)
+-    {
+-        if (NULL != errortext)
++	if (e == NULL)
++	{
++		if (NULL != errortext)
+ 		{
+-            PR_snprintf(errortext, SLAPI_DSE_RETURNTEXT_SIZE, "NULL entry");
++			PR_snprintf(errortext, SLAPI_DSE_RETURNTEXT_SIZE, "NULL entry");
+ 		}
+-        return NULL;        
+-    }
++		return NULL;
++	}
+ 
+-   	r = (Replica *)slapi_ch_calloc(1, sizeof(Replica));
++	r = (Replica *)slapi_ch_calloc(1, sizeof(Replica));
+ 
+-        if (!r)
++	if (!r)
+ 	{
+-        	if (NULL != errortext)
++		if (NULL != errortext)
+ 		{
+-            PR_snprintf(errortext, SLAPI_DSE_RETURNTEXT_SIZE, "Out of memory");
++			PR_snprintf(errortext, SLAPI_DSE_RETURNTEXT_SIZE, "Out of memory");
+ 		}
+ 		rc = -1;
+ 		goto done;
+@@ -208,6 +208,7 @@ replica_new_from_entry (Slapi_Entry *e, char *errortext, PRBool is_add_operation
+ 		rc = -1;
+ 		goto done;
+ 	}
++	r->protocol_timeout = slapi_counter_new();
+ 
+     /* read parameters from the replica config entry */
+     rc = _replica_init_from_config (r, e, errortext);
+@@ -403,6 +404,8 @@ replica_destroy(void **arg)
+ 		csnplFree(&r->min_csn_pl);;
+ 	}
+ 
++	slapi_counter_destroy(&r->protocol_timeout);
++
+ 	slapi_ch_free((void **)arg);
+ }
+ 
+@@ -796,10 +799,22 @@ replica_get_type (const Replica *r)
+ 	return r->repl_type;
+ }
+ 
+-int
++PRUint64
+ replica_get_protocol_timeout(Replica *r)
+ {
+-	return (int)r->protocol_timeout;
++	if(r){
++		return slapi_counter_get_value(r->protocol_timeout);
++	} else {
++		return 0;
++	}
++}
++
++void
++replica_set_protocol_timeout(Replica *r, PRUint64 timeout)
++{
++	if(r){
++		slapi_counter_set_value(r->protocol_timeout, timeout);
++	}
+ }
+ 
+ /* 
+@@ -1659,6 +1674,7 @@ _replica_init_from_config (Replica *r, Slapi_Entry *e, char *errortext)
+     char *val;
+     int backoff_min;
+     int backoff_max;
++    int ptimeout = 0;
+     int rc;
+ 
+     PR_ASSERT (r && e);
+@@ -1731,9 +1747,11 @@ _replica_init_from_config (Replica *r, Slapi_Entry *e, char *errortext)
+     }
+ 
+     /* get the protocol timeout */
+-    r->protocol_timeout = slapi_entry_attr_get_int(e, type_replicaProtocolTimeout);
+-    if(r->protocol_timeout == 0){
+-        r->protocol_timeout = DEFAULT_PROTOCOL_TIMEOUT;
++    ptimeout = slapi_entry_attr_get_int(e, type_replicaProtocolTimeout);
++    if(ptimeout <= 0){
++        slapi_counter_set_value(r->protocol_timeout, DEFAULT_PROTOCOL_TIMEOUT);
++    } else {
++        slapi_counter_set_value(r->protocol_timeout, ptimeout);
+     }
+ 
+     /* get replica flags */
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index 94c23c0..9452d51 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -396,9 +396,16 @@ replica_config_modify (Slapi_PBlock *pb, Slapi_Entry* entryBefore, Slapi_Entry*
+                 else if (strcasecmp (config_attr, type_replicaCleanRUV) == 0 ||
+                          strcasecmp (config_attr, type_replicaAbortCleanRUV) == 0)
+                 {
+-                    /* only allow the deletion of the cleanAllRUV config attributes */
++                    /*
++                     * Only allow the deletion of the cleanAllRUV config attributes, and the
++                     * protocol timeout.
++                     */
+                     continue;
+                 }
++                else if (strcasecmp (config_attr, type_replicaProtocolTimeout) == 0 )
++                {
++                	replica_set_protocol_timeout(r, DEFAULT_PROTOCOL_TIMEOUT);
++                }
+                 else
+                 {
+                     *returncode = LDAP_UNWILLING_TO_PERFORM;
+@@ -487,6 +494,22 @@ replica_config_modify (Slapi_PBlock *pb, Slapi_Entry* entryBefore, Slapi_Entry*
+                 {
+                     *returncode = LDAP_SUCCESS;
+                 }
++                else if (strcasecmp (config_attr, type_replicaProtocolTimeout) == 0 ){
++                    if (apply_mods && config_attr_value && config_attr_value[0])
++                    {
++                        long ptimeout = atol(config_attr_value);
++
++                        if(ptimeout <= 0){
++                            *returncode = LDAP_UNWILLING_TO_PERFORM;
++                            PR_snprintf (errortext, SLAPI_DSE_RETURNTEXT_SIZE,
++                                         "attribute %s value (%s) is invalid, must be a number greater than zero.\n",
++                                         config_attr, config_attr_value);
++                            slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name, "replica_config_modify: %s\n", errortext);
++                        } else {
++                            replica_set_protocol_timeout(r, ptimeout);
++                        }
++                    }
++                }
+                 else
+                 {
+                     *returncode = LDAP_UNWILLING_TO_PERFORM;
+diff --git a/ldap/servers/plugins/replication/repl5_tot_protocol.c b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+index 5bb203a..a241128 100644
+--- a/ldap/servers/plugins/replication/repl5_tot_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+@@ -505,11 +505,22 @@ static int
+ repl5_tot_stop(Private_Repl_Protocol *prp)
+ {
+ 	int return_value;
+-	int seconds = 600;
+ 	PRIntervalTime start, maxwait, now;
++	PRUint64 timeout = DEFAULT_PROTOCOL_TIMEOUT;
++	Replica *replica = NULL;
++
++	if((timeout = agmt_get_protocol_timeout(prp->agmt)) == 0){
++		timeout = DEFAULT_PROTOCOL_TIMEOUT;
++		if(prp->replica_object){
++			replica = object_get_data(prp->replica_object);
++			if((timeout = replica_get_protocol_timeout(replica)) == 0){
++				timeout = DEFAULT_PROTOCOL_TIMEOUT;
++			}
++		}
++	}
+ 
+ 	prp->terminate = 1;
+-	maxwait = PR_SecondsToInterval(seconds);
++	maxwait = PR_SecondsToInterval(timeout);
+ 	start = PR_IntervalNow();
+ 	now = start;
+ 	while (!prp->stopped && ((now - start) < maxwait))
+@@ -567,7 +578,6 @@ Repl_5_Tot_Protocol_new(Repl_Protocol *rp)
+ 	prp->notify_window_opened = repl5_tot_noop;
+ 	prp->notify_window_closed = repl5_tot_noop;
+ 	prp->update_now = repl5_tot_noop;
+-	prp->timeout = DEFAULT_PROTOCOL_TIMEOUT;
+ 	if ((prp->lock = PR_NewLock()) == NULL)
+ 	{
+ 		goto loser;
+@@ -588,6 +598,7 @@ Repl_5_Tot_Protocol_new(Repl_Protocol *rp)
+ 	prp->repl50consumer = 0;
+ 	prp->repl71consumer = 0;
+ 	prp->repl90consumer = 0;
++	prp->replica_object = prot_get_replica_object(rp);
+ 	return prp;
+ loser:
+ 	repl5_tot_delete(&prp);
+-- 
+1.8.1.4
+

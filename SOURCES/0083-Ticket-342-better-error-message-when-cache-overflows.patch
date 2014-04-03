@@ -1,0 +1,36 @@
+From 4730b81cfda96b8825ad0b01df2e89024f31b634 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Thu, 16 Jan 2014 11:06:22 -0800
+Subject: [PATCH 83/83] Ticket #342 - better error message when cache overflows
+
+Description: commit 892bf12c1bb8b10afea3d6ff711059bf04e362cc
+introduced an invalid memory read/write.  This patch prepares one
+extra aclpblock for the acl cache overflow.
+
+https://fedorahosted.org/389/ticket/342
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!!)
+(cherry picked from commit 3fee1fc829a4a9573d087d1ead3c949239e5e914)
+(cherry picked from commit fe75b11cad371890482b7f394384083dc1b0fd70)
+(cherry picked from commit aec20501db3a33df0bc151371cdec334c62af4b0)
+---
+ ldap/servers/plugins/acl/acl_ext.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/acl/acl_ext.c b/ldap/servers/plugins/acl/acl_ext.c
+index e42a7e2..ee2dd0f 100644
+--- a/ldap/servers/plugins/acl/acl_ext.c
++++ b/ldap/servers/plugins/acl/acl_ext.c
+@@ -717,7 +717,8 @@ acl__malloc_aclpb ( )
+ 
+     /* allocate arrays for result cache */
+     aclpb->aclpb_cache_result = (r_cache_t *)
+-            slapi_ch_calloc (aclpb_max_cache_results, sizeof (r_cache_t));
++                slapi_ch_calloc (aclpb_max_cache_results + 1 /* 1 for cache overflow warning */,
++                sizeof (r_cache_t));
+ 
+     /* allocate arrays for target handles in eval_context */
+     aclpb->aclpb_curr_entryEval_context.acle_handles_matched_target = (int *)
+-- 
+1.8.1.4
+

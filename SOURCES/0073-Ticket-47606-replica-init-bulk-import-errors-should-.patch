@@ -1,0 +1,189 @@
+From 298ada3b2f7b8aa770df9a5a7d8129f46b4417d7 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Mon, 16 Dec 2013 13:03:19 -0800
+Subject: [PATCH 73/78] Ticket #47606 - replica init/bulk import errors should
+ be more verbose
+
+Description:
+1. maxbersize: If the size of an entry is larger than the consumer's
+   maxbersize, the following error used to be logged:
+     Incoming BER Element was too long, max allowable is ### bytes.
+     Change the nsslapd-maxbersize attribute in cn=config to increase.
+   This message does not indicate how large the maxbersize needs to be.
+   This patch adds the code to retrieve the failed ber size.
+   Revised message:
+     Incoming BER Element was @@@ bytes, max allowable is ### bytes.
+	 Change the nsslapd-maxbersize attribute in cn=config to increase.
+   Note: There is no lber API that returns the ber size if it fails to
+   handle the ber.  This patch borrows the internal structure of ber
+   and get the size.  This could be risky since the size or structure
+   of the ber could be updated in the openldap/mozldap lber.
+2. cache size: The bulk import depends upon the nsslapd-cachememsize
+   value in the backend instance entry (e.g., cn=userRoot,cn=ldbm
+   database,cn=plugins,cn=config).  If an entry size is larger than
+   the cachememsize, the bulk import used to fail with this message:
+     import userRoot: REASON: entry too large (@@@ bytes) for the
+	 import buffer size (### bytes).  Try increasing nsslapd-
+	 cachememsize.
+   Also, the message follows the skipping entry message:
+     import userRoot: WARNING: skipping entry "<DN>"
+   but actually, it did NOT "skip" the entry and continue the bulk
+   import, but it failed there and completely wiped out the backend
+   database.
+   This patch modifies the message as follows:
+     import userRoot: REASON: entry too large (@@@ bytes) for the
+	 effective import buffer size (### bytes). Try increasing nsslapd-
+	 cachememsize for the backend instance "userRoot".
+   and as the message mentions, it just skips the failed entry and
+   continues the bulk import.
+3. In repl5_tot_result_threadmain, when conn_read_result_ex returns
+   non zero (non SUCCESS), it sets abort, but does not set any error
+   code to rc (return code), which is not considered as "finished" in
+   repl5_tot_waitfor_async_results and it contines waiting until the
+   code reaches the max loop count (about 5 minutes).  This patch sets
+   LDAP_CONNECT_ERROR to the return code along with setting abort, if
+   conn_read_result_ex returns CONN_NOT_CONNECTED.  This makes the bulk
+   import finishes quickly when it fails.
+
+https://fedorahosted.org/389/ticket/47606
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!!)
+(cherry picked from commit 1119083d3d99993421609783efcb8962d78724fc)
+(cherry picked from commit fde9ed5bf74b4ea1fff875bcb421137c78af1227)
+(cherry picked from commit c9d0b6ccad84dd56a536da883f5a8e5acb01bc4e)
+---
+ .../plugins/replication/repl5_tot_protocol.c       |  3 ++
+ ldap/servers/slapd/back-ldbm/import-threads.c      |  8 ++---
+ ldap/servers/slapd/connection.c                    | 36 ++++++++++++++++++----
+ ldap/servers/slapd/openldapber.h                   | 25 +++++++++++++++
+ 4 files changed, 62 insertions(+), 10 deletions(-)
+ create mode 100644 ldap/servers/slapd/openldapber.h
+
+diff --git a/ldap/servers/plugins/replication/repl5_tot_protocol.c b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+index a241128..3895ace 100644
+--- a/ldap/servers/plugins/replication/repl5_tot_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+@@ -203,6 +203,9 @@ static void repl5_tot_result_threadmain(void *param)
+ 			/* If so then we need to take steps to abort the update process */
+ 			PR_Lock(cb->lock);
+ 			cb->abort = 1;
++			if (conres == CONN_NOT_CONNECTED) {
++				cb->rc = LDAP_CONNECT_ERROR;
++			}
+ 			PR_Unlock(cb->lock);
+ 		}
+ 		/* Should we stop ? */
+diff --git a/ldap/servers/slapd/back-ldbm/import-threads.c b/ldap/servers/slapd/back-ldbm/import-threads.c
+index c0475c6..95433aa 100644
+--- a/ldap/servers/slapd/back-ldbm/import-threads.c
++++ b/ldap/servers/slapd/back-ldbm/import-threads.c
+@@ -3330,11 +3330,11 @@ static int bulk_import_queue(ImportJob *job, Slapi_Entry *entry)
+ 
+     newesize = (slapi_entry_size(ep->ep_entry) + sizeof(struct backentry));
+     if (newesize > job->fifo.bsize) {    /* entry too big */
+-        import_log_notice(job, "WARNING: skipping entry \"%s\"",
+-                    slapi_entry_get_dn(ep->ep_entry));
+         import_log_notice(job, "REASON: entry too large (%lu bytes) for "
+-                    "the import buffer size (%lu bytes).   Try increasing nsslapd-cachememsize.",
+-                    (long unsigned int)newesize, (long unsigned int)job->fifo.bsize);
++                    "the effective import buffer size (%lu bytes). "
++                    "Try increasing nsslapd-cachememsize for the backend instance \"%s\".",
++                    (long unsigned int)newesize, (long unsigned int)job->fifo.bsize,
++                    job->inst->inst_name);
+         backentry_clear_entry(ep);      /* entry is released in the frontend on failure*/
+         backentry_free( &ep );          /* release the backend wrapper, here */
+         PR_Unlock(job->wire_lock);
+diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
+index fed3512..02c86c5 100644
+--- a/ldap/servers/slapd/connection.c
++++ b/ldap/servers/slapd/connection.c
+@@ -1749,6 +1749,32 @@ void connection_make_new_pb(Slapi_PBlock	**ppb, Connection	*conn)
+ }
+ 
+ 
++#ifdef USE_OPENLDAP
++#include "openldapber.h"
++#else
++#include "mozldap.h"
++#endif
++
++static ber_tag_t
++_ber_get_len(BerElement *ber, ber_len_t *lenp)
++{
++#ifdef USE_OPENLDAP
++    OLBerElement *lber = (OLBerElement *)ber;
++#else
++    MozElement *lber = (MozElement *)ber;
++#endif
++
++    if (NULL == lenp) {
++        return LBER_DEFAULT;
++    }
++    *lenp = 0;
++    if (NULL == lber) {
++        return LBER_DEFAULT;
++    }
++    *lenp = lber->ber_len;
++    return lber->ber_tag;
++}
++
+ /*
+  * Utility function called by  connection_read_operation(). This is a
+  * small wrapper on top of libldap's ber_get_next_buffer_ext().
+@@ -1787,18 +1813,16 @@ get_next_from_buffer( void *buffer, size_t buffer_size, ber_len_t *lenp,
+ 	if ((LBER_OVERFLOW == *tagp || LBER_DEFAULT == *tagp) && 0 == bytes_scanned &&
+ 		!SLAPD_SYSTEM_WOULD_BLOCK_ERROR(errno))
+ 	{
+-		if (LBER_OVERFLOW == *tagp)
+-		{
+-			err = SLAPD_DISCONNECT_BER_TOO_BIG;
+-		}
+-		else if (errno == ERANGE)
++		if ((LBER_OVERFLOW == *tagp) || (errno == ERANGE))
+ 		{
+ 			ber_len_t maxbersize = config_get_maxbersize();
++			ber_len_t tmplen = 0;
++			(void)_ber_get_len(ber, &tmplen);
+ 			/* openldap does not differentiate between length == 0
+ 			   and length > max - all we know is that there was a
+ 			   problem with the length - assume too big */
+ 			err = SLAPD_DISCONNECT_BER_TOO_BIG;
+-			log_ber_too_big_error(conn, 0, maxbersize);
++			log_ber_too_big_error(conn, tmplen, maxbersize);
+ 		}
+ 		else
+ 		{
+diff --git a/ldap/servers/slapd/openldapber.h b/ldap/servers/slapd/openldapber.h
+new file mode 100644
+index 0000000..52644a5
+--- /dev/null
++++ b/ldap/servers/slapd/openldapber.h
+@@ -0,0 +1,25 @@
++/*
++ * openldap lber library does not provide an API which returns the ber size
++ * (ber->ber_len) when the ber tag is LBER_DEFAULT or LBER_OVERFLOW.
++ * The ber size is useful when issuing an error message to indicate how
++ * large the maxbersize needs to be set.
++ * Borrowed from liblber/lber-int.h
++ */
++struct lber_options {
++    short lbo_valid;
++    unsigned short      lbo_options;
++    int         lbo_debug;
++};
++struct berelement {
++    struct      lber_options ber_opts;
++    ber_tag_t   ber_tag;
++    ber_len_t   ber_len;
++    ber_tag_t   ber_usertag;
++    char        *ber_buf;
++    char        *ber_ptr;
++    char        *ber_end;
++    char        *ber_sos_ptr;
++    char        *ber_rwptr;
++    void        *ber_memctx;
++};
++typedef struct berelement OLBerElement;
+-- 
+1.8.1.4
+

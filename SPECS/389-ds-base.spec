@@ -25,7 +25,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.1.6
-Release:          %{?relprefix}10%{?prerel}%{?dist}
+Release:          %{?relprefix}25%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -164,6 +164,53 @@ Patch46:          0047-Ticket-47585-Replication-Failures-related-to-skipped.patc
 Patch47:          0048-Ticket-47581-Winsync-plugin-segfault-during-incremen.patch
 Patch48:          0049-Ticket-47581-Winsync-plugin-segfault-during-incremen.patch
 Patch49:          0050-Revert-Ticket-47559-hung-server-related-to-sasl-and-.patch
+Patch50:          0051-Ticket-47605-CVE-2013-4485-DoS-due-to-improper-handl.patch
+Patch51:          0052-Ticket-47622-Automember-betxnpreoperation-transactio.patch
+Patch52:          0053-Ticket-47613-Impossible-to-configure-nsslapd-allowed.patch
+Patch53:          0054-Ticket-47587-hard-coded-limit-of-64-masters-in-agree.patch
+Patch54:          0055-Ticket-47597-Convert-retro-changelog-plug-in-to-betx.patch
+Patch55:          0056-Ticket-47598-Convert-ldbm_back_seq-code-to-be-transa.patch
+Patch56:          0057-Ticket-47599-Reduce-lock-scope-in-retro-changelog-pl.patch
+Patch57:          0058-Ticket-47599-Reduce-lock-scope-in-retro-changelog-pl.patch
+Patch58:          0059-Ticket-47599-fix-memory-leak.patch
+Patch59:          0060-Ticket-47596-attrcrypt-fails-to-find-unlocked-key.patch
+Patch60:          0061-Ticket-47596-attrcrypt-fails-to-find-unlocked-key.patch
+Patch61:          0062-Ticket-47591-entries-with-empty-objectclass-attribut.patch
+Patch62:          0063-Ticket-47614-Possible-to-specify-invalid-SASL-mechan.patch
+Patch63:          0064-Ticket-47592-automember-plugin-task-memory-leaks.patch
+Patch64:          0065-Ticket-47620-389-ds-rejects-nsds5ReplicaProtocolTime.patch
+Patch65:          0066-Ticket-47613-Issues-setting-allowed-mechanisms.patch
+Patch66:          0067-Ticket-47620-Fix-cherry-pick-error-for-1.3.2-and-1.3.patch
+Patch67:          0068-Ticket-47620-Config-value-validation-improvement.patch
+Patch68:          0069-Ticket-47620-Fix-logically-dead-code.patch
+Patch69:          0070-Ticket-47620-Fix-dereferenced-NULL-pointer-in-agmtli.patch
+Patch70:          0071-Ticket-47620-Fix-missing-left-bracket.patch
+Patch71:          0072-Ticket-571-dup-47361-Empty-control-list-causes-LDAP-.patch
+Patch72:          0073-Ticket-47606-replica-init-bulk-import-errors-should-.patch
+Patch73:          0074-Ticket-47623-fix-memleak-caused-by-47347.patch
+Patch74:          0075-Ticket-47623-fix-memleak-caused-by-47347.patch
+Patch75:          0076-Ticket-47627-changelog-iteration-should-ignore-clean.patch
+Patch76:          0077-Ticket-47627-Fix-replication-logging.patch
+Patch77:          0078-Ticket-447-Possible-to-add-invalid-attribute-to-nssl.patch
+Patch78:          0079-Ticket-47660-config_set_allowed_to_delete_attrs-Valg.patch
+Patch79:          0080-Ticket-408-Fix-crash-when-disabling-enabling-the-set.patch
+Patch80:          0081-Ticket-47620-Unable-to-delete-protocol-timeout-attri.patch
+Patch81:          0082-Ticket-47516-replication-stops-with-excessive-clock-.patch
+Patch82:          0083-Ticket-342-better-error-message-when-cache-overflows.patch
+Patch83:          0084-Ticket-443-Deleting-attribute-present-in-nsslapd-all.patch
+Patch84:          0085-Ticket-47649-Server-hangs-in-cos_cache-when-adding-a.patch
+Patch85:          0086-Ticket-47374-flush.pl-is-not-included-in-perl5.patch
+Patch86:          0087-Ticket-471-logconv.pl-tool-removes-the-access-logs-c.patch
+Patch87:          0088-Ticket-47704-invalid-sizelimits-in-aci-group-evaluat.patch
+Patch88:          0089-Ticket-47709-package-issue-in-389-ds-base.patch
+Patch89:          0090-Ticket-47709-package-issue-in-389-ds-base.patch
+Patch90:          0091-Ticket-408-create-a-normalized-dn-cache.patch
+Patch91:          0092-Ticket-571-dup-47361-Empty-control-list-causes-LDAP-.patch
+Patch92:          0093-Ticket-408-create-a-normalized-dn-cache.patch
+Patch93:          0094-Ticket-47735-e_uniqueid-fails-to-set-if-an-entry-is-.patch
+Patch94:          0095-Ticket-47739-directory-server-is-insecurely-misinter.patch
+Patch95:          0096-Ticket-47735-e_uniqueid-fails-to-set-if-an-entry-is-.patch
+Patch96:          0097-Ticket-47759-Crash-in-replication-when-server-is-und.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -264,6 +311,53 @@ cp %{SOURCE2} README.devel
 %patch47 -p1
 %patch48 -p1
 %patch49 -p1
+%patch50 -p1
+%patch51 -p1
+%patch52 -p1
+%patch53 -p1
+%patch54 -p1
+%patch55 -p1
+%patch56 -p1
+%patch57 -p1
+%patch58 -p1
+%patch59 -p1
+%patch60 -p1
+%patch61 -p1
+%patch62 -p1
+%patch63 -p1
+%patch64 -p1
+%patch65 -p1
+%patch66 -p1
+%patch67 -p1
+%patch68 -p1
+%patch69 -p1
+%patch70 -p1
+%patch71 -p1
+%patch72 -p1
+%patch73 -p1
+%patch74 -p1
+%patch75 -p1
+%patch76 -p1
+%patch77 -p1
+%patch78 -p1
+%patch79 -p1
+%patch80 -p1
+%patch81 -p1
+%patch82 -p1
+%patch83 -p1
+%patch84 -p1
+%patch85 -p1
+%patch86 -p1
+%patch87 -p1
+%patch88 -p1
+%patch89 -p1
+%patch90 -p1
+%patch91 -p1
+%patch92 -p1
+%patch93 -p1
+%patch94 -p1
+%patch95 -p1
+%patch96 -p1
 
 %build
 %if %{use_openldap}
@@ -390,8 +484,8 @@ fi
 %{_unitdir}
 %{_bindir}/*
 %{_sbindir}/*
-%{_libdir}/%{pkgname}/libns-dshttpd.so*
 %{_libdir}/%{pkgname}/perl
+%{_libdir}/%{pkgname}/python
 %dir %{_libdir}/%{pkgname}/plugins
 %{_libdir}/%{pkgname}/plugins/*.so
 %dir %{_localstatedir}/lib/%{pkgname}
@@ -412,8 +506,96 @@ fi
 %doc LICENSE EXCEPTION LICENSE.GPLv2 README.devel
 %dir %{_libdir}/%{pkgname}
 %{_libdir}/%{pkgname}/libslapd.so.*
+%{_libdir}/%{pkgname}/libns-dshttpd.so*
 
 %changelog
+* Thu Mar 31 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-25
+- release 1.3.1.6-25
+- Resolves: bug 1082740 - ns-slapd crash in reliability 15
+
+* Thu Mar 13 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-24
+- release 1.3.1.6-24
+- Resolves: bug 1074084 - e_uniqueid fails to set if an entry is a conflict entry (Ticket 47735); regression - sub-type length in attribute type was mistakenly subtracted.
+
+* Tue Mar 11 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-23
+- Resolves: bug 1074850 - EMBARGOED CVE-2014-0132 389-ds-base: 389-ds: flaw in parsing authzid can lead to privilege escalation [rhel-7.0] (Ticket 47739 - directory server is insecurely misinterpreting authzid on a SASL/GSSAPI bind) (Added 0095-Ticket-47739-directory-server-is-insecurely-misinter.patch)
+
+* Tue Mar 11 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-23
+- release 1.3.1.6-22
+- Resolves: bug 1074850 - EMBARGOED CVE-2014-0132 389-ds-base: 389-ds: flaw in parsing authzid can lead to privilege escalation [rhel-7.0] (Ticket 47739 - directory server is insecurely misinterpreting authzid on a SASL/GSSAPI bind)
+
+* Mon Mar 10 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-22
+- release 1.3.1.6-22
+- Resolves: bug 1074084 - e_uniqueid fails to set if an entry is a conflict entry (Ticket 47735)
+
+* Tue Feb 25 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-21
+- release 1.3.1.6-21
+- Resolves: bug 918694 - Fix covscan defect FORWARD_NULL (Ticket 408)
+- Resolves: bug 918717 - Fix covscan defect COMPILER WARNINGS (Ticket 571)
+
+* Tue Feb 25 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-20
+- release 1.3.1.6-20
+- Resolves: bug 1065242 - 389-ds-base, conflict occurs at yum installation if multilib_policy=all. (Ticket 47709)
+
+* Tue Feb 18 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-19
+- release 1.3.1.6-19
+- Resolves: bug 1065971 - Enrolling a host into IdM/IPA always takes two attempts (Ticket 47704)
+
+* Mon Feb  3 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-18
+- release 1.3.1.6-18
+- Resolves: bug 838656 - logconv.pl tool removes the access logs contents if "-M" is not correctly used (Ticket 471)
+- Resolves: bug 922538 - improve dbgen rdn generation, output (Ticket 47374)
+- Resolves: bug 970750 - flush.pl is not included in perl5 (Ticket 47374)
+- Resolves: bug 1013898 - Fix various issues with logconv.pl (Ticket 471)
+
+* Wed Jan 29 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-17
+- release 1.3.1.6-17
+- Resolves: bug 853106 - Deleting attribute present in nsslapd-allowed-to-delete-attrs returns Operations error (Ticket 443)
+- Resolves: bug 1049525 - Server hangs in cos_cache when adding a user entry (Ticket 47649)
+    
+* Wed Jan 29 2014 Daniel Mach <dmach@redhat.com> - 1.3.1.6-16
+- Mass rebuild 2014-01-24
+
+* Tue Jan 21 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-15
+- release 1.3.1.6-15
+- Resolves: bug 918702 -  better error message when cache overflows (Ticket 342)
+- Resolves: bug 1009679 - replication stops with excessive clock skew (Ticket 47516)
+- Resolves: bug 1042855 - Unable to delete protocol timeout attribute (Ticket 47620)
+- Resolves: bug 918694 - Fix crash when disabling/enabling the setting (Ticket 408)
+- Resolves: bug 853355 - config_set_allowed_to_delete_attrs: Valgrind reports Invalid read (Ticket 47660)
+
+* Wed Jan  8 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-14
+- release 1.3.1.6-14
+- Resolves: bug 853355 - Possible to add invalid attribute to nsslapd-allowed-to-delete-attrs (Ticket 447) 
+- Resolves: bug 1034739 - Impossible to configure nsslapd-allowed-sasl-mechanisms (Ticket 47613)
+- Resolves: bug 1038639 - 389-ds rejects nsds5ReplicaProtocolTimeout attribut; Fix logically dead code; Fix dereferenced NULL pointer in agmtlist_modify_callback(); Fix missing left brackete (Ticket 47620)
+- Resolves: bug 1042855 - nsds5ReplicaProtocolTimeout attribute is not validated when added to replication agreement; Config value validation improvement (Ticket 47620)
+- Resolves: bug 918717 - server does not accept 0 length LDAP Control sequence (Ticket 571)
+- Resolves: bug 1034902 - replica init/bulk import errors should be more verbose (Ticket 47606)
+- Resolves: bug 1044219 - fix memleak caused by 47347 (Ticket 47623)
+- Resolves: bug 1049522 - Crash after replica is installed; Fix cherry-pick error for 1.3.2 and 1.3.1 (Ticket 47620)
+- Resolves: bug 1049568 - changelog iteration should ignore cleaned rids when getting the minCSN (Ticket 47627) 
+
+* Fri Dec 27 2013 Daniel Mach <dmach@redhat.com> - 1.3.1.6-13
+- Mass rebuild 2013-12-27
+
+* Tue Dec 10 2013 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-12
+- release 1.3.1.6-12
+- Resolves: bug 1038639 - 389-ds rejects nsds5ReplicaProtocolTimeout attribute (Ticket 47620)
+- Resolves: bug 1034898 - automember plugin task memory leaks (Ticket 47592)
+- Resolves: bug 1034451 - Possible to specify invalid SASL mechanism in nsslapd-allowed-sasl-mechanisms (Ticket 47614)
+- Resolves: bug 1032318 - entries with empty objectclass attribute value can be hidden (Ticket 47591)
+- Resolves: bug 1032316 - attrcrypt fails to find unlocked key (Ticket 47596)
+- Resolves: bug 1031227 - Reduce lock scope in retro changelog plug-in (Ticket 47599)
+- Resolves: bug 1031226 - Convert ldbm_back_seq code to be transaction aware (Ticket 47598)
+- Resolves: bug 1031225 - Convert retro changelog plug-in to betxn (Ticket 47597)
+- Resolves: bug 1031223 - hard coded limit of 64 masters in agreement and changelog code (Ticket 47587)
+- Resolves: bug 1034739 - Impossible to configure nsslapd-allowed-sasl-mechanisms (Ticket 47613)
+- Resolves: bug 1035824 - Automember betxnpreoperation - transaction not aborted when group entry does not exist (Ticket 47622)
+
+* Thu Nov 21 2013 Rich Megginson <rmeggins@redhat.com> - 1.3.1.6-11
+- Resolves: bug 1024979 - CVE-2013-4485 389-ds-base: DoS due to improper handling of ger attr searches
+
 * Tue Nov 12 2013 Rich Megginson <rmeggins@redhat.com> - 1.3.1.6-10
 - release 1.3.1.6-10
 - Resolves: bug 1018893 DS91: ns-slapd stuck in DS_Sleep
@@ -476,7 +658,7 @@ fi
 - Resolves Bug 1000633 - ns-slapd crash due to bogus DN
 - Ticket #47488 - Users from AD sub OU does not sync to IPA
 
-* Tue Aug 01 2013 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-1
+* Thu Aug 01 2013 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-1
 - bump version to 1.3.1.6
 - Ticket 47455 - valgrind - value mem leaks, uninit mem usage
 - fix coverity 11915 - dead code - introduced with fix for ticket 346

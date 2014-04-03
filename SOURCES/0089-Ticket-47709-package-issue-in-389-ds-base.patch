@@ -1,0 +1,87 @@
+From 8cbc6f09ee63f21b235219e7ca92ed26b28c52da Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Thu, 20 Feb 2014 13:18:06 -0800
+Subject: [PATCH 89/90] Ticket #47709 - package issue in 389-ds-base
+
+Description: Following the package guideline, moving pytyon binaries
+to the architecture aware location and libns-dshttpd.so* from 389-ds-base
+to 389-ds-base-libs.
+
+https://fedorahosted.org/389/ticket/47709
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!!)
+
+(cherry picked from commit a32b2a9ddc5764d449b051c20077643585e81def)
+(cherry picked from commit 011385ad8cb8afc42611b57a3a88600eb1d56932)
+(cherry picked from commit f1bbfe2ff0768128b10903ca1262302313b74ad6)
+---
+ Makefile.am  | 8 +++++---
+ configure.ac | 5 +++++
+ 2 files changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/Makefile.am b/Makefile.am
+index 8cf7ba7..04845a0 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -166,6 +166,7 @@ initdir = @initdir@
+ initconfigdir = $(sysconfdir)@initconfigdir@
+ instconfigdir = @instconfigdir@
+ perldir = $(libdir)@perldir@
++pythondir = $(libdir)@pythondir@
+ infdir = $(datadir)@infdir@
+ mibdir = $(datadir)@mibdir@
+ updatedir = $(datadir)@updatedir@
+@@ -250,9 +251,7 @@ config_DATA = $(srcdir)/lib/ldaputil/certmap.conf \
+ # with the default schema e.g. there is
+ # considerable overlap of 60changelog.ldif and 01common.ldif
+ # and 60inetmail.ldif and 50ns-mail.ldif among others
+-sampledata_DATA = ldap/admin/src/scripts/failedbinds.py \
+-	ldap/admin/src/scripts/DSSharedLib \
+-	ldap/admin/src/scripts/logregex.py \
++sampledata_DATA = ldap/admin/src/scripts/DSSharedLib \
+ 	$(srcdir)/ldap/ldif/Ace.ldif \
+ 	$(srcdir)/ldap/ldif/European.ldif \
+ 	$(srcdir)/ldap/ldif/Eurosuffix.ldif \
+@@ -404,6 +403,9 @@ perl_DATA = ldap/admin/src/scripts/SetupLog.pm \
+ 	ldap/admin/src/scripts/DSUpdate.pm \
+ 	ldap/admin/src/scripts/DSUpdateDialogs.pm
+ 
++python_DATA = ldap/admin/src/scripts/failedbinds.py \
++	ldap/admin/src/scripts/logregex.py
++
+ property_DATA = ldap/admin/src/scripts/setup-ds.res \
+ 	ldap/admin/src/scripts/migrate-ds.res
+ 
+diff --git a/configure.ac b/configure.ac
+index 2376b34..908683e 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -264,6 +264,8 @@ if test "$with_fhs_opt" = "yes"; then
+   propertydir=/properties
+   # relative to libdir
+   perldir=/perl
++  # relative to libdir
++  pythondir=/python
+ else
+   if test "$with_fhs" = "yes"; then
+     ac_default_prefix=/usr
+@@ -295,6 +297,8 @@ else
+   propertydir=/$PACKAGE_NAME/properties
+   # relative to libdir
+   perldir=/$PACKAGE_NAME/perl
++  # relative to libdir
++  pythondir=/$PACKAGE_NAME/python
+ fi
+ 
+ # if mandir is the default value, override it
+@@ -403,6 +407,7 @@ AC_SUBST(serverincdir)
+ AC_SUBST(serverplugindir)
+ AC_SUBST(scripttemplatedir)
+ AC_SUBST(perldir)
++AC_SUBST(pythondir)
+ AC_SUBST(infdir)
+ AC_SUBST(mibdir)
+ AC_SUBST(mandir)
+-- 
+1.8.1.4
+
