@@ -25,7 +25,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.1.6
-Release:          %{?relprefix}25%{?prerel}%{?dist}
+Release:          %{?relprefix}26%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -211,6 +211,7 @@ Patch93:          0094-Ticket-47735-e_uniqueid-fails-to-set-if-an-entry-is-.patc
 Patch94:          0095-Ticket-47739-directory-server-is-insecurely-misinter.patch
 Patch95:          0096-Ticket-47735-e_uniqueid-fails-to-set-if-an-entry-is-.patch
 Patch96:          0097-Ticket-47759-Crash-in-replication-when-server-is-und.patch
+Patch97:          0098-Bug-1123477-unauthenticated-information-disclosure.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -358,6 +359,7 @@ cp %{SOURCE2} README.devel
 %patch94 -p1
 %patch95 -p1
 %patch96 -p1
+%patch97 -p1
 
 %build
 %if %{use_openldap}
@@ -509,6 +511,11 @@ fi
 %{_libdir}/%{pkgname}/libns-dshttpd.so*
 
 %changelog
+* Mon Jul 28 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-26
+- release 1.3.1.6-26
+- Resolves: #1123864
+  EMBARGOED CVE-2014-3562 389-ds-base: 389-ds: unauthenticated information disclosure [rhel-7.0.z] (BZ 1123477)
+
 * Thu Mar 31 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-25
 - release 1.3.1.6-25
 - Resolves: bug 1082740 - ns-slapd crash in reliability 15
