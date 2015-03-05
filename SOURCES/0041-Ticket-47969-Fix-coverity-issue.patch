@@ -1,0 +1,36 @@
+From 64010b34bb2ca9c62c6cfff70ce406bcaacef8b0 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 8 Dec 2014 09:57:50 -0500
+Subject: [PATCH 41/53] Ticket 47969 - Fix coverity issue
+
+Description: Fix coverity issue 12948 & 12949 (NULL pointer dereference)
+
+https://fedorahosted.org/389/ticket/47969
+
+Reviewed by: mreynolds
+
+(cherry picked from commit 1553b665bfecbbccd54c439442d9a22c5d35d4a1)
+(cherry picked from commit af163d345b4524c121296626cb2e9da26d6d061e)
+---
+ ldap/servers/plugins/cos/cos_cache.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/plugins/cos/cos_cache.c b/ldap/servers/plugins/cos/cos_cache.c
+index fd163f9..a74389d 100644
+--- a/ldap/servers/plugins/cos/cos_cache.c
++++ b/ldap/servers/plugins/cos/cos_cache.c
+@@ -1863,9 +1863,9 @@ static void cos_cache_del_schema(cosCache *pCache)
+ 				cos_cache_del_attrval_list(&(pCache->ppAttrIndex[attr_index]->pObjectclasses));
+ 			}
+ 		}
++		/* Finally, remove the first attribute's objectclass list */
++		cos_cache_del_attrval_list(&(pCache->ppAttrIndex[0]->pObjectclasses));
+ 	}
+-	/* Finally, remove the first attribute's objectclass list */
+-	cos_cache_del_attrval_list(&(pCache->ppAttrIndex[0]->pObjectclasses));
+ 
+ 	LDAPDebug( LDAP_DEBUG_TRACE, "<-- cos_cache_del_schema\n",0,0,0);
+ }
+-- 
+1.9.3
+

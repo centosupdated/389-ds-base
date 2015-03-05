@@ -1,0 +1,72 @@
+From 1ccde69d778878e331311839d1c5d6be0bbfad26 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Mon, 22 Sep 2014 14:34:58 -0700
+Subject: [PATCH 09/14] Ticket #47750 - Creating a glue fails if one above
+ level is a conflict or missing
+
+Description: Poring changes made to 1.2.11 branch to newer versions.
+1) Enabiling cache lock in cache_is_in_cache and cache_has_otherref.
+2) Removing unused field new_entry_in_cache from "struct _modify_context".
+
+(cherry picked from commit 5ae13072330e9a769a5949b2e8a91085b38ac4e1)
+(cherry picked from commit ef766784ed7d09aa81e82316b621e8490a368dc6)
+---
+ ldap/servers/slapd/back-ldbm/back-ldbm.h |  1 -
+ ldap/servers/slapd/back-ldbm/cache.c     | 10 ++++++----
+ 2 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/back-ldbm.h b/ldap/servers/slapd/back-ldbm/back-ldbm.h
+index 938d261..fd17453 100644
+--- a/ldap/servers/slapd/back-ldbm/back-ldbm.h
++++ b/ldap/servers/slapd/back-ldbm/back-ldbm.h
+@@ -705,7 +705,6 @@ typedef struct _import_subcount_stuff import_subcount_stuff;
+ /* Handy structures for modify operations */
+ 
+ struct _modify_context {
+-	int new_entry_in_cache;
+ 	struct backentry *old_entry;
+ 	struct backentry *new_entry;
+ 	Slapi_Mods *smods;
+diff --git a/ldap/servers/slapd/back-ldbm/cache.c b/ldap/servers/slapd/back-ldbm/cache.c
+index a98cf0c..4746204 100644
+--- a/ldap/servers/slapd/back-ldbm/cache.c
++++ b/ldap/servers/slapd/back-ldbm/cache.c
+@@ -1506,10 +1506,12 @@ int cache_add_tentative(struct cache *cache, struct backentry *e,
+ {
+     return entrycache_add_int(cache, e, ENTRY_STATE_CREATING, alt);
+ }
++
+ void cache_lock(struct cache *cache)
+ {
+     PR_EnterMonitor(cache->c_mutex);
+ }
++
+ void cache_unlock(struct cache *cache)
+ {
+     PR_ExitMonitor(cache->c_mutex);
+@@ -2095,9 +2097,9 @@ cache_has_otherref(struct cache *cache, void *ptr)
+         return hasref;
+     }
+     bep = (struct backcommon *)ptr;
+-    /* slows down too much? PR_Lock(cache->c_mutex); */
++    cache_lock(cache);
+     hasref = bep->ep_refcnt;
+-    /* PR_Unlock(cache->c_mutex); */
++    cache_unlock(cache);
+     return (hasref>1)?1:0;
+ }
+ 
+@@ -2111,8 +2113,8 @@ cache_is_in_cache(struct cache *cache, void *ptr)
+         return in_cache;
+     }
+     bep = (struct backcommon *)ptr;
+-    /* slows down too much? PR_Lock(cache->c_mutex); */
++    cache_lock(cache);
+     in_cache = (bep->ep_state & (ENTRY_STATE_DELETED|ENTRY_STATE_NOTINCACHE))?0:1;
+-    /* PR_Unlock(cache->c_mutex); */
++    cache_unlock(cache);
+     return in_cache;
+ }
+-- 
+1.9.3
+

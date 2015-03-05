@@ -1,0 +1,26 @@
+From 841e1bb9dc9ae1e5ab0897a339f647baaf51524e Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Wed, 17 Dec 2014 19:54:33 +0100
+Subject: [PATCH 35/53] fix jenkins warning
+
+(cherry picked from commit 4760dc6c66249a793c8485a23c147954265f6fd3)
+---
+ ldap/servers/plugins/memberof/memberof.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/memberof/memberof.c b/ldap/servers/plugins/memberof/memberof.c
+index 80b52ab..ce48f01 100644
+--- a/ldap/servers/plugins/memberof/memberof.c
++++ b/ldap/servers/plugins/memberof/memberof.c
+@@ -921,7 +921,7 @@ int memberof_postop_modrdn(Slapi_PBlock *pb)
+ 					} 
+ 				if(ret == LDAP_SUCCESS) {
+ 						memberof_del_dn_data del_data = {0, configCopy.memberof_attr};
+-						if(ret = memberof_del_dn_type_callback(post_e, &del_data)){
++						if((ret = memberof_del_dn_type_callback(post_e, &del_data))){
+ 							slapi_log_error( SLAPI_LOG_FATAL, MEMBEROF_PLUGIN_SUBSYSTEM,
+ 								"memberof_postop_modrdn - delete dn callback failed for (%s), error (%d)\n",
+ 								slapi_entry_get_dn(post_e), ret);
+-- 
+1.9.3
+

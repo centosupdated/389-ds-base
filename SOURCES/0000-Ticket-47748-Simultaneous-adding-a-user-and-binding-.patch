@@ -1,0 +1,73 @@
+From dc2157e3a4b04b522147a86477bbd974a9c0b63a Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 9 Sep 2014 12:45:58 -0700
+Subject: [PATCH 0/7] Ticket #47748 - Simultaneous adding a user and binding as
+ the user could fail in the password policy check
+
+Description: commit 4fc53e1a63222d0ff67c30a59f2cff4b535f90a8 fix for
+Ticket #47748 introduced a bug: "Simple bind hangs after enabling
+password policy".
+
+In do_bind, slapi_check_account_lock and need_new_pw overwrote the
+return code from backend bind which is used later. This patch fixes
+it not to override the return code.
+
+https://fedorahosted.org/389/ticket/47748
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit 4f11606b02419c8ccdb319b8040e683af9109d1b)
+(cherry picked from commit 8c82941c0f2b0b5d7fa698a1ca3e4f26245cf85a)
+---
+ ldap/servers/slapd/bind.c | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/ldap/servers/slapd/bind.c b/ldap/servers/slapd/bind.c
+index 58a4e13..bc4aa24 100644
+--- a/ldap/servers/slapd/bind.c
++++ b/ldap/servers/slapd/bind.c
+@@ -769,6 +769,7 @@ do_bind( Slapi_PBlock *pb )
+                 }
+ 
+                 if ( rc == SLAPI_BIND_SUCCESS ) {
++                    int myrc = 0;
+                     if (!auto_bind) {
+                         /* 
+                          * There could be a race that bind_target_entry was not added 
+@@ -779,9 +780,9 @@ do_bind( Slapi_PBlock *pb )
+                         if (!bind_target_entry) {
+                             bind_target_entry = get_entry(pb, slapi_sdn_get_ndn(sdn));
+                             if (bind_target_entry) {
+-                                rc = slapi_check_account_lock(pb, bind_target_entry,
++                                myrc = slapi_check_account_lock(pb, bind_target_entry,
+                                                               pw_response_requested, 1, 1);
+-                                if (1 == rc) { /* account is locked */
++                                if (1 == myrc) { /* account is locked */
+                                     goto account_locked;
+                                 }
+                             } else {
+@@ -795,8 +796,8 @@ do_bind( Slapi_PBlock *pb )
+                         if (!slapi_be_is_flag_set(be, SLAPI_BE_FLAG_REMOTE_DATA)) {
+                             /* check if need new password before sending 
+                                the bind success result */
+-                            rc = need_new_pw(pb, &t, bind_target_entry, pw_response_requested);
+-                            switch (rc) {
++                            myrc = need_new_pw(pb, &t, bind_target_entry, pw_response_requested);
++                            switch (myrc) {
+                             case 1:
+                                 (void)slapi_add_pwd_control(pb, LDAP_CONTROL_PWEXPIRED, 0);
+                                 break;
+@@ -811,8 +812,8 @@ do_bind( Slapi_PBlock *pb )
+                     if (auth_response_requested) {
+                         slapi_add_auth_response_control(pb, slapi_sdn_get_ndn(sdn));
+                     }
+-                    if (-1 == rc) {
+-                        /* neeed_new_pw failed; need_new_pw already send_ldap_result in it. */
++                    if (-1 == myrc) {
++                        /* need_new_pw failed; need_new_pw already send_ldap_result in it. */
+                         goto free_and_return;
+                     } 
+                 } else {	/* anonymous */
+-- 
+1.9.3
+

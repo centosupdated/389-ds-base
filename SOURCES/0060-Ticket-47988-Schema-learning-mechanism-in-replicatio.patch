@@ -1,0 +1,45 @@
+From 602e9ef126808491be5d33d9c4faa9c86e63730a Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Sun, 25 Jan 2015 22:05:12 -0800
+Subject: [PATCH] Ticket 47988: Schema learning mechanism, in replication,
+ unable to extend an existing definition
+
+Description: Covscan FORWARD_NULL fix introduced by commit
+commit 51e05df9c37c66206041f026c9a67ec17bc9ea4a
+
+1. ldap/servers/slapd/schema.c:2490: var_deref_op: Dereferencing null pointer "mod->mod_vals.modv_bvals".
+2. ldap/servers/slapd/schema.c:2603: var_deref_op: Dereferencing null pointer "mod->mod_vals.modv_bvals".
+
+Added NULL check on mod->mod_bvalues to the for loop stop condition.
+
+(cherry picked from commit cfa8e4daef9253df0bd8a348f302299bda16b37c)
+(cherry picked from commit 1e2bf2b1ee6cd4c08a171edfedb10ee6bb1c3420)
+---
+ ldap/servers/slapd/schema.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/slapd/schema.c b/ldap/servers/slapd/schema.c
+index 05329a6..a251aa7 100644
+--- a/ldap/servers/slapd/schema.c
++++ b/ldap/servers/slapd/schema.c
+@@ -2487,7 +2487,7 @@ schema_delete_objectclasses( Slapi_Entry *entryBefore, LDAPMod *mod,
+ 	}
+   }
+ 
+-  for (i = 0; mod->mod_bvalues[i]; i++) {
++  for (i = 0; mod->mod_bvalues && mod->mod_bvalues[i]; i++) {
+ 	if ( LDAP_SUCCESS != ( rc = parse_oc_str (
+ 				(const char *)mod->mod_bvalues[i]->bv_val, &delete_oc,
+ 				errorbuf, errorbufsize, 0, 0, schema_ds4x_compat, NULL))) {
+@@ -2600,7 +2600,7 @@ schema_delete_attributes ( Slapi_Entry *entryBefore, LDAPMod *mod,
+ 	  }
+   }
+ 
+-  for (i = 0; mod->mod_bvalues[i]; i++) {
++  for (i = 0; mod->mod_bvalues && mod->mod_bvalues[i]; i++) {
+ 	attr_ldif =(char *)  mod->mod_bvalues[i]->bv_val;
+ 
+ 	/* normalize the attr ldif */
+-- 
+1.9.3
+

@@ -1,0 +1,70 @@
+From 5907e7902b3d586d6ce534c542728bd9d153f575 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Fri, 16 Jan 2015 16:28:06 -0800
+Subject: [PATCH 57/59] Ticket #47989 - Windows Sync accidentally cleared
+ raw_entry
+
+Description: raw_entry in the private area in Windows Agreement stores
+raw_entry that is un-schema processed last entry read from AD.
+The pointer was cleared before it is being accessed by the Plug-ins that
+call Windows Sync API, e.g., Posix Sync.  The bug was introduced by
+commit f6397113666f06848412bb12f754f04258cfa5fa.
+
+This patch removed the raw_entry cleanup code in windows_search_entry_ext.
+And in case the raw_entry is NULL, pass remote_entry for the AD entry.
+
+https://fedorahosted.org/389/ticket/47989
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit 3305a6b849f79a9684799bec4cc155c7147daea6)
+(cherry picked from commit f6d8b2ec3dee5760826892f522c0f1e1989f9fcb)
+---
+ ldap/servers/plugins/replication/windows_connection.c    | 4 ----
+ ldap/servers/plugins/replication/windows_protocol_util.c | 8 ++++++--
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/windows_connection.c b/ldap/servers/plugins/replication/windows_connection.c
+index e78c367..317386b 100644
+--- a/ldap/servers/plugins/replication/windows_connection.c
++++ b/ldap/servers/plugins/replication/windows_connection.c
+@@ -814,10 +814,6 @@ next:
+ 		slapi_ch_free_string(&filter_copy);
+ 		ldap_controls_free(serverctrls_copy);
+ 		serverctrls_copy = NULL;
+-
+-		/* clear it here in case the search fails and
+-		   we are left with a bogus old entry */
+-		windows_private_set_raw_entry(conn->agmt, NULL);
+ 		conn->last_ldap_error = ldap_rc;
+ 		if (NULL != res)
+ 		{
+diff --git a/ldap/servers/plugins/replication/windows_protocol_util.c b/ldap/servers/plugins/replication/windows_protocol_util.c
+index c424590..dabc936 100644
+--- a/ldap/servers/plugins/replication/windows_protocol_util.c
++++ b/ldap/servers/plugins/replication/windows_protocol_util.c
+@@ -1689,7 +1689,9 @@ windows_replay_update(Private_Repl_Protocol *prp, slapi_operation_parameters *op
+ 			windows_map_mods_for_replay(prp,op->p.p_modify.modify_mods, &mapped_mods, is_user, &password);
+ 			if (is_user) {
+ 				winsync_plugin_call_pre_ad_mod_user_mods_cb(prp->agmt,
+-				                                            windows_private_get_raw_entry(prp->agmt),
++				                                            windows_private_get_raw_entry(prp->agmt)?
++				                                            windows_private_get_raw_entry(prp->agmt):
++				                                            remote_entry,
+ 				                                            local_dn,
+ 				                                            local_entry,
+ 				                                            op->p.p_modify.modify_mods,
+@@ -1697,7 +1699,9 @@ windows_replay_update(Private_Repl_Protocol *prp, slapi_operation_parameters *op
+ 				                                            &mapped_mods);
+ 			} else if (is_group) {
+ 				winsync_plugin_call_pre_ad_mod_group_mods_cb(prp->agmt,
+-				                                            windows_private_get_raw_entry(prp->agmt),
++				                                            windows_private_get_raw_entry(prp->agmt)?
++				                                            windows_private_get_raw_entry(prp->agmt):
++				                                            remote_entry,
+ 				                                            local_dn,
+ 				                                            local_entry,
+ 				                                            op->p.p_modify.modify_mods,
+-- 
+1.9.3
+

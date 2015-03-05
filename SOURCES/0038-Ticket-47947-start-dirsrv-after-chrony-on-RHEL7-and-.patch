@@ -1,0 +1,37 @@
+From 30877169647515a43ae9a1a7a1873e890c7798cc Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 16 Dec 2014 13:42:56 -0800
+Subject: [PATCH 38/53] Ticket #47947 - start dirsrv after chrony on RHEL7 and
+ Fedora
+
+Description: After=chronyd.service to systemd.template.service.in,
+which is installed as this file:
+    /usr/lib/systemd/system/dirsrv@.service
+and pointed by each server's service file:
+    /etc/systemd/system/dirsrv.target.wants/dirsrv@YOURID.service
+
+https://fedorahosted.org/389/ticket/47947
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!!)
+
+(cherry picked from commit c3389a46c584fa39b2278a295f8b2b6dad726d31)
+(cherry picked from commit 6e4e21ff010041eb636cc06b23bb3ed0de78ef1d)
+---
+ wrappers/systemd.template.service.in | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/wrappers/systemd.template.service.in b/wrappers/systemd.template.service.in
+index 42c7c23..9432cb0 100644
+--- a/wrappers/systemd.template.service.in
++++ b/wrappers/systemd.template.service.in
+@@ -15,6 +15,7 @@
+ [Unit]
+ Description=@capbrand@ Directory Server %i.
+ PartOf=@systemdgroupname@
++After=chronyd.service
+ 
+ [Service]
+ Type=forking
+-- 
+1.9.3
+

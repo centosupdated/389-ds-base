@@ -1,0 +1,251 @@
+From 254ba1f6adf1575f5992ccc1a228ecd10ce96cc5 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Fri, 12 Dec 2014 15:41:36 -0800
+Subject: [PATCH 45/53] Ticket #47960 - cookie_change_info returns random
+ negative number if there was no change in a tree
+
+Description: An additional fix for the type mismatch for the change
+numbers.  Change Number is declared as "unsigned long" in the Retro
+Changelog plugin, while cookie_change_info in the Content Sync plugin
+is "int", which could end up with a negative number when the change
+number passes (2^31 - 1).
+
+Changing the type of cookie_change_info to "unsigned long".
+
+https://fedorahosted.org/389/ticket/47960
+
+Reviewed by rmeggins@redhat.com and tbordaz@redhat.com (Thank you,
+Rich and Thierry!!)
+
+(cherry picked from commit 96c130b432ce0b15028e325c0e337679291aef9f)
+(cherry picked from commit 61a4e7035742612a1a8bf42b16e93cc55776dc31)
+---
+ ldap/servers/plugins/sync/sync.h         |  9 +++--
+ ldap/servers/plugins/sync/sync_refresh.c | 32 +++++++++++++-----
+ ldap/servers/plugins/sync/sync_util.c    | 56 ++++++++++++++++++++------------
+ 3 files changed, 65 insertions(+), 32 deletions(-)
+
+diff --git a/ldap/servers/plugins/sync/sync.h b/ldap/servers/plugins/sync/sync.h
+index 0bcec7a..803c656 100644
+--- a/ldap/servers/plugins/sync/sync.h
++++ b/ldap/servers/plugins/sync/sync.h
+@@ -64,10 +64,12 @@
+ #define CL_ATTR_NEWSUPERIOR "newsuperior"
+ #define CL_SRCH_BASE "cn=changelog"
+ 
++#define SYNC_INVALID_CHANGENUM ((unsigned long)-1)
++
+ typedef struct sync_cookie {
+ 	char *cookie_client_signature;
+ 	char *cookie_server_signature;
+-	int cookie_change_info;
++	unsigned long cookie_change_info;
+ } Sync_Cookie;
+ 
+ typedef struct sync_update {
+@@ -80,8 +82,8 @@ typedef struct sync_update {
+ 
+ typedef struct sync_callback {
+ 	Slapi_PBlock *orig_pb;
+-	int changenr;
+-	int change_start;
++	unsigned long changenr;
++	unsigned long change_start;
+ 	int cb_err;
+ 	Sync_UpdateNode *cb_updates;
+ } Sync_CallBackData;
+@@ -112,6 +114,7 @@ int sync_cookie_isvalid (Sync_Cookie *testcookie, Sync_Cookie *refcookie);
+ void sync_cookie_free (Sync_Cookie **freecookie);
+ char * sync_cookie2str(Sync_Cookie *cookie);
+ int sync_number2int(char *nrstr);
++unsigned long sync_number2ulong(char *nrstr);
+ char *sync_nsuniqueid2uuid(const char *nsuniqueid);
+ 
+ int sync_is_active (Slapi_Entry *e, Slapi_PBlock *pb);
+diff --git a/ldap/servers/plugins/sync/sync_refresh.c b/ldap/servers/plugins/sync/sync_refresh.c
+index 4e256e6..bfff77b 100644
+--- a/ldap/servers/plugins/sync/sync_refresh.c
++++ b/ldap/servers/plugins/sync/sync_refresh.c
+@@ -293,9 +293,9 @@ sync_refresh_update_content(Slapi_PBlock *pb, Sync_Cookie *client_cookie, Sync_C
+ 	cb_data.orig_pb = pb;
+ 	cb_data.change_start = client_cookie->cookie_change_info;
+ 
+-	filter = slapi_ch_smprintf("(&(changenumber>=%d)(changenumber<=%d))",
+-					client_cookie->cookie_change_info,
+-					server_cookie->cookie_change_info);
++	filter = slapi_ch_smprintf("(&(changenumber>=%lu)(changenumber<=%lu))",
++	                           client_cookie->cookie_change_info,
++	                           server_cookie->cookie_change_info);
+ 	slapi_search_internal_set_pb(
+ 		seq_pb, 
+ 		CL_SRCH_BASE,
+@@ -305,7 +305,7 @@ sync_refresh_update_content(Slapi_PBlock *pb, Sync_Cookie *client_cookie, Sync_C
+ 		0,
+ 		NULL, NULL, 
+ 		plugin_get_default_component_id(),
+-		0);							  
++		0);
+ 
+ 	rc = slapi_search_internal_callback_pb (
+ 		seq_pb, &cb_data, NULL, sync_read_entry_from_changelog, NULL);
+@@ -460,6 +460,7 @@ sync_read_entry_from_changelog( Slapi_Entry *cl_entry, void *cb_data)
+ 	int chg_req;
+ 	int prev = 0;
+ 	int index = 0;
++	unsigned long chgnum = 0;
+ 	Sync_CallBackData *cb = (Sync_CallBackData *) cb_data;
+ 
+ 	if (cb == NULL) {
+@@ -470,13 +471,28 @@ sync_read_entry_from_changelog( Slapi_Entry *cl_entry, void *cb_data)
+ 	if (uniqueid == NULL) {
+ 		slapi_log_error (SLAPI_LOG_FATAL, SYNC_PLUGIN_SUBSYSTEM, 
+ 			"Retro Changelog does not provied nsuniquedid."
+-			"Check RCL plugin configuration." );
++			"Check RCL plugin configuration.\n" );
+ 		return(1);
+ 	}
+-	chgtype = sync_get_attr_value_from_entry (cl_entry, CL_ATTR_CHGTYPE);
+ 	chgnr = sync_get_attr_value_from_entry (cl_entry, CL_ATTR_CHANGENUMBER);
+-
+-	index = sync_number2int(chgnr) - cb->change_start;
++	chgnum = sync_number2ulong(chgnr);
++	if (SYNC_INVALID_CHANGENUM == chgnum) {
++		slapi_log_error (SLAPI_LOG_FATAL, SYNC_PLUGIN_SUBSYSTEM, 
++			"Change number provided by Retro Changelog is invalid: %s\n", chgnr);
++		slapi_ch_free_string(&chgnr);
++		slapi_ch_free_string(&uniqueid);
++		return(1);
++	}
++	if (chgnum < cb->change_start) {
++		slapi_log_error (SLAPI_LOG_FATAL, SYNC_PLUGIN_SUBSYSTEM, 
++			"Change number provided by Retro Changelog %s is less than the initial number %lu\n",
++			chgnr, cb->change_start);
++		slapi_ch_free_string(&chgnr);
++		slapi_ch_free_string(&uniqueid);
++		return(1);
++	}
++	index = chgnum - cb->change_start;
++	chgtype = sync_get_attr_value_from_entry (cl_entry, CL_ATTR_CHGTYPE);
+ 	chg_req = sync_str2chgreq(chgtype);
+ 	switch (chg_req){ 
+ 		case LDAP_REQ_ADD:
+diff --git a/ldap/servers/plugins/sync/sync_util.c b/ldap/servers/plugins/sync/sync_util.c
+index af22bcb..67cb453 100644
+--- a/ldap/servers/plugins/sync/sync_util.c
++++ b/ldap/servers/plugins/sync/sync_util.c
+@@ -266,10 +266,10 @@ sync_cookie2str(Sync_Cookie *cookie)
+ 	char *cookiestr = NULL;
+ 
+ 	if (cookie) {
+-		cookiestr = slapi_ch_smprintf("%s#%s#%d",
+-				cookie->cookie_server_signature,
+-				cookie->cookie_client_signature,
+-				cookie->cookie_change_info);
++		cookiestr = slapi_ch_smprintf("%s#%s#%lu",
++		                               cookie->cookie_server_signature,
++		                               cookie->cookie_client_signature,
++		                               cookie->cookie_change_info);
+ 	}
+ 	return(cookiestr);
+ }
+@@ -370,10 +370,11 @@ sync_handle_cnum_entry(Slapi_Entry *e, void *cb_data)
+ 			slapi_attr_first_value( chattr,&sval );
+ 			if ( NULL != sval ) {
+ 				value = slapi_value_get_berval ( sval );
+-				if( NULL != value && NULL != value->bv_val &&
+-					'\0' != value->bv_val[0]) {
+-					cb->changenr = sync_number2int(value->bv_val);
+-					cb->cb_err = 0; /* changenr successfully set */
++				if (value && value->bv_val && ('\0' != value->bv_val[0])) {
++					cb->changenr = sync_number2ulong(value->bv_val);
++					if (SYNC_INVALID_CHANGENUM != cb->changenr) {
++						cb->cb_err = 0; /* changenr successfully set */
++					}
+ 				}
+ 			}
+ 		}
+@@ -452,31 +453,30 @@ sync_cookie_get_client_info(Slapi_PBlock *pb)
+ 	clientinfo = slapi_ch_smprintf("%s:%s:%s",clientdn,targetdn,strfilter);
+ 	return (clientinfo);
+ }
+-static int
++static unsigned long
+ sync_cookie_get_change_number(int lastnr, const char *uniqueid)
+ {
+ 	Slapi_PBlock *srch_pb;
+ 	Slapi_Entry **entries;
+ 	Slapi_Entry *cl_entry;
+ 	int rv;
+-	int newnr = -1;
++	unsigned long newnr = SYNC_INVALID_CHANGENUM;
+ 	char *filter = slapi_ch_smprintf("(&(changenumber>=%d)(targetuniqueid=%s))",lastnr,uniqueid);
+ 
+ 	srch_pb = slapi_pblock_new();
+-    	slapi_search_internal_set_pb(srch_pb, CL_SRCH_BASE,
+-           				LDAP_SCOPE_SUBTREE, filter,
+-            				NULL, 0, NULL, NULL, plugin_get_default_component_id(), 0);
+- 	slapi_search_internal_pb(srch_pb);
++	slapi_search_internal_set_pb(srch_pb, CL_SRCH_BASE, LDAP_SCOPE_SUBTREE, filter,
++	                             NULL, 0, NULL, NULL, plugin_get_default_component_id(), 0);
++	slapi_search_internal_pb(srch_pb);
+ 	slapi_pblock_get(srch_pb, SLAPI_PLUGIN_INTOP_RESULT, &rv);
+-	if ( rv == LDAP_SUCCESS) {
++	if (rv == LDAP_SUCCESS) {
+ 		slapi_pblock_get(srch_pb, SLAPI_PLUGIN_INTOP_SEARCH_ENTRIES, &entries);
+-    		if (entries && *entries) {
++		if (entries && *entries) {
+ 			Slapi_Attr *attr;
+ 			Slapi_Value *val;
+ 			cl_entry = *entries; /* only use teh first one */
+ 			slapi_entry_attr_find(cl_entry, CL_ATTR_CHANGENUMBER, &attr);
+ 			slapi_attr_first_value(attr, &val);
+-			newnr = sync_number2int((char *)slapi_value_get_string(val));
++			newnr = sync_number2ulong((char *)slapi_value_get_string(val));
+ 		}
+ 	}
+ 
+@@ -579,8 +579,8 @@ sync_cookie_parse (char *cookie)
+ 		if (p) {
+ 			*p = '\0';
+ 			sc->cookie_client_signature = slapi_ch_strdup(q);
+-			sc->cookie_change_info = sync_number2int(p+1);
+-			if (sc->cookie_change_info < 0) {
++			sc->cookie_change_info = sync_number2ulong(p+1);
++			if (SYNC_INVALID_CHANGENUM == sc->cookie_change_info) {
+ 				goto error_return;
+ 			}
+ 		} else {
+@@ -716,14 +716,28 @@ sync_pblock_copy(Slapi_PBlock *src)
+ 	return dest;
+ }
+ 
+-int sync_number2int(char *chgnrstr)
++int
++sync_number2int(char *chgnrstr)
+ {
+ 	char *end;
+ 	int nr;
+-	nr = strtoul(chgnrstr, &end, 10);
++	nr = (int)strtoul(chgnrstr, &end, 10);
+ 	if ( *end == '\0') {
+ 		return (nr);
+ 	} else {
+ 		return (-1);
+ 	}
+ }
++
++unsigned long
++sync_number2ulong(char *chgnrstr)
++{
++	char *end;
++	unsigned long nr;
++	nr = strtoul(chgnrstr, &end, 10);
++	if ( *end == '\0') {
++		return (nr);
++	} else {
++		return SYNC_INVALID_CHANGENUM;
++	}
++}
+-- 
+1.9.3
+

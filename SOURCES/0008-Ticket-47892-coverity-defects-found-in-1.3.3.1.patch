@@ -1,0 +1,194 @@
+From 80ee43bf0f6ad4a8702f0695b9294a3797483ebe Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Fri, 12 Sep 2014 13:11:26 -0600
+Subject: [PATCH] Ticket #47892 coverity defects found in 1.3.3.1
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+https://fedorahosted.org/389/ticket/47892
+Reviewed by: mreynolds, nkinder (Thanks!)
+Branch: rhel-7.1
+Fix Description:
+9. 389-ds-base-1.3.3.1/ldap/servers/plugins/memberof/memberof.c:2079:var_compare_op – Comparing "group_norm_vals" to null implies that "group_norm_vals" might be null.
+11. 389-ds-base-1.3.3.1/ldap/servers/plugins/memberof/memberof.c:2099:var_deref_model – Passing null pointer "group_norm_vals" to function "slapi_valueset_add_value_ext(Slapi_ValueSet *, Slapi_Value const *, unsigned long)", which dereferences it.
+12. 389-ds-base-1.3.3.1/ldap/servers/slapd/valueset.c:896:2:deref_parm_in_call – Function "slapi_valueset_add_attr_valuearray_ext(Slapi_Attr const *, Slapi_ValueSet *, Slapi_Value **, int, unsigned long, int *)" dereferences "vs".
+15. 389-ds-base-1.3.3.1/ldap/servers/slapd/valueset.c:1075:2:deref_parm – Directly dereferencing parameter "vs".
+
+Added a check for group_norm_vals == NULL at beginning of function.  I think this had a chain effect causing 11, 12, and 15 as well.
+
+various - deprecated conversion from string constant - added const_cast<char *> as recommended by C++ guides.
+
+2. 389-ds-base-1.3.3.1/ldap/servers/slapd/back-ldbm/ldif2ldbm.c:2198:78:warning – 'j' may be used uninitialized in this function [-Wmaybe-uninitialized]
+
+Should have been using SLAPI_ATTR_TOMBSTONE_CSN
+
+2. 389-ds-base-1.3.3.1/ldap/servers/plugins/acl/aclparse.c:538:28:warning – 'is_target_to' may be used uninitialized in this function [-Wmaybe-uninitialized]
+
+2. 389-ds-base-1.3.3.1/ldap/servers/plugins/acl/acl.c:2493:26:warning – 'attrFilterArray' may be used uninitialized in this function [-Wmaybe-uninitialized]
+
+These are false positives.
+
+The minor memleaks were also fixed.
+
+Platforms tested: Fedora 20
+Flag Day: no
+Doc impact: no
+
+(cherry picked from commit 66e43aee7151acf6939b1a646eb869c7ccf0f7a4)
+(cherry picked from commit 6dc23ec794cd5644a40c223e7b66066f195d8d7d)
+---
+ ldap/servers/plugins/memberof/memberof.c     |  6 +++---
+ ldap/servers/slapd/back-ldbm/ldif2ldbm.c     |  2 +-
+ ldap/servers/slapd/tools/ldif.c              |  5 ++++-
+ ldap/servers/slapd/tools/rsearch/nametable.c |  1 +
+ lib/base/pool.cpp                            | 10 +++++-----
+ lib/libaccess/aclcache.cpp                   |  2 +-
+ 6 files changed, 15 insertions(+), 11 deletions(-)
+
+diff --git a/ldap/servers/plugins/memberof/memberof.c b/ldap/servers/plugins/memberof/memberof.c
+index 6549718..bd87ee9 100644
+--- a/ldap/servers/plugins/memberof/memberof.c
++++ b/ldap/servers/plugins/memberof/memberof.c
+@@ -2044,10 +2044,10 @@ int memberof_get_groups_callback(Slapi_Entry *e, void *callback_data)
+ 		goto bail;
+ 	}
+ 
+-	if (!groupvals)
++	if (!groupvals || !group_norm_vals)
+ 	{
+ 		slapi_log_error( SLAPI_LOG_PLUGIN, MEMBEROF_PLUGIN_SUBSYSTEM,
+-			"memberof_get_groups_callback: NULL groupvals\n");
++			"memberof_get_groups_callback: NULL groupvals or group_norm_vals\n");
+ 		rc = -1;
+ 		goto bail;
+ 
+@@ -2076,7 +2076,7 @@ int memberof_get_groups_callback(Slapi_Entry *e, void *callback_data)
+ 	 * in config.  We only need this attribute for it's syntax so the comparison can be
+ 	 * performed.  Since all of the grouping attributes are validated to use the Dinstinguished
+ 	 * Name syntax, we can safely just use the first group_slapiattr. */
+-	if (group_norm_vals && slapi_valueset_find(
++	if (slapi_valueset_find(
+ 		((memberof_get_groups_data*)callback_data)->config->group_slapiattrs[0], group_norm_vals, group_ndn_val))
+ 	{
+ 		/* we either hit a recursive grouping, or an entry is
+diff --git a/ldap/servers/slapd/back-ldbm/ldif2ldbm.c b/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
+index ab3a4a5..523da09 100644
+--- a/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
++++ b/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
+@@ -2195,7 +2195,7 @@ ldbm_back_ldbm2index(Slapi_PBlock *pb)
+                         if (task) {
+                             slapi_task_log_notice(task, "%s: ERROR: failed to begin txn for "
+                                                   "update index '%s' (err %d: %s)",
+-                                                  inst->inst_name, indexAttrs[j], rc,
++                                                  inst->inst_name, SLAPI_ATTR_TOMBSTONE_CSN, rc,
+                                                   dblayer_strerror(rc));
+                         }
+                         return_value = -2;
+diff --git a/ldap/servers/slapd/tools/ldif.c b/ldap/servers/slapd/tools/ldif.c
+index e8e6f9b..e4527ba 100644
+--- a/ldap/servers/slapd/tools/ldif.c
++++ b/ldap/servers/slapd/tools/ldif.c
+@@ -142,7 +142,8 @@ int main( int argc, char **argv )
+ 		}
+ 
+ 		if (( out = ldif_type_and_value( type, val, cur )) == NULL ) {
+-		    	perror( "ldif_type_and_value" );
++			perror( "ldif_type_and_value" );
++			free( val );
+ 			return( 1 );
+ 		}
+ 
+@@ -166,6 +167,7 @@ int main( int argc, char **argv )
+ 				maxlen *= 2;
+ 				if( (buf = (char *)realloc(buf, maxlen)) == NULL ) {
+ 					perror( "realloc" );
++					free( buf );
+ 					return( 1 );
+ 				}
+ 				(void)fgets(buf+curlen, maxlen/2 + 1, stdin);
+@@ -176,6 +178,7 @@ int main( int argc, char **argv )
+ 			if (( out = ldif_type_and_value( type, buf, strlen( buf ) ))
+ 				== NULL ) {
+ 				perror( "ldif_type_and_value" );
++				free( buf );
+ 				return( 1 );
+ 			}
+ 			fputs( out, stdout );
+diff --git a/ldap/servers/slapd/tools/rsearch/nametable.c b/ldap/servers/slapd/tools/rsearch/nametable.c
+index 03a6ae1..9d56a34 100644
+--- a/ldap/servers/slapd/tools/rsearch/nametable.c
++++ b/ldap/servers/slapd/tools/rsearch/nametable.c
+@@ -160,6 +160,7 @@ int nt_load(NameTable *nt, const char *filename)
+             free(s);
+             break;
+         }
++        free(s);
+     }
+     PR_Close(fd);
+     return nt->size;
+diff --git a/lib/base/pool.cpp b/lib/base/pool.cpp
+index 9ee1b8c..ab952d1 100644
+--- a/lib/base/pool.cpp
++++ b/lib/base/pool.cpp
+@@ -178,7 +178,7 @@ _create_block(int size)
+ 		crit_exit(freelist_lock);
+ 		if (((newblock = (block_t *)PERM_MALLOC(sizeof(block_t))) == NULL) || 
+ 		    ((newblock->data = (char *)PERM_MALLOC(bytes)) == NULL)) {
+-			ereport(LOG_CATASTROPHE, "%s", XP_GetAdminStr(DBT_poolCreateBlockOutOfMemory_));
++			ereport(LOG_CATASTROPHE, const_cast<char *>("%s"), XP_GetAdminStr(DBT_poolCreateBlockOutOfMemory_));
+ 			if (newblock)
+ 				PERM_FREE(newblock);
+ 			return NULL;
+@@ -259,7 +259,7 @@ pool_create()
+ 		}
+ 
+ 		if ( (newpool->curr_block =_create_block(BLOCK_SIZE)) == NULL) {
+-			ereport(LOG_CATASTROPHE, "%s", XP_GetAdminStr(DBT_poolCreateOutOfMemory_));
++			ereport(LOG_CATASTROPHE, const_cast<char *>("%s"), XP_GetAdminStr(DBT_poolCreateOutOfMemory_));
+ 			PERM_FREE(newpool);
+ 			return NULL;
+ 		}
+@@ -280,7 +280,7 @@ pool_create()
+ 		crit_exit(known_pools_lock);
+ 	}
+ 	else 
+-		ereport(LOG_CATASTROPHE, "%s", XP_GetAdminStr(DBT_poolCreateOutOfMemory_1));
++		ereport(LOG_CATASTROPHE, const_cast<char *>("%s"), XP_GetAdminStr(DBT_poolCreateOutOfMemory_1));
+ 
+ 	return (pool_handle_t *)newpool;
+ }
+@@ -386,7 +386,7 @@ pool_malloc(pool_handle_t *pool_handle, size_t size)
+ 		 */
+ 		blocksize = ( (size + BLOCK_SIZE-1) / BLOCK_SIZE ) * BLOCK_SIZE;
+ 		if ( (pool->curr_block = _create_block(blocksize)) == NULL) {
+-			ereport(LOG_CATASTROPHE, "%s", XP_GetAdminStr(DBT_poolMallocOutOfMemory_));
++			ereport(LOG_CATASTROPHE, const_cast<char *>("%s"), XP_GetAdminStr(DBT_poolMallocOutOfMemory_));
+ #ifdef POOL_LOCKING
+ 			crit_exit(pool->lock);
+ #endif
+@@ -408,7 +408,7 @@ pool_malloc(pool_handle_t *pool_handle, size_t size)
+ 
+ void _pool_free_error()
+ {
+-	ereport(LOG_WARN, "%s", XP_GetAdminStr(DBT_freeUsedWherePermFreeShouldHaveB_));
++	ereport(LOG_WARN, const_cast<char *>("%s"), XP_GetAdminStr(DBT_freeUsedWherePermFreeShouldHaveB_));
+ 
+ 	return;
+ }
+diff --git a/lib/libaccess/aclcache.cpp b/lib/libaccess/aclcache.cpp
+index 52e019b..a96b0c9 100644
+--- a/lib/libaccess/aclcache.cpp
++++ b/lib/libaccess/aclcache.cpp
+@@ -133,7 +133,7 @@ ACL_ListHashInit()
+ 				  &ACLPermAllocOps, 
+ 				  NULL);
+     if (ACLListHash == NULL) {
+-	ereport(LOG_SECURITY, "Unable to allocate ACL List Hash\n");
++	ereport(LOG_SECURITY, const_cast<char *>("Unable to allocate ACL List Hash\n"));
+ 	return;
+     }
+ 
+-- 
+1.9.3
+

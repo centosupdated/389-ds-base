@@ -1,0 +1,54 @@
+From 511ee2b326c8110678c34f66d1d043770afc5900 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 26 Nov 2014 16:23:00 -0500
+Subject: [PATCH 49/53] Ticket 47451 - Running a plugin task can crash the
+ server
+
+Bug Description:  When a plugin task completes it attempts to update a counter,
+                  but the wrong structure is accessed which can lead to a crash.
+
+Fix Description:  When creating a new task, make sure to store the plugin structure,
+                  not the pblock in the task structure.
+
+https://fedorahosted.org/389/ticket/47451
+
+Reviewed by: rmeggins(Thanks!)
+
+(cherry picked from commit 0e0848a8385463532d53db94c0c8cae912c30eb4)
+(cherry picked from commit d34b0ced2ed3ed81c6c487e90d4c372939da4677)
+---
+ ldap/servers/slapd/task.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/task.c b/ldap/servers/slapd/task.c
+index 006ae53..b1f7652 100644
+--- a/ldap/servers/slapd/task.c
++++ b/ldap/servers/slapd/task.c
+@@ -131,9 +131,9 @@ slapi_new_task(const char *dn)
+ }
+ 
+ Slapi_Task *
+-slapi_plugin_new_task(const char *dn, void *plugin)
++slapi_plugin_new_task(const char *dn, void *plugin_pb)
+ {
+-    return new_task(dn, plugin);
++    return new_task(dn, plugin_pb);
+ }
+ 
+ /* slapi_destroy_task: destroy a task
+@@ -583,9 +583,11 @@ void slapi_task_set_cancel_fn(Slapi_Task *task, TaskCallbackFn func)
+  ***********************************/
+ /* create a new task, fill in DN, and setup modify callback */
+ static Slapi_Task *
+-new_task(const char *rawdn, void *plugin)
++new_task(const char *rawdn, void *plugin_pb)
+ {
+     Slapi_Task *task = NULL;
++    Slapi_PBlock *pb = (Slapi_PBlock *)plugin_pb;
++    void *plugin = pb ? pb->pb_plugin : NULL;
+     char *dn = NULL;
+ 
+     if (rawdn == NULL) {
+-- 
+1.9.3
+

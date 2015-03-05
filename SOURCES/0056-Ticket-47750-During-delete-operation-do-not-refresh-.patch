@@ -1,0 +1,50 @@
+From 6649bbb2900841a101ab60ef43d55742ee3abb9a Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 18 Dec 2014 09:08:52 -0500
+Subject: [PATCH] Ticket 47750 - During delete operation do not refresh cache
+ entry if it is a tombstone
+
+Bug Description:  After calling the betxn postop plugins do not attempt to refresh the
+                  entry if it was converted to a tombstone.  A tombstone entry does
+                  not have its entry mutex allocated, and it will be dereferenced.
+
+Fix Description:  If the entry is converted to a tombstone, there is no need to
+                  refresh it in the first place.  Skip the cache refresh if its a
+                  tombstone.  If its not a tombstone, we also need to return the
+                  cache entry if it was not changed in betxn postop, because we
+                  incremented its refcnt while checking if it was updated.
+
+https://fedorahosted.org/389/ticket/47750
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 4ae67943e807b869aeda213dcd39b59feb5f8259)
+(cherry picked from commit f63473228d05c56a096580ec5e66566b35ab4535)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_delete.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_delete.c b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+index 5f12ea3..56ea3df 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_delete.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+@@ -1261,6 +1261,16 @@ ldbm_back_delete( Slapi_PBlock *pb )
+ 
+ 	/* delete from cache and clean up */
+ 	if (e) {
++		if(!create_tombstone_entry){
++			struct backentry *old_e = e;
++			e = cache_find_id(&inst->inst_cache,e->ep_id);
++			if(e != old_e){
++				cache_unlock_entry(&inst->inst_cache, old_e);
++				CACHE_RETURN(&inst->inst_cache, &old_e);
++			} else {
++				CACHE_RETURN(&inst->inst_cache, &e);
++			}
++		}
+ 		if (cache_is_in_cache(&inst->inst_cache, e)) {
+ 			ep_id = e->ep_id; /* Otherwise, e might have been freed. */
+ 			CACHE_REMOVE(&inst->inst_cache, e);
+-- 
+1.9.3
+

@@ -1,0 +1,38 @@
+From 454afeaa481ee389dadc7ce62a53e6f0ff4952b1 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Tue, 20 Jan 2015 10:34:41 +0100
+Subject: [PATCH 58/59] Ticket 47991 - upgrade script fails if /etc and /var
+ are on different file systems
+
+Bug Description:  the script to upgrade configfiles creates a backup dir in /var
+                  and tries to move files fro /etc to this backup dir
+                  using the perl rename function.
+                  this fails if /etc and /var are different fiel systems
+
+Fix Description:   create the backup dir also in /etc
+
+https://fedorahosted.org/389/ticket/47991
+
+Reviewed by: Mark, Thanks
+
+(cherry picked from commit 96850932c054edcc477d070cf619006344b1d443)
+---
+ ldap/admin/src/scripts/60upgradeconfigfiles.pl | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/admin/src/scripts/60upgradeconfigfiles.pl b/ldap/admin/src/scripts/60upgradeconfigfiles.pl
+index 4b37353..189eb03 100644
+--- a/ldap/admin/src/scripts/60upgradeconfigfiles.pl
++++ b/ldap/admin/src/scripts/60upgradeconfigfiles.pl
+@@ -16,7 +16,7 @@ sub runinst {
+     # make a backup directory to store the deleted config file, then
+     # don't really delete it, just move it to that directory
+     my $mode = (stat($inf->{slapd}->{config_dir}))[2];
+-    my $bakdir = $inf->{slapd}->{bak_dir} . ".bak";
++    my $bakdir = $inf->{slapd}->{config_dir} . "/bak" ;
+     if (! -d $bakdir) {
+         $! = 0; # clear
+         mkdir $bakdir, $mode;
+-- 
+1.9.3
+

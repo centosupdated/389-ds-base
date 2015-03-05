@@ -1,0 +1,48 @@
+From ea4b10991ea02274cd4861a123494917c3f2e8d5 Mon Sep 17 00:00:00 2001
+From: "Thierry bordaz (tbordaz)" <tbordaz@redhat.com>
+Date: Thu, 11 Sep 2014 09:47:29 +0200
+Subject: [PATCH 7/7] Ticket 47889 - DS crashed during ipa-server-install on
+ test_ava_filter
+
+Bug Description:
+	During a MOD the target entry is duplicated and mods are applied
+	on the duplicated entry that is set in the pblock (SLAPI_MODIFY_EXISTING_ENTRY).
+	In case of transient DB error, ldbm_back_modify retries.
+	But when retrying the duplicated entry will be freed and needs to be duplicated again.
+	The new duplicated entry needs to be set in the pblock.
+	https://fedorahosted.org/389/ticket/47834 erronously skip the setting of SLAPI_MODIFY_EXISTING_ENTRY
+
+Fix Description:
+	Set SLAPI_MODIFY_EXISTING_ENTRY during mod/retry
+
+https://fedorahosted.org/389/ticket/47889
+
+Reviewed by: ?
+
+Platforms tested: F20
+
+Flag Day: no
+
+Doc impact: no
+
+(cherry picked from commit 3b5f3fa1b82cde2bda1104cf758acb64f6484009)
+(cherry picked from commit 0363fa49265c0c27d510064cea361eb400802548)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_modify.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modify.c b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+index 254ef29..529bd32 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modify.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+@@ -529,6 +529,7 @@ ldbm_back_modify( Slapi_PBlock *pb )
+ 					CACHE_REMOVE(&inst->inst_cache, ec);
+ 				}
+ 				CACHE_RETURN(&inst->inst_cache, &ec);
++				slapi_pblock_set( pb, SLAPI_MODIFY_EXISTING_ENTRY, original_entry->ep_entry );
+ 				ec = original_entry;
+ 				original_entry = tmpentry;
+ 				tmpentry = NULL;
+-- 
+1.9.3
+

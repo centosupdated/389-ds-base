@@ -1,0 +1,170 @@
+From c56a01740faa7af009eab4f009d334bb7b705f89 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 16 Dec 2014 11:26:04 -0800
+Subject: [PATCH 55/55] Ticket 47965 - Fix coverity issues (2014/12/16)
+
+12867 - Uninitialized pointer read
+
+Description:
+The third arg for ldap_utf8strtok_r is supposed to be initialized.
+
+https://fedorahosted.org/389/ticket/47965
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit 62072539953d0956e0f2664ef1a3691cf8fbdac0)
+(cherry picked from commit a2977b4b1839f4853594a46593ac5e2e27155bed)
+---
+ ldap/servers/plugins/acl/acllas.c                     | 6 +++---
+ ldap/servers/plugins/acl/aclparse.c                   | 4 ++--
+ ldap/servers/plugins/replication/repl5_replica.c      | 2 +-
+ ldap/servers/plugins/replication/repl_extop.c         | 4 ++--
+ ldap/servers/plugins/replication/windows_connection.c | 2 +-
+ ldap/servers/plugins/replication/windows_private.c    | 2 +-
+ ldap/servers/plugins/rootdn_access/rootdn_access.c    | 2 +-
+ ldap/servers/slapd/back-ldbm/ldbm_attr.c              | 2 +-
+ 8 files changed, 12 insertions(+), 12 deletions(-)
+
+diff --git a/ldap/servers/plugins/acl/acllas.c b/ldap/servers/plugins/acl/acllas.c
+index 439c8f1..4738a40 100644
+--- a/ldap/servers/plugins/acl/acllas.c
++++ b/ldap/servers/plugins/acl/acllas.c
+@@ -1223,7 +1223,7 @@ DS_LASUserDnAttrEval(NSErr_t *errp, char *attr_name, CmpOp_t comparator,
+ 	
+ 	/* See if we have a  parent[2].attr" rule */
+ 	if (strstr(attrName, "parent[") != NULL) {
+-		char	*word, *str, *next;
++		char	*word, *str, *next = NULL;
+ 	
+ 		numOflevels = 0;
+ 		n_currEntryDn = slapi_entry_get_ndn ( lasinfo.resourceEntry );
+@@ -1489,7 +1489,7 @@ DS_LASLdapUrlAttrEval(NSErr_t *errp, char *attr_name, CmpOp_t comparator,
+ 
+ 	/* See if we have a  parent[2].attr" rule */
+ 	if (strstr(attrName, "parent[") != NULL) {
+-		char	*word, *str, *next;
++		char	*word, *str, *next = NULL;
+ 	
+ 		numOflevels = 0;
+ 		n_currEntryDn = slapi_entry_get_ndn ( lasinfo.resourceEntry );
+@@ -2659,7 +2659,7 @@ DS_LASGroupDnAttrEval(NSErr_t *errp, char *attr_name, CmpOp_t comparator,
+ 
+ 		/* See if we have a  parent[2].attr" rule */
+ 		if (strstr(attrName, "parent[") != NULL) {
+-			char	*word, *str, *next;
++			char	*word, *str, *next = NULL;
+ 
+ 			numOflevels = 0;
+ 			n_currEntryDn = slapi_entry_get_ndn ( lasinfo.resourceEntry ) ;
+diff --git a/ldap/servers/plugins/acl/aclparse.c b/ldap/servers/plugins/acl/aclparse.c
+index be86c8b..fd262e8 100644
+--- a/ldap/servers/plugins/acl/aclparse.c
++++ b/ldap/servers/plugins/acl/aclparse.c
+@@ -600,7 +600,7 @@ __aclp__sanity_check_acltxt (aci_t *aci_item, char *str)
+ 	ACLListHandle_t *handle = NULL;
+ 	char            *newstr = NULL;
+ 	char            *word;
+-	char            *next;
++	char            *next = NULL;
+ 	const char      *brkstr = " ;";
+ 	int             checkversion = 0;
+ 
+@@ -1367,7 +1367,7 @@ __aclp__get_aci_right (char *str)
+ {
+ 
+ 	char	*sav_str = slapi_ch_strdup(str);
+-	char	*t, *tt;
++	char	*t, *tt = NULL;
+ 	int   	type = 0;
+ 	char 	*delimiter = ",";
+ 	char 	*val = NULL;
+diff --git a/ldap/servers/plugins/replication/repl5_replica.c b/ldap/servers/plugins/replication/repl5_replica.c
+index 77663f6..61ae7ec 100644
+--- a/ldap/servers/plugins/replication/repl5_replica.c
++++ b/ldap/servers/plugins/replication/repl5_replica.c
+@@ -2046,7 +2046,7 @@ replica_check_for_tasks(Replica *r, Slapi_Entry *e)
+         char *forcing;
+         char *csnpart;
+         char *ridstr;
+-        char *iter;
++        char *iter = NULL;
+         int i;
+ 
+         for(i = 0; i < CLEANRIDSIZ && clean_vals[i]; i++){
+diff --git a/ldap/servers/plugins/replication/repl_extop.c b/ldap/servers/plugins/replication/repl_extop.c
+index 35014a9..4fefe9f 100644
+--- a/ldap/servers/plugins/replication/repl_extop.c
++++ b/ldap/servers/plugins/replication/repl_extop.c
+@@ -1463,7 +1463,7 @@ multimaster_extop_abort_cleanruv(Slapi_PBlock *pb)
+ 	char *repl_root;
+ 	char *payload = NULL;
+ 	char *certify_all;
+-	char *iter;
++	char *iter = NULL;
+ 	int rc = LDAP_SUCCESS;
+ 
+ 	slapi_pblock_get(pb, SLAPI_EXT_OP_REQ_OID, &extop_oid);
+@@ -1591,7 +1591,7 @@ multimaster_extop_cleanruv(Slapi_PBlock *pb)
+ 	char *force = NULL;
+ 	char *extop_oid;
+ 	char *repl_root;
+-	char *iter;
++	char *iter = NULL;
+ 	int release_it = 0;
+ 	int rid = 0;
+ 	int rc = LDAP_OPERATIONS_ERROR;
+diff --git a/ldap/servers/plugins/replication/windows_connection.c b/ldap/servers/plugins/replication/windows_connection.c
+index c7c7a98..e78c367 100644
+--- a/ldap/servers/plugins/replication/windows_connection.c
++++ b/ldap/servers/plugins/replication/windows_connection.c
+@@ -595,7 +595,7 @@ windows_LDAPMessage2Entry(Slapi_Entry *e, Repl_Connection *conn,
+ 				char *dupa = slapi_ch_strdup(a);
+ 				char *newa = NULL; /* dup of 'a' with next range */
+ 				char *p, *wp, *pp; /* work pointers */
+-				char *iter;
++				char *iter = NULL;
+ 				int high = 0;
+ 				int sizea = strlen(a) + 2;
+ 				/* handling subtype(s) */
+diff --git a/ldap/servers/plugins/replication/windows_private.c b/ldap/servers/plugins/replication/windows_private.c
+index cfa2704..9be6c7d 100644
+--- a/ldap/servers/plugins/replication/windows_private.c
++++ b/ldap/servers/plugins/replication/windows_private.c
+@@ -946,7 +946,7 @@ create_subtree_pairs(char **pairs)
+ 	subtreePair *spp;
+ 	char **ptr;
+ 	char *p0, *p1;
+-	char *saveptr;
++	char *saveptr = NULL;
+ 	int cnt;
+ 
+ 	for (cnt = 0, ptr = pairs; ptr && *ptr; cnt++, ptr++) ;
+diff --git a/ldap/servers/plugins/rootdn_access/rootdn_access.c b/ldap/servers/plugins/rootdn_access/rootdn_access.c
+index 3045e9f..5c530c6 100644
+--- a/ldap/servers/plugins/rootdn_access/rootdn_access.c
++++ b/ldap/servers/plugins/rootdn_access/rootdn_access.c
+@@ -229,7 +229,7 @@ rootdn_load_config(Slapi_PBlock *pb)
+     Slapi_Entry *e = NULL;
+     char *openTime = NULL;
+     char *closeTime = NULL;
+-    char *token, *iter, *copy;
++    char *token, *iter = NULL, *copy;
+     char hour[3], min[3];
+     int result = 0;
+     int time;
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_attr.c b/ldap/servers/slapd/back-ldbm/ldbm_attr.c
+index 13ab07b..7b3f664 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_attr.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_attr.c
+@@ -509,7 +509,7 @@ attr_index_parse_idlistsize(struct attrinfo *ai, const char *strval, struct inde
+ 	int rc = 0; /* assume success */
+ 	char *mystr = slapi_ch_strdup(strval); /* copy for strtok */
+ 	char *values = NULL;
+-	char *lasts, *val, *ptr;
++	char *lasts = NULL, *val, *ptr;
+ 	int seen_limit = 0, seen_type = 0, seen_flags = 0, seen_values = 0;
+ 	Slapi_Attr *attr = &ai->ai_sattr;
+ 
+-- 
+1.9.3
+

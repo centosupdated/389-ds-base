@@ -1,0 +1,79 @@
+From cac085393e5d3ea996b9dd19811088f675c15b5f Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 8 Dec 2014 15:50:53 -0500
+Subject: [PATCH 46/53] Ticket 47636 - Error log levels not displayed correctly
+
+Bug Description:  Searching for nsslapd-errorlog-level returns an
+                  unexpected value (the level plus 16384).
+
+Fix Description:  This is a regression from the first fix for this
+                  ticket.  The fix is to only adjust the level zero,
+                  to its full default value of 16384.
+
+https://fedorahosted.org/389/ticket/47636
+
+Reviewed by: rmeggins(Thanks!)
+
+(cherry picked from commit f12e1216cc7baf128911d519cc8758c1c9277957)
+(cherry picked from commit 7b32ab042511f69e544f91b318387edd00129292)
+---
+ ldap/servers/slapd/libglobs.c | 22 ++++++++++++++++++++--
+ 1 file changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/slapd/libglobs.c b/ldap/servers/slapd/libglobs.c
+index b437112..b2b40d3 100644
+--- a/ldap/servers/slapd/libglobs.c
++++ b/ldap/servers/slapd/libglobs.c
+@@ -118,6 +118,7 @@ typedef enum {
+ 	CONFIG_CONSTANT_STRING, /* for #define values, e.g. */
+ 	CONFIG_SPECIAL_REFERRALLIST, /* this is a berval list */
+ 	CONFIG_SPECIAL_SSLCLIENTAUTH, /* maps strings to an enumeration */
++	CONFIG_SPECIAL_ERRORLOGLEVEL, /* requires & with LDAP_DEBUG_ANY */
+ 	CONFIG_STRING_OR_EMPTY, /* use an empty string */
+ 	CONFIG_SPECIAL_ANON_ACCESS_SWITCH, /* maps strings to an enumeration */
+ 	CONFIG_SPECIAL_VALIDATE_CERT_SWITCH, /* maps strings to an enumeration */
+@@ -289,7 +290,7 @@ slapi_onoff_t init_mempool_switch;
+ static int
+ isInt(ConfigVarType type)
+ {
+-    return type == CONFIG_INT || type == CONFIG_ON_OFF || type == CONFIG_SPECIAL_SSLCLIENTAUTH;
++    return type == CONFIG_INT || type == CONFIG_ON_OFF || type == CONFIG_SPECIAL_SSLCLIENTAUTH || type == CONFIG_SPECIAL_ERRORLOGLEVEL;
+ }
+ 
+ /* the caller will typically have to cast the result based on the ConfigVarType */
+@@ -339,7 +340,7 @@ static struct config_get_and_set {
+ 	{CONFIG_LOGLEVEL_ATTRIBUTE, config_set_errorlog_level,
+ 		NULL, 0,
+ 		(void**)&global_slapdFrontendConfig.errorloglevel,
+-		CONFIG_INT, NULL, STRINGIFYDEFINE(SLAPD_DEFAULT_ERRORLOG_LEVEL)},
++		CONFIG_SPECIAL_ERRORLOGLEVEL, NULL, NULL},
+ 	{CONFIG_ERRORLOG_LOGGING_ENABLED_ATTRIBUTE, NULL,
+ 		log_set_logging, SLAPD_ERROR_LOG,
+ 		(void**)&global_slapdFrontendConfig.errorlog_logging_enabled,
+@@ -7563,6 +7564,23 @@ config_set_value(
+                                      *((char **)value) : "unknown");
+         break;
+ 
++    case CONFIG_SPECIAL_ERRORLOGLEVEL:
++        if (value) {
++            int ival = *(int *)value;
++            ival &= ~LDAP_DEBUG_ANY;
++            if (ival == 0) {
++                /*
++                 * Don't store the default value as zero,
++                 * but as its real value.
++                 */
++                ival = LDAP_DEBUG_ANY;
++            }
++            slapi_entry_attr_set_int(e, cgas->attr_name, ival);
++        }
++        else
++            slapi_entry_attr_set_charptr(e, cgas->attr_name, "");
++        break;
++
+     case CONFIG_SPECIAL_ANON_ACCESS_SWITCH:
+         if (!value) {
+             slapi_entry_attr_set_charptr(e, cgas->attr_name, "off");
+-- 
+1.9.3
+

@@ -1,0 +1,36 @@
+From 325de7ba798d0f1b7ab4b6e607653306032cd8cd Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 9 Dec 2014 15:29:07 -0500
+Subject: [PATCH 47/53] Ticket 47722 - Using the filter file does not work
+
+Bug Description:  Using a filter file does not work correctly.  rsearch fails to
+                  to use the filters from the file.
+
+Fix Description:  There was a bug where we incorrectly freed each filter right after
+                  we added it to the local list.  This left the list empty.
+
+https://fedorahosted.org/389/ticket/47722
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit fb22b387e4376caae35121a645a5879dbac7b4fb)
+(cherry picked from commit 4002f3b946f567994de6c32c6ff713b1d341a975)
+---
+ ldap/servers/slapd/tools/rsearch/nametable.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/tools/rsearch/nametable.c b/ldap/servers/slapd/tools/rsearch/nametable.c
+index 9d56a34..03a6ae1 100644
+--- a/ldap/servers/slapd/tools/rsearch/nametable.c
++++ b/ldap/servers/slapd/tools/rsearch/nametable.c
+@@ -160,7 +160,6 @@ int nt_load(NameTable *nt, const char *filename)
+             free(s);
+             break;
+         }
+-        free(s);
+     }
+     PR_Close(fd);
+     return nt->size;
+-- 
+1.9.3
+

@@ -24,8 +24,8 @@
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          1.3.1.6
-Release:          %{?relprefix}26%{?prerel}%{?dist}
+Version:          1.3.3.1
+Release:          %{?relprefix}15%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -114,104 +114,68 @@ Source0:          http://port389.org/sources/%{name}-%{version}%{?prerel}.tar.bz
 # 389-ds-git.sh should be used to generate the source tarball from git
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
-Patch0:           0001-Ticket-47488-Users-from-AD-sub-OU-does-not-sync-to-I.patch
-Patch1:           0002-Bug-999634-ns-slapd-crash-due-to-bogus-DN.patch
-Patch2:           0003-Ticket-47500-start-dirsrv-restart-dirsrv-stop-disrv-.patch
-Patch3:           0004-Ticket-47455-valgrind-value-mem-leaks-uninit-mem-usa.patch
-Patch4:           0005-Ticket-47507-automember-rebuild-task-not-working-as-.patch
-Patch5:           0006-Ticket-449-Allow-macro-aci-keywords-to-be-case-insen.patch
-Patch6:           0007-Ticket-47489-Under-specific-values-of-nsDS5ReplicaNa.patch
-Patch7:           0008-Ticket-47516-replication-stops-with-excessive-clock-.patch
-Patch8:           0009-Ticket-47504-idlistscanlimit-per-index-type-value.patch
-Patch9:           0010-Ticket-47504-idlistscanlimit-per-index-type-value.patch
-Patch10:          0011-Ticket-47461-logconv.pl-Use-of-comma-less-variable-l.patch
-Patch11:          0012-Ticket-47512-backend-txn-plugin-fixup-tasks-should-b.patch
-Patch12:          0013-Coverity-fix-11952.patch
-Patch13:          0014-Ticket-47509-CLEANALLRUV-doesnt-run-across-all-repli.patch
-Patch14:          0015-Ticket-47509-Cleanallruv-jenkins-error.patch
-Patch15:          0016-Ticket-47492-PassSync-removes-User-must-change-passw.patch
-Patch16:          0017-Ticket-47513-tmpfiles.d-references-var-lock-when-the.patch
-Patch17:          0018-Ticket-47523-Set-up-replcation-agreement-before-init.patch
-Patch18:          0019-Ticket-47534-RUV-tombstone-search-with-scope-one-doe.patch
-Patch19:          0020-Ticket-47513-Refine-the-check-for-localrundir.patch
-Patch20:          0021-Ticket-47513-Set-localrundir-outside-of-the-with-fhs.patch
-Patch21:          0022-Ticket-47354-Indexed-search-are-logged-with-notes-U-.patch
-Patch22:          0023-Ticket-47387-improve-logconv.pl-performance-with-lar.patch
-Patch23:          0024-Ticket-47387-improve-logconv.pl-performance-with-lar.patch
-Patch24:          0025-Ticket-47520-Fix-various-issues-with-logconv.pl.patch
-Patch25:          0026-Ticket-47501-logconv.pl-uses-var-tmp-for-BDB-temp-fi.patch
-Patch26:          0027-Ticket-47533-logconv-some-stats-do-not-work-across-s.patch
-Patch27:          0028-Coverity-fixes-12023-12024-and-12025.patch
-Patch28:          0029-Ticket-47551-logconv-V-does-not-produce-unindexed-se.patch
-Patch29:          0030-Ticket-54-locale-nl-not-supported-by-collation-plugi.patch
-Patch30:          0031-Ticket-53-Need-to-update-supported-locales.patch
-Patch31:          0032-Ticket-53-Need-to-update-supported-locales.patch
-Patch32:          0033-Ticket-47517-memory-leak-in-range-searches-and-other.patch
-Patch33:          0034-Ticket-53-Need-to-update-supported-locales.patch
-Patch34:          0035-Ticket-47513-tmpfiles.d-references-var-lock-when-the.patch
-Patch35:          0036-Ticket-47550-logconv-failed-logins-Use-of-uninitiali.patch
-Patch36:          0037-Ticket-47329-Improve-slapi_back_transaction_begin-re.patch
-Patch37:          0038-Coverity-Fixes.patch
-Patch38:          0039-ticket-47550-wip.patch
-Patch39:          0040-Ticket-47559-hung-server-related-to-sasl-and-initial.patch
-Patch40:          0041-Ticket-47560-fixup-memberof-task-does-not-work-task-.patch
-Patch41:          0042-Ticket-47379-DNA-plugin-failed-to-fetch-replication-.patch
-Patch42:          0043-Ticket-47379-DNA-plugin-failed-to-fetch-replication-.patch
-Patch43:          0044-Ticket-47577-crash-when-removing-entries-from-cache.patch
-Patch44:          0045-Ticket-47379-DNA-plugin-failed-to-fetch-replication-.patch
-Patch45:          0046-Ticket-47589-Winsync-replica-initialization-and-incr.patch
-Patch46:          0047-Ticket-47585-Replication-Failures-related-to-skipped.patch
-Patch47:          0048-Ticket-47581-Winsync-plugin-segfault-during-incremen.patch
-Patch48:          0049-Ticket-47581-Winsync-plugin-segfault-during-incremen.patch
-Patch49:          0050-Revert-Ticket-47559-hung-server-related-to-sasl-and-.patch
-Patch50:          0051-Ticket-47605-CVE-2013-4485-DoS-due-to-improper-handl.patch
-Patch51:          0052-Ticket-47622-Automember-betxnpreoperation-transactio.patch
-Patch52:          0053-Ticket-47613-Impossible-to-configure-nsslapd-allowed.patch
-Patch53:          0054-Ticket-47587-hard-coded-limit-of-64-masters-in-agree.patch
-Patch54:          0055-Ticket-47597-Convert-retro-changelog-plug-in-to-betx.patch
-Patch55:          0056-Ticket-47598-Convert-ldbm_back_seq-code-to-be-transa.patch
-Patch56:          0057-Ticket-47599-Reduce-lock-scope-in-retro-changelog-pl.patch
-Patch57:          0058-Ticket-47599-Reduce-lock-scope-in-retro-changelog-pl.patch
-Patch58:          0059-Ticket-47599-fix-memory-leak.patch
-Patch59:          0060-Ticket-47596-attrcrypt-fails-to-find-unlocked-key.patch
-Patch60:          0061-Ticket-47596-attrcrypt-fails-to-find-unlocked-key.patch
-Patch61:          0062-Ticket-47591-entries-with-empty-objectclass-attribut.patch
-Patch62:          0063-Ticket-47614-Possible-to-specify-invalid-SASL-mechan.patch
-Patch63:          0064-Ticket-47592-automember-plugin-task-memory-leaks.patch
-Patch64:          0065-Ticket-47620-389-ds-rejects-nsds5ReplicaProtocolTime.patch
-Patch65:          0066-Ticket-47613-Issues-setting-allowed-mechanisms.patch
-Patch66:          0067-Ticket-47620-Fix-cherry-pick-error-for-1.3.2-and-1.3.patch
-Patch67:          0068-Ticket-47620-Config-value-validation-improvement.patch
-Patch68:          0069-Ticket-47620-Fix-logically-dead-code.patch
-Patch69:          0070-Ticket-47620-Fix-dereferenced-NULL-pointer-in-agmtli.patch
-Patch70:          0071-Ticket-47620-Fix-missing-left-bracket.patch
-Patch71:          0072-Ticket-571-dup-47361-Empty-control-list-causes-LDAP-.patch
-Patch72:          0073-Ticket-47606-replica-init-bulk-import-errors-should-.patch
-Patch73:          0074-Ticket-47623-fix-memleak-caused-by-47347.patch
-Patch74:          0075-Ticket-47623-fix-memleak-caused-by-47347.patch
-Patch75:          0076-Ticket-47627-changelog-iteration-should-ignore-clean.patch
-Patch76:          0077-Ticket-47627-Fix-replication-logging.patch
-Patch77:          0078-Ticket-447-Possible-to-add-invalid-attribute-to-nssl.patch
-Patch78:          0079-Ticket-47660-config_set_allowed_to_delete_attrs-Valg.patch
-Patch79:          0080-Ticket-408-Fix-crash-when-disabling-enabling-the-set.patch
-Patch80:          0081-Ticket-47620-Unable-to-delete-protocol-timeout-attri.patch
-Patch81:          0082-Ticket-47516-replication-stops-with-excessive-clock-.patch
-Patch82:          0083-Ticket-342-better-error-message-when-cache-overflows.patch
-Patch83:          0084-Ticket-443-Deleting-attribute-present-in-nsslapd-all.patch
-Patch84:          0085-Ticket-47649-Server-hangs-in-cos_cache-when-adding-a.patch
-Patch85:          0086-Ticket-47374-flush.pl-is-not-included-in-perl5.patch
-Patch86:          0087-Ticket-471-logconv.pl-tool-removes-the-access-logs-c.patch
-Patch87:          0088-Ticket-47704-invalid-sizelimits-in-aci-group-evaluat.patch
-Patch88:          0089-Ticket-47709-package-issue-in-389-ds-base.patch
-Patch89:          0090-Ticket-47709-package-issue-in-389-ds-base.patch
-Patch90:          0091-Ticket-408-create-a-normalized-dn-cache.patch
-Patch91:          0092-Ticket-571-dup-47361-Empty-control-list-causes-LDAP-.patch
-Patch92:          0093-Ticket-408-create-a-normalized-dn-cache.patch
-Patch93:          0094-Ticket-47735-e_uniqueid-fails-to-set-if-an-entry-is-.patch
-Patch94:          0095-Ticket-47739-directory-server-is-insecurely-misinter.patch
-Patch95:          0096-Ticket-47735-e_uniqueid-fails-to-set-if-an-entry-is-.patch
-Patch96:          0097-Ticket-47759-Crash-in-replication-when-server-is-und.patch
-Patch97:          0098-Bug-1123477-unauthenticated-information-disclosure.patch
+Patch0:           0000-Ticket-47748-Simultaneous-adding-a-user-and-binding-.patch
+Patch1:           0001-Ticket-47834-Tombstone_to_glue-if-parents-are-also-c.patch
+Patch2:           0002-Ticket-47890-minor-memory-leaks-in-utilities.patch
+Patch3:           0003-fix-for-47885-did-not-always-return-a-response-contr.patch
+Patch4:           0004-Ticket-47838-harden-the-list-of-ciphers-available-by.patch
+Patch5:           0005-Ticket-47838-47895-CI-test-add-test-cases-for-ticket.patch
+Patch6:           0006-Ticket-47895-If-no-effective-ciphers-are-available-d.patch
+Patch7:           0007-Ticket-47889-DS-crashed-during-ipa-server-install-on.patch
+Patch8:           0008-Ticket-47892-coverity-defects-found-in-1.3.3.1.patch
+Patch9:           0009-Ticket-47750-Creating-a-glue-fails-if-one-above-leve.patch
+Patch10:          0010-Ticket-47908-389-ds-1.3.3.0-does-not-adjust-cipher-s.patch
+Patch11:          0011-Ticket-47838-harden-the-list-of-ciphers-available-by.patch
+Patch12:          0012-Ticket-47838-CI-test-adjusted-test-cases-based-on-th.patch
+Patch13:          0013-Ticket-47880-provide-enabled-ciphers-as-search-resul.patch
+Patch14:          0014-Ticket-47880-CI-test-added-test-cases-for-ticket-478.patch
+Patch15:          0015-Ticket-47892-coverity-defects-found-in-1.3.3.x.patch
+Patch16:          0016-Ticket-47918-result-of-dna_dn_is_shared_config-is-in.patch
+Patch17:          0017-Ticket-47892-Fix-remaining-compiler-warnings.patch
+Patch18:          0018-Ticket-47919-ldbm_back_modify-SLAPI_PLUGIN_BE_PRE_MO.patch
+Patch19:          0019-Ticket-47920-Encoding-of-SearchResultEntry-is-missin.patch
+Patch20:          0020-Ticket-47897-Need-to-move-slapi_pblock_set-pb-SLAPI_.patch
+Patch21:          0021-Ticket-47922-dynamically-added-macro-aci-is-not-eval.patch
+Patch22:          0022-Ticket-47928-Disable-SSL-v3-by-default.patch
+Patch23:          0023-Ticket-47928-CI-test-added-test-cases-for-ticket-479.patch
+Patch24:          0024-Ticket-47937-Crash-in-entry_add_present_values_wsi_m.patch
+Patch25:          0025-Ticket-47928-Disable-SSL-v3-by-default.patch
+Patch26:          0026-Ticket-47939-Malformed-cookie-for-LDAP-Sync-makes-DS.patch
+Patch27:          0027-Ticket-47945-Add-SSL-TLS-version-info-to-the-access-.patch
+Patch28:          0028-Ticket-47948-ldap_sasl_bind-fails-assertion-ld-NULL-.patch
+Patch29:          0029-Ticket-47953-Should-not-check-aci-syntax-when-deleti.patch
+Patch30:          0030-Ticket-47928-Disable-SSL-v3-by-default.patch
+Patch31:          0031-Fix-for-CVE-2014-8112.patch
+Patch32:          0032-Ticket-47942-DS-hangs-during-online-total-update.patch
+Patch33:          0033-Fix-for-CVE-2014-8105.patch
+Patch34:          0034-Additional-fix-for-ticket-47526-v3.patch
+Patch35:          0035-fix-jenkins-warning.patch
+Patch36:          0036-Ticket-47950-Bind-DN-tracking-unable-to-write-to-int.patch
+Patch37:          0037-Ticket-47949-logconv.pl-support-parsing-showing-repo.patch
+Patch38:          0038-Ticket-47947-start-dirsrv-after-chrony-on-RHEL7-and-.patch
+Patch39:          0039-Ticket-47967-cos_cache_build_definition_list-does-no.patch
+Patch40:          0040-Ticket-47969-COS-memory-leak-when-rebuilding-the-cac.patch
+Patch41:          0041-Ticket-47969-Fix-coverity-issue.patch
+Patch42:          0042-Ticket-47970-Account-lockout-attributes-incorrectly-.patch
+Patch43:          0043-Ticket-47970-add-lib389-testcase.patch
+Patch44:          0044-Ticket-47960-cookie_change_info-returns-random-negat.patch
+Patch45:          0045-Ticket-47960-cookie_change_info-returns-random-negat.patch
+Patch46:          0046-Ticket-47636-Error-log-levels-not-displayed-correctl.patch
+Patch47:          0047-Ticket-47722-Using-the-filter-file-does-not-work.patch
+Patch48:          0048-Ticket-47451-Need-to-unregister-tasks-created-by-plu.patch
+Patch49:          0049-Ticket-47451-Running-a-plugin-task-can-crash-the-ser.patch
+Patch50:          0050-Ticket-47451-Dynamic-Plugin-various-fixes.patch
+Patch51:          0051-Ticket-47451-Fix-jenkins-errors.patch
+Patch52:          0052-Ticket-47451-Add-Dynamic-Plugin-CI-Suite.patch
+Patch53:          0053-Ticket-47525-Crash-if-setting-invalid-plugin-config-.patch
+Patch54:          0054-Ticket-47965-Fix-coverity-issues-2014-11-24.patch
+Patch55:          0055-Ticket-47965-Fix-coverity-issues-2014-12-16.patch
+Patch56:          0056-Ticket-47750-During-delete-operation-do-not-refresh-.patch
+Patch57:          0057-Ticket-47989-Windows-Sync-accidentally-cleared-raw_e.patch
+Patch58:          0058-Ticket-47991-upgrade-script-fails-if-etc-and-var-are.patch
+Patch59:          0059-Ticket-47988-Schema-learning-mechanism-in-replicatio.patch
+Patch60:          0060-Ticket-47988-Schema-learning-mechanism-in-replicatio.patch
+Patch61:          0061-Ticket-48005-ns-slapd-crash-in-shutdown-phase.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -324,42 +288,6 @@ cp %{SOURCE2} README.devel
 %patch59 -p1
 %patch60 -p1
 %patch61 -p1
-%patch62 -p1
-%patch63 -p1
-%patch64 -p1
-%patch65 -p1
-%patch66 -p1
-%patch67 -p1
-%patch68 -p1
-%patch69 -p1
-%patch70 -p1
-%patch71 -p1
-%patch72 -p1
-%patch73 -p1
-%patch74 -p1
-%patch75 -p1
-%patch76 -p1
-%patch77 -p1
-%patch78 -p1
-%patch79 -p1
-%patch80 -p1
-%patch81 -p1
-%patch82 -p1
-%patch83 -p1
-%patch84 -p1
-%patch85 -p1
-%patch86 -p1
-%patch87 -p1
-%patch88 -p1
-%patch89 -p1
-%patch90 -p1
-%patch91 -p1
-%patch92 -p1
-%patch93 -p1
-%patch94 -p1
-%patch95 -p1
-%patch96 -p1
-%patch97 -p1
 
 %build
 %if %{use_openldap}
@@ -422,35 +350,44 @@ ninst=0 # number of instances found in total
 if [ -n "$DEBUGPOSTTRANS" ] ; then
    output=$DEBUGPOSTTRANS
 fi
-echo looking for services in %{_sysconfdir}/systemd/system/%{groupname}.wants/* > $output 2>&1 || :
+echo looking for services in %{_sysconfdir}/systemd/system/%{groupname}.wants/* >> $output 2>&1 || :
 for service in %{_sysconfdir}/systemd/system/%{groupname}.wants/* ; do
     if [ ! -f "$service" ] ; then continue ; fi # in case nothing matches
     inst=`echo $service | sed -e 's,%{_sysconfdir}/systemd/system/%{groupname}.wants/,,'`
-    echo found instance $inst - getting status > $output 2>&1 || :
+    echo found instance $inst - getting status >> $output 2>&1 || :
     if /bin/systemctl -q is-active $inst ; then
-       echo instance $inst is running > $output 2>&1 || :
+       echo instance $inst is running >> $output 2>&1 || :
        instances="$instances $inst"
     else
-       echo instance $inst is not running > $output 2>&1 || :
+       echo instance $inst is not running >> $output 2>&1 || :
     fi
     ninst=`expr $ninst + 1`
 done
 if [ $ninst -eq 0 ] ; then
-    echo no instances to upgrade > $output 2>&1 || :
+    echo no instances to upgrade >> $output 2>&1 || :
     exit 0 # have no instances to upgrade - just skip the rest
 fi
 # shutdown all instances
-echo shutting down all instances . . . > $output 2>&1 || :
-/bin/systemctl stop %{groupname} > $output 2>&1 || :
-echo remove pid files . . . > $output 2>&1 || :
+echo shutting down all instances . . . >> $output 2>&1 || :
+for inst in $instances ; do
+    echo stopping instance $inst >> $output 2>&1 || :
+    /bin/systemctl stop $inst >> $output 2>&1 || :
+done
+echo remove pid files . . . >> $output 2>&1 || :
 /bin/rm -f /var/run/%{pkgname}*.pid /var/run/%{pkgname}*.startpid
 # do the upgrade
-echo upgrading instances . . . > $output 2>&1 || :
-%{_sbindir}/setup-ds.pl -l $output -u -s General.UpdateMode=offline > $output 2>&1 || :
+echo upgrading instances . . . >> $output 2>&1 || :
+DEBUGPOSTSETUPOPT=`/usr/bin/echo $DEBUGPOSTSETUP | /usr/bin/sed -e "s/[^d]//g"`
+if [ -n "$DEBUGPOSTSETUPOPT" ] ; then
+    %{_sbindir}/setup-ds.pl -l $output -$DEBUGPOSTSETUPOPT -u -s General.UpdateMode=offline >> $output 2>&1 || :
+else
+    %{_sbindir}/setup-ds.pl -l $output -u -s General.UpdateMode=offline >> $output 2>&1 || :
+fi
+
 # restart instances that require it
 for inst in $instances ; do
-    echo restarting instance $inst > $output 2>&1 || :
-    /bin/systemctl start $inst > $output 2>&1 || :
+    echo restarting instance $inst >> $output 2>&1 || :
+    /bin/systemctl start $inst >> $output 2>&1 || :
 done
 exit 0
 
@@ -511,12 +448,270 @@ fi
 %{_libdir}/%{pkgname}/libns-dshttpd.so*
 
 %changelog
-* Mon Jul 28 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-26
-- release 1.3.1.6-26
-- Resolves: #1123864
-  EMBARGOED CVE-2014-3562 389-ds-base: 389-ds: unauthenticated information disclosure [rhel-7.0.z] (BZ 1123477)
+* Mon Feb 23 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-15
+- release 1.3.3.1-15
+- Setting correct build tag 'rhel-7.1-z-candidate'
 
-* Thu Mar 31 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-25
+* Mon Feb 23 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-14
+- release 1.3.3.1-14
+- Resolves: bug 1189154 - DNS errors after IPA upgrade due to broken ReplSync (DS 48030)
+            Fixes spec file to make sure all the server instances are stopped before upgrade
+- Resolves: bug 1186548 - ns-slapd crash in shutdown phase (DS 48005)
+
+* Sun Jan 25 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-13
+- release 1.3.3.1-13
+- Resolves: bug 1183655 - Fixed Covscan FORWARD_NULL defects (DS 47988)
+
+* Sun Jan 25 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-12
+- release 1.3.3.1-12
+- Resolves: bug 1182477 - Windows Sync accidentally cleared raw_entry (DS 47989)
+- Resolves: bug 1180325 - upgrade script fails if /etc and /var are on different file systems (DS 47991 )
+- Resolves: bug 1183655 - Schema learning mechanism, in replication, unable to extend an existing definition (DS 47988)
+
+* Mon Jan  5 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-11
+- release 1.3.3.1-11
+- Resolves: bug 1080186 - During delete operation do not refresh cache entry if it is a tombstone (DS 47750)
+
+* Wed Dec 17 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-10
+- release 1.3.3.1-10
+- Resolves: bug 1172731 - CVE-2014-8112 password hashing bypassed when "nsslapd-unhashed-pw-switch" is set to off 
+- Resolves: bug 1166265 - DS hangs during online total update (DS 47942)
+- Resolves: bug 1168151 - CVE-2014-8105 information disclosure through 'cn=changelog' subtree
+- Resolves: bug 1044170 - Allow memberOf suffixes to be configurable (DS 47526)
+- Resolves: bug 1171356 - Bind DN tracking unable to write to internalModifiersName without special permissions (DS 47950)
+- Resolves: bug 1153737 - logconv.pl -- support parsing/showing/reporting different protocol versions (DS 47949)
+- Resolves: bug 1171355 - start dirsrv after chrony on RHEL7 and Fedora (DS 47947)
+- Resolves: bug 1170707 - cos_cache_build_definition_list does not stop during server shutdown (DS 47967)
+- Resolves: bug 1170708 - COS memory leak when rebuilding the cache (DS - Ticket 47969)
+- Resolves: bug 1170709 - Account lockout attributes incorrectly updated after failed SASL Bind (DS 47970)
+- Resolves: bug 1166260 - cookie_change_info returns random negative number if there was no change in a tree (DS 47960)
+- Resolves: bug 1012991 - Error log levels not displayed correctly (DS 47636)
+- Resolves: bug 1108881 - rsearch filter error on any search filter (DS 47722)
+- Resolves: bug 994690  - Allow dynamically adding/enabling/disabling/removing plugins without requiring a server restart (DS 47451)
+- Resolves: bug 1162997 - Running a plugin task can crash the server (DS 47451)
+- Resolves: bug 1166252 - RHEL7.1 ns-slapd segfault when ipa-replica-install restarts (DS 47451)
+- Resolves: bug 1172597 - Crash if setting invalid plugin config area for MemberOf Plugin (DS 47525)
+- Resolves: bug 1139882 - coverity defects found in 1.3.3.x (DS 47965)
+		    
+* Thu Nov 13 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-9
+- release 1.3.3.1-9
+- Resolves: bug 1153737 - Disable SSL v3, by default. (DS 47928)
+- Resolves: bug 1163461 - Should not check aci syntax when deleting an aci (DS 47953)
+
+* Mon Nov 10 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-8
+- release 1.3.3.1-8
+- Resolves: bug 1156607 - Crash in entry_add_present_values_wsi_multi_valued (DS 47937)
+- Resolves: bug 1153737 - Disable SSL v3, by default (DS 47928, DS 47945, DS 47948)
+- Resolves: bug 1158804 - Malformed cookie for LDAP Sync makes DS crash (DS 47939)
+
+* Thu Oct 23 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-7
+- release 1.3.3.1-7
+- Resolves: bug 1153737 - Disable SSL v3, by default (DS 47928)
+
+* Fri Oct 10 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-6
+- release 1.3.3.1-6
+- Resolves: bug 1151287 - dynamically added macro aci is not evaluated on the fly (DS 47922)
+- Resolves: bug 1080186 - Need to move slapi_pblock_set(pb, SLAPI_MODRDN_EXISTING_ENTRY, original_entry->ep_entry) prior to original_entry overwritten (DS 47897)
+- Resolves: bug 1150694 - Encoding of SearchResultEntry is missing tag (DS 47920)
+- Resolves: bug 1150695 - ldbm_back_modify SLAPI_PLUGIN_BE_PRE_MODIFY_FN does not return even if one of the preop plugins fails. (DS 47919)
+- Resolves: bug 1139882 - Fix remaining compiler warnings (DS 47892)
+- Resolves: bug 1150206 - result of dna_dn_is_shared_config is incorrectly used (DS 47918)
+
+* Wed Oct  1 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-5
+- release 1.3.3.1-5
+- Resolves: bug 1139882 - coverity defects found in 1.3.3.x (DS 47892)
+
+* Wed Oct  1 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-4
+- release 1.3.3.1-4
+- Resolves: bug 1080186 - Creating a glue fails if one above level is a conflict or missing  (DS 47750)
+- Resolves: bug 1145846 - 389-ds 1.3.3.0 does not adjust cipher suite configuration on upgrade, breaks itself and pki-server (DS 47908)
+- Resolves: bug 1117979 - harden the list of ciphers available by default (phase 2) (DS 47838)
+                        - provide enabled ciphers as search result (DS 47880)
+
+* Fri Sep 12 2014 Rich Megginson <nhosoi@redhat.com> - 1.3.3.1-3
+- release 1.3.3.1-3
+- Resolves: bug 1139882 - coverity defects found in 1.3.3.1
+
+* Thu Sep 11 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-2
+- release 1.3.3.1-2
+- Resolves: bug 1079099 - Simultaneous adding a user and binding as the user could fail in the password policy check (DS 47748)
+- Resolves: bug 1080186 - Creating a glue fails if one above level is a conflict or missing (DS 47834)
+- Resolves: bug 1139882 - coverity defects found in 1.3.3.1 (DS 47890)
+- Resolves: bug 1112702 - Broken dereference control with the FreeIPA 4.0 ACIs (DS 47885 - deref plugin should not return references with noc access rights)
+- Resolves: bug 1117979 - harden the list of ciphers available by default (DS 47838, DS 47895)
+- Resolves: bug 1080186 - Creating a glue fails if one above level is a conflict or missing (DS 47889 - DS crashed during ipa-server-install on test_ava_filter)
+
+* Fri Sep  5 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-1
+- release 1.3.3.1-1
+- Resolves: bug 746646 - RFE: easy way to configure which users and groups to sync with winsync
+- Resolves: bug 881372 - nsDS5BeginReplicaRefresh attribute accepts any value and it doesn't throw any error when server restarts.
+- Resolves: bug 920597 - Possible to add invalid ACI value
+- Resolves: bug 921162 - Possible to add nonexistent target to ACI
+- Resolves: bug 923799 - if nsslapd-cachememsize set to the number larger than the RAM available, should result in proper error message.
+- Resolves: bug 924937 - Attribute "dsOnlyMemberUid" not allowed when syncing nested posix groups from AD with posixWinsync
+- Resolves: bug 951754 - Self entry access ACI not working properly
+- Resolves: bug 952517 - Dirsrv instance failed to start with Segmentation fault (core dump) after modifying 7-bit check plugin
+- Resolves: bug 952682 - nsslapd-db-transaction-batch-val turns to -1
+- Resolves: bug 966443 - Plugin library path validation
+- Resolves: bug 975176 - Non-directory manager can change the individual userPassword's storage scheme
+- Resolves: bug 979465 - IPA replica's - "SASL encrypted packet length exceeds maximum allowed limit"
+- Resolves: bug 982597 - Some attributes in cn=config should not be multivalued
+- Resolves: bug 987009 - 389-ds-base - shebang with /usr/bin/env
+- Resolves: bug 994690 - RFE: Allow dynamically adding/enabling/disabling/removing plugins without requiring a server restart
+- Resolves: bug 1012991 - errorlog-level 16384 is listed as 0 in cn=config
+- Resolves: bug 1013736 - Enabling/Disabling DNA plug-in throws "ldap_modify: Server Unwilling to Perform (53)" error
+- Resolves: bug 1014380 - setup-ds.pl doesn't lookup the "root" group correctly
+- Resolves: bug 1020459 - rsa_null_sha should not be enabled by default
+- Resolves: bug 1024541 - start dirsrv after ntpd
+- Resolves: bug 1029959 - Managed Entries betxnpreoperation - transaction not aborted upon failure to create managed entry
+- Resolves: bug 1031216 - add dbmon.sh
+- Resolves: bug 1044133 - Indexed search with filter containing '&' and "!" with attribute subtypes gives wrong result
+- Resolves: bug 1044134 - should set LDAP_OPT_X_SASL_NOCANON to LDAP_OPT_ON by default
+- Resolves: bug 1044135 - make connection buffer size adjustable
+- Resolves: bug 1044137 - posix winsync should support ADD user/group entries from DS to AD
+- Resolves: bug 1044138 - mep_pre_op: Unable to fetch origin entry
+- Resolves: bug 1044139 - [RFE] Support RFC 4527 Read Entry Controls
+- Resolves: bug 1044140 - Allow search to look up 'in memory RUV'
+- Resolves: bug 1044141 - MMR stress test with dna enabled causes a deadlock
+- Resolves: bug 1044142 - winsync doesn't sync DN valued attributes if DS DN value doesn't exist
+- Resolves: bug 1044143 - modrdn + NSMMReplicationPlugin - Consumer failed to replay change
+- Resolves: bug 1044144 - resurrected entry is not correctly indexed
+- Resolves: bug 1044146 - Add a warning message when a connection hits the max number of threads
+- Resolves: bug 1044147 - 7-bit check plugin does not work for userpassword attribute
+- Resolves: bug 1044148 - The backend name provided to bak2db is not validated
+- Resolves: bug 1044149 - Winsync should support range retrieval
+- Resolves: bug 1044150 - 7-bit checking is not necessary for userPassword
+- Resolves: bug 1044151 - With SeLinux, ports can be labelled per range. setup-ds.pl or setup-ds-admin.pl fail to detect already ranged labelled ports
+- Resolves: bug 1044152 - ChainOnUpdate: "cn=directory manager" can modify userRoot on consumer without changes being chained or replicated. Directory integrity compromised.
+- Resolves: bug 1044153 - mods optimizer
+- Resolves: bug 1044154 - multi master replication allows schema violation
+- Resolves: bug 1044156 - DS crashes with some 7-bit check plugin configurations
+- Resolves: bug 1044157 - Some updates of "passwordgraceusertime" are useless when updating "userpassword"
+- Resolves: bug 1044159 - [RFE] Support 'Content Synchronization Operation' (SyncRepl) - RFC 4533
+- Resolves: bug 1044160 - remove-ds.pl should remove /var/lock/dirsrv
+- Resolves: bug 1044162 - enhance retro changelog
+- Resolves: bug 1044163 - updates to ruv entry are written to retro changelog
+- Resolves: bug 1044164 - Password administrators should be able to violate password policy
+- Resolves: bug 1044168 - Schema replication between DS versions may overwrite newer base schema
+- Resolves: bug 1044169 - ACIs do not allow attribute subtypes in targetattr keyword
+- Resolves: bug 1044170 - Allow memberOf suffixes to be configurable
+- Resolves: bug 1044171 - Allow referential integrity suffixes to be configurable
+- Resolves: bug 1044172 - Plugin library path validation prevents intentional loading of out-of-tree modules
+- Resolves: bug 1044173 - make referential integrity configuration more flexible
+- Resolves: bug 1044177 - allow configuring changelog trim interval
+- Resolves: bug 1044179 - objectclass may, must lists skip rest of objectclass once first is found in sup
+- Resolves: bug 1044180 - memberOf on a user is converted to lowercase
+- Resolves: bug 1044181 - report unindexed internal searches
+- Resolves: bug 1044183 - With 1.3.04 and subtree-renaming OFF, when a user is deleted after restarting the server, the same entry can't be added
+- Resolves: bug 1044185 - dbscan on entryrdn should show all matching values
+- Resolves: bug 1044187 - logconv.pl - RFE - add on option for a minimum etime for unindexed search stats
+- Resolves: bug 1044188 - Recognize compressed log files
+- Resolves: bug 1044191 - support TLSv1.1 and TLSv1.2, if supported by NSS
+- Resolves: bug 1044193 - default nsslapd-sasl-max-buffer-size should be 2MB
+- Resolves: bug 1044194 - Complex filter in a search request doen't work as expected.
+- Resolves: bug 1044196 - Automember plug-in should treat MODRDN operations as ADD operations
+- Resolves: bug 1044198 - Replication of the schema may overwrite consumer 'attributetypes' even if consumer definition is a superset
+- Resolves: bug 1044202 - db2bak.pl issue when specifying non-default directory
+- Resolves: bug 1044203 - Allow referint plugin to use an alternate config area
+- Resolves: bug 1044205 - Allow memberOf to use an alternate config area
+- Resolves: bug 1044210 - idl switch does not work
+- Resolves: bug 1044211 - make old-idl tunable
+- Resolves: bug 1044212 - IDL-style can become mismatched during partial restoration
+- Resolves: bug 1044213 - backend performance - introduce optimization levels
+- Resolves: bug 1044215 - using transaction batchval violates durability
+- Resolves: bug 1044216 - examine replication code to reduce amount of stored state information
+- Resolves: bug 1048980 - 7-bit check plugin not checking MODRDN operation
+- Resolves: bug 1049030 - Windows Sync group issues
+- Resolves: bug 1052751 - Page control does not work if effective rights control is specified
+- Resolves: bug 1052754 - Allow nsDS5ReplicaBindDN to be a group DN
+- Resolves: bug 1057803 - logconv errors when search has invalid bind dn
+- Resolves: bug 1060032 - [RFE] Update lastLoginTime also in Account Policy plugin if account lockout is based on passwordExpirationTime.
+- Resolves: bug 1061060 - betxn: retro changelog broken after cancelled transaction
+- Resolves: bug 1061572 - improve dbgen rdn generation, output and man page.
+- Resolves: bug 1063990 - single valued attribute replicated ADD does not work
+- Resolves: bug 1064006 - Size returned by slapi_entry_size is not accurate
+- Resolves: bug 1064986 - Replication retry time attributes cannot be added
+- Resolves: bug 1067090 - Missing warning for invalid replica backoff configuration
+- Resolves: bug 1072032 - Updating nsds5ReplicaHost attribute in a replication agreement fails with error 53
+- Resolves: bug 1074306 - Under heavy stress, failure of turning a tombstone into glue makes the server hung
+- Resolves: bug 1074447 - Part of DNA shared configuration is deleted after server restart
+- Resolves: bug 1076729 - Continuous add/delete of an entry in MMR setup causes entryrdn-index conflict
+- Resolves: bug 1077884 - ldap/servers/slapd/back-ldbm/dblayer.c: possible minor problem with sscanf
+- Resolves: bug 1077897 - Memory leak with proxy auth control
+- Resolves: bug 1079099 - Simultaneous adding a user and binding as the user could fail in the password policy check
+- Resolves: bug 1080186 - Creating a glue fails if one above level is a conflict or missing
+- Resolves: bug 1082967 - attribute uniqueness plugin fails when set as a chaining component
+- Resolves: bug 1085011 - Directory Server crash reported from reliab15 execution
+- Resolves: bug 1086890 - empty modify returns LDAP_INVALID_DN_SYNTAX
+- Resolves: bug 1086902 - mem leak in do_bind when there is an error
+- Resolves: bug 1086904 - mem leak in do_search - rawbase not freed upon certain errors
+- Resolves: bug 1086908 - Performing deletes during tombstone purging results in operation errors
+- Resolves: bug 1090178 - #481 breaks possibility to reassemble memberuid list
+- Resolves: bug 1092099 - A replicated MOD fails (Unwilling to perform) if it targets a tombstone
+- Resolves: bug 1092342 - nsslapd-ndn-cache-max-size accepts any invalid value.
+- Resolves: bug 1092648 - Negative value of nsSaslMapPriority is not reset to lowest priority
+- Resolves: bug 1097004 - Problem with deletion while replicated
+- Resolves: bug 1098654 - db2bak.pl error with changelogdb
+- Resolves: bug 1099654 - Normalization from old DN format to New DN format doesnt handel condition properly when there is space in a suffix after the seperator operator.
+- Resolves: bug 1108405 - find a way to remove replication plugin errors messages "changelog iteration code returned a dummy entry with csn %s, skipping ..."
+- Resolves: bug 1108407 - managed entry plugin fails to update managed entry pointer on modrdn operation
+- Resolves: bug 1108865 - memory leak in ldapsearch filter objectclass=*
+- Resolves: bug 1108870 - ACI warnings in error log
+- Resolves: bug 1108872 - Logconv.pl with an empty access log gives lots of errors
+- Resolves: bug 1108874 - logconv.pl memory continually grows
+- Resolves: bug 1108881 - rsearch filter error on any search filter
+- Resolves: bug 1108895 - [RFE - RHDS9] CLI report to monitor replication
+- Resolves: bug 1108902 - rhds91 389-ds-base-1.2.11.15-31.el6_5.x86_64 crash in db4 __dbc_get_pp env = 0x0 ?
+- Resolves: bug 1108909 - single valued attribute replicated ADD does not work
+- Resolves: bug 1109334 - 389 Server crashes if uniqueMember is invalid syntax and memberOf plugin is enabled.
+- Resolves: bug 1109336 - Parent numsubordinate count can be incorrectly updated if an error occurs
+- Resolves: bug 1109339 - Nested tombstones become orphaned after purge
+- Resolves: bug 1109354 - Tombstone purging can crash the server if the backend is stopped/disabled
+- Resolves: bug 1109357 - Coverity issue in 1.3.3
+- Resolves: bug 1109364 - valgrind - value mem leaks, uninit mem usage
+- Resolves: bug 1109375 - provide default syntax plugin
+- Resolves: bug 1109378 - Environment variables are not passed when DS is started via service
+- Resolves: bug 1111364 - Updating winsync one-way sync does not affect the behaviour dynamically
+- Resolves: bug 1112824 - Broken dereference control with the FreeIPA 4.0 ACIs
+- Resolves: bug 1113605 - server restart wipes out index config if there is a default index
+- Resolves: bug 1115177 - attrcrypt_generate_key calls slapd_pk11_TokenKeyGenWithFlags with improper macro
+- Resolves: bug 1117021 - Server deadlock if online import started while server is under load
+- Resolves: bug 1117975 - paged results control is not working in some cases when we have a subsuffix.
+- Resolves: bug 1117979 - harden the list of ciphers available by default
+- Resolves: bug 1117981 - Fix various typos in manpages & code
+- Resolves: bug 1117982 - Fix hyphens used as minus signed and other manpage mistakes
+- Resolves: bug 1118002 - server crashes deleting a replication agreement
+- Resolves: bug 1118006 - RFE - forcing passwordmustchange attribute by non-cn=directory manager
+- Resolves: bug 1118007 - [RFE] Make it possible for privileges to be provided to an admin user to import an LDIF file containing hashed passwords
+- Resolves: bug 1118014 - Enhance ACIs to have more control over MODRDN operations
+- Resolves: bug 1118021 - Return all attributes in rootdse without explicit request
+- Resolves: bug 1118025 - Slow ldapmodify operation time for large quantities of multi-valued attribute values
+- Resolves: bug 1118032 - Schema Replication Issue
+- Resolves: bug 1118034 - 389 DS Server crashes and dies while handles paged searches from clients
+- Resolves: bug 1118043 - Failed deletion of aci: no such attribute
+- Resolves: bug 1118048 - If be_txn plugin fails in ldbm_back_add, adding entry is double freed.
+- Resolves: bug 1118051 - Add switch to disable pre-hashed password checking
+- Resolves: bug 1118054 - Make ldbm_back_seq independently support transactions
+- Resolves: bug 1118055 - Add operations rejected by betxn plugins remain in cache
+- Resolves: bug 1118057 - online import crashes server if using verbose error logging
+- Resolves: bug 1118059 - add fixup-memberuid.pl script
+- Resolves: bug 1118060 - winsync plugin modify is broken
+- Resolves: bug 1118066 - memberof scope: allow to exclude subtrees
+- Resolves: bug 1118069 - 389-ds production segfault: __memcpy_sse2_unaligned () at ../sysdeps/x86_64/multiarch/memcpy-sse2-unaligned.S:144
+- Resolves: bug 1118074_DELETE_FN - plugin returned error" messages
+- Resolves: bug 1118076 - ds logs many "Operation error fetching Null DN" messages
+- Resolves: bug 1118077 - Improve import logging and abort handling
+- Resolves: bug 1118079 - Multi master replication initialization incomplete after restore of one master
+- Resolves: bug 1118080 - Don't add unhashed password mod if we don't have an unhashed value
+- Resolves: bug 1118081 - Investigate betxn plugins to ensure they return the correct error code
+- Resolves: bug 1118082 - The error result text message should be obtained just prior to sending result
+- Resolves: bug 1123865 - CVE-2014-3562 389-ds-base: 389-ds: unauthenticated information disclosure [rhel-7.1] 
+
+* Fri May  2 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-26
+- release 1.3.1.6-26
+- Resolves: bug 1085011 - Directory Server crash reported from reliab15 execution (Ticket 346)
+
+* Mon Mar 31 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-25
 - release 1.3.1.6-25
 - Resolves: bug 1082740 - ns-slapd crash in reliability 15
 
@@ -527,7 +722,7 @@ fi
 * Tue Mar 11 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-23
 - Resolves: bug 1074850 - EMBARGOED CVE-2014-0132 389-ds-base: 389-ds: flaw in parsing authzid can lead to privilege escalation [rhel-7.0] (Ticket 47739 - directory server is insecurely misinterpreting authzid on a SASL/GSSAPI bind) (Added 0095-Ticket-47739-directory-server-is-insecurely-misinter.patch)
 
-* Tue Mar 11 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-23
+  Tue Mar 11 2014 Noriko Hosoi <nhosoi@redhat.com> - 1.3.1.6-23
 - release 1.3.1.6-22
 - Resolves: bug 1074850 - EMBARGOED CVE-2014-0132 389-ds-base: 389-ds: flaw in parsing authzid can lead to privilege escalation [rhel-7.0] (Ticket 47739 - directory server is insecurely misinterpreting authzid on a SASL/GSSAPI bind)
 

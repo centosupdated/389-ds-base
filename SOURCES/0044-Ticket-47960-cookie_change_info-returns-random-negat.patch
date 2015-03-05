@@ -1,0 +1,88 @@
+From bf2263bac10b890cdfc1fb7cd37f868785190cce Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 10 Dec 2014 17:12:00 -0800
+Subject: [PATCH 44/53] Ticket #47960 - cookie_change_info returns random
+ negative number if there was no change in a tree
+
+Description: When no changes had not been made, Retro Changelog db
+was empty and the search callback sync_handle_cnum_entry in the
+Content Synchronization had no chance to be called.  If it was not
+called, an uninitialized garbage value in Sync_CallBackData was set
+to cookie_change_info.
+
+This patch checks if the search callback sync_handle_cnum_entry is
+called or not.  If it is not called, set 0 to cookie_change_info.
+
+https://fedorahosted.org/389/ticket/47960
+
+Reviewed by rmeggins@redhat.com and tbordaz@redhat.com (Thank you,
+Rich and Thierry!!)
+
+(cherry picked from commit a908c6b57cd77ff2f6e2fe0fe1fa2e0eccba77e0)
+(cherry picked from commit b7a472c71db4671c127584fcf7bfd8c75930bc8c)
+---
+ ldap/servers/plugins/sync/sync.h      |  2 ++
+ ldap/servers/plugins/sync/sync_util.c | 14 ++++++++++----
+ 2 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/ldap/servers/plugins/sync/sync.h b/ldap/servers/plugins/sync/sync.h
+index 9c2d8be..0bcec7a 100644
+--- a/ldap/servers/plugins/sync/sync.h
++++ b/ldap/servers/plugins/sync/sync.h
+@@ -76,6 +76,8 @@ typedef struct sync_update {
+ 	Slapi_Entry *upd_e;
+ } Sync_UpdateNode;
+ 
++#define SYNC_CALLBACK_PREINIT (-1)
++
+ typedef struct sync_callback {
+ 	Slapi_PBlock *orig_pb;
+ 	int changenr;
+diff --git a/ldap/servers/plugins/sync/sync_util.c b/ldap/servers/plugins/sync/sync_util.c
+index de65b99..af22bcb 100644
+--- a/ldap/servers/plugins/sync/sync_util.c
++++ b/ldap/servers/plugins/sync/sync_util.c
+@@ -373,6 +373,7 @@ sync_handle_cnum_entry(Slapi_Entry *e, void *cb_data)
+ 				if( NULL != value && NULL != value->bv_val &&
+ 					'\0' != value->bv_val[0]) {
+ 					cb->changenr = sync_number2int(value->bv_val);
++					cb->cb_err = 0; /* changenr successfully set */
+ 				}
+ 			}
+ 		}
+@@ -500,7 +501,7 @@ sync_cookie_get_change_info(Sync_CallBackData *scbd)
+ 	slapi_pblock_init(seq_pb);
+ 
+ 	slapi_seq_internal_set_pb(seq_pb, base, SLAPI_SEQ_LAST, attrname, NULL, NULL, 0, 0, 
+-		plugin_get_default_component_id(), 0);							  
++		plugin_get_default_component_id(), 0);
+ 
+ 	rc = slapi_seq_internal_callback_pb (seq_pb, scbd, NULL, sync_handle_cnum_entry, NULL);
+ 	slapi_pblock_destroy(seq_pb);
+@@ -518,15 +519,20 @@ sync_cookie_create (Slapi_PBlock *pb)
+ 
+ 	Sync_CallBackData scbd;
+ 	int rc;
+-	Sync_Cookie *sc = (Sync_Cookie *)slapi_ch_malloc(sizeof(Sync_Cookie));
+-
++	Sync_Cookie *sc = (Sync_Cookie *)slapi_ch_calloc(1, sizeof(Sync_Cookie));
+ 
++	scbd.cb_err = SYNC_CALLBACK_PREINIT;
+ 	rc = sync_cookie_get_change_info (&scbd);
+ 
+ 	if (rc == 0) {
+ 		sc->cookie_server_signature = sync_cookie_get_server_info(pb);
+ 		sc->cookie_client_signature = sync_cookie_get_client_info(pb);
+-		sc->cookie_change_info = scbd.changenr;
++		if (scbd.cb_err == SYNC_CALLBACK_PREINIT) {
++			/* changenr is not initialized. */
++			sc->cookie_change_info = 0;
++		} else {
++			sc->cookie_change_info = scbd.changenr;
++		}
+ 	} else {
+ 		slapi_ch_free ((void **)&sc);
+ 		sc = NULL;
+-- 
+1.9.3
+
