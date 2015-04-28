@@ -25,7 +25,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.3.1
-Release:          %{?relprefix}13%{?prerel}%{?dist}
+Release:          %{?relprefix}16%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -175,6 +175,8 @@ Patch57:          0057-Ticket-47989-Windows-Sync-accidentally-cleared-raw_e.patc
 Patch58:          0058-Ticket-47991-upgrade-script-fails-if-etc-and-var-are.patch
 Patch59:          0059-Ticket-47988-Schema-learning-mechanism-in-replicatio.patch
 Patch60:          0060-Ticket-47988-Schema-learning-mechanism-in-replicatio.patch
+Patch61:          0061-Ticket-48005-ns-slapd-crash-in-shutdown-phase.patch
+Patch62:          0062-CVE-2015-1854-389ds-base-access-control-bypass-with-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -286,6 +288,8 @@ cp %{SOURCE2} README.devel
 %patch58 -p1
 %patch59 -p1
 %patch60 -p1
+%patch61 -p1
+%patch62 -p1
 
 %build
 %if %{use_openldap}
@@ -348,35 +352,44 @@ ninst=0 # number of instances found in total
 if [ -n "$DEBUGPOSTTRANS" ] ; then
    output=$DEBUGPOSTTRANS
 fi
-echo looking for services in %{_sysconfdir}/systemd/system/%{groupname}.wants/* > $output 2>&1 || :
+echo looking for services in %{_sysconfdir}/systemd/system/%{groupname}.wants/* >> $output 2>&1 || :
 for service in %{_sysconfdir}/systemd/system/%{groupname}.wants/* ; do
     if [ ! -f "$service" ] ; then continue ; fi # in case nothing matches
     inst=`echo $service | sed -e 's,%{_sysconfdir}/systemd/system/%{groupname}.wants/,,'`
-    echo found instance $inst - getting status > $output 2>&1 || :
+    echo found instance $inst - getting status >> $output 2>&1 || :
     if /bin/systemctl -q is-active $inst ; then
-       echo instance $inst is running > $output 2>&1 || :
+       echo instance $inst is running >> $output 2>&1 || :
        instances="$instances $inst"
     else
-       echo instance $inst is not running > $output 2>&1 || :
+       echo instance $inst is not running >> $output 2>&1 || :
     fi
     ninst=`expr $ninst + 1`
 done
 if [ $ninst -eq 0 ] ; then
-    echo no instances to upgrade > $output 2>&1 || :
+    echo no instances to upgrade >> $output 2>&1 || :
     exit 0 # have no instances to upgrade - just skip the rest
 fi
 # shutdown all instances
-echo shutting down all instances . . . > $output 2>&1 || :
-/bin/systemctl stop %{groupname} > $output 2>&1 || :
-echo remove pid files . . . > $output 2>&1 || :
+echo shutting down all instances . . . >> $output 2>&1 || :
+for inst in $instances ; do
+    echo stopping instance $inst >> $output 2>&1 || :
+    /bin/systemctl stop $inst >> $output 2>&1 || :
+done
+echo remove pid files . . . >> $output 2>&1 || :
 /bin/rm -f /var/run/%{pkgname}*.pid /var/run/%{pkgname}*.startpid
 # do the upgrade
-echo upgrading instances . . . > $output 2>&1 || :
-%{_sbindir}/setup-ds.pl -l $output -u -s General.UpdateMode=offline > $output 2>&1 || :
+echo upgrading instances . . . >> $output 2>&1 || :
+DEBUGPOSTSETUPOPT=`/usr/bin/echo $DEBUGPOSTSETUP | /usr/bin/sed -e "s/[^d]//g"`
+if [ -n "$DEBUGPOSTSETUPOPT" ] ; then
+    %{_sbindir}/setup-ds.pl -l $output -$DEBUGPOSTSETUPOPT -u -s General.UpdateMode=offline >> $output 2>&1 || :
+else
+    %{_sbindir}/setup-ds.pl -l $output -u -s General.UpdateMode=offline >> $output 2>&1 || :
+fi
+
 # restart instances that require it
 for inst in $instances ; do
-    echo restarting instance $inst > $output 2>&1 || :
-    /bin/systemctl start $inst > $output 2>&1 || :
+    echo restarting instance $inst >> $output 2>&1 || :
+    /bin/systemctl start $inst >> $output 2>&1 || :
 done
 exit 0
 
@@ -437,6 +450,20 @@ fi
 %{_libdir}/%{pkgname}/libns-dshttpd.so*
 
 %changelog
+* Tue Apr 21 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-16
+- release 1.3.3.1-16
+- Resolves: bug 1212894 - CVE-2015-1854 389ds-base: access control bypass with modrdn
+
+* Mon Feb 23 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-15
+- release 1.3.3.1-15
+- Setting correct build tag 'rhel-7.1-z-candidate'
+
+* Mon Feb 23 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-14
+- release 1.3.3.1-14
+- Resolves: bug 1189154 - DNS errors after IPA upgrade due to broken ReplSync (DS 48030)
+            Fixes spec file to make sure all the server instances are stopped before upgrade
+- Resolves: bug 1186548 - ns-slapd crash in shutdown phase (DS 48005)
+
 * Sun Jan 25 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-13
 - release 1.3.3.1-13
 - Resolves: bug 1183655 - Fixed Covscan FORWARD_NULL defects (DS 47988)
