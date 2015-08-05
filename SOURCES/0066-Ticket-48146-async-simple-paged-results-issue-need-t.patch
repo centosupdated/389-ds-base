@@ -1,0 +1,183 @@
+From 39e430f55e61605d27849c0f17e37e046cbbda72 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Fri, 1 May 2015 12:01:13 -0700
+Subject: [PATCH 66/72] Ticket #48146 - async simple paged results issue; need
+ to close a small window for a pr index competed among multiple threads.
+
+Description: If multiple async simple paged results requests come in via one
+connection simultaneously, the same slot in the paged results array in the
+connection could be shared.  If one of them has to do paging, the search
+request object stashed in the paged result array slot could be freed by the
+other request if it has the shorter life cycle.
+
+These 3 reqs use the same paged results array slot.
+req0: <--------------><----x
+page1           page2
+req1: <----->
+req2:              <------->
+frees search result object of req0
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!!)
+
+(cherry picked from commit 3cf85d1ad6cbc0feac5578dee5ce259c0f65055f)
+---
+ ldap/servers/slapd/opshared.c     | 93 +++++++++++++++++++--------------------
+ ldap/servers/slapd/pagedresults.c |  3 +-
+ ldap/servers/slapd/proto-slap.h   |  2 +-
+ 3 files changed, 49 insertions(+), 49 deletions(-)
+
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index e7cee8a..430b0c6 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -408,6 +408,51 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+    */
+   operation_set_target_spec (pb->pb_op, basesdn);
+ 
++  if (be_name == NULL)
++  {
++    /* no specific backend was requested, use the mapping tree
++     */
++    err_code = slapi_mapping_tree_select_all(pb, be_list, referral_list, errorbuf);
++    if (((err_code != LDAP_SUCCESS) && (err_code != LDAP_OPERATIONS_ERROR) && (err_code != LDAP_REFERRAL))
++      || ((err_code == LDAP_OPERATIONS_ERROR) && (be_list[0] == NULL)))
++    {
++      send_ldap_result(pb, err_code, NULL, errorbuf, 0, NULL);
++      rc = -1;
++      goto free_and_return;
++    }
++    if (be_list[0] != NULL)
++    {
++      index = 0;
++      if (pr_be) { /* PAGED RESULT: be is found from the previous paging. */
++        /* move the index in the be_list which matches pr_be */
++        while (be_list[index] && be_list[index+1] && pr_be != be_list[index])
++          index++;
++      } else {
++        while (be_list[index] && be_list[index+1])
++          index++;
++      }
++      /* "be" is either pr_be or the last backend */
++      be = be_list[index];
++    }
++    else
++      be = pr_be?pr_be:NULL;
++  }
++  else
++  {
++      /* specific backend be_name was requested, use slapi_be_select_by_instance_name
++       */
++      if (pr_be) {
++        be_single = be = pr_be;
++      } else {
++        be_single = be = slapi_be_select_by_instance_name(be_name);
++      }
++      if (be_single)
++        slapi_be_Rlock(be_single);
++      be_list[0] = NULL;
++      referral_list[0] = NULL;
++      referral = NULL;
++  }
++
+   /* this is time to check if mapping tree specific control
+    * was used to specify that we want to parse only 
+    * one backend 
+@@ -478,8 +523,7 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+       if ( slapi_control_present (ctrlp, LDAP_CONTROL_PAGEDRESULTS,
+                                   &ctl_value, &iscritical) )
+       {
+-          rc = pagedresults_parse_control_value(pb, ctl_value,
+-                                                &pagesize, &pr_idx);
++          rc = pagedresults_parse_control_value(pb, ctl_value, &pagesize, &pr_idx, be);
+           /* Let's set pr_idx even if it fails; in case, pr_idx == -1. */
+           slapi_pblock_set(pb, SLAPI_PAGED_RESULTS_INDEX, &pr_idx);
+           if ((LDAP_SUCCESS == rc) ||
+@@ -520,51 +564,6 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+       }
+   }
+ 
+-  if (be_name == NULL)
+-  {
+-    /* no specific backend was requested, use the mapping tree
+-     */
+-    err_code = slapi_mapping_tree_select_all(pb, be_list, referral_list, errorbuf);
+-    if (((err_code != LDAP_SUCCESS) && (err_code != LDAP_OPERATIONS_ERROR) && (err_code != LDAP_REFERRAL))
+-      || ((err_code == LDAP_OPERATIONS_ERROR) && (be_list[0] == NULL)))
+-    {
+-      send_ldap_result(pb, err_code, NULL, errorbuf, 0, NULL);
+-      rc = -1;
+-      goto free_and_return;
+-    }
+-    if (be_list[0] != NULL)
+-    {
+-      index = 0;
+-      if (pr_be) { /* PAGED RESULT: be is found from the previous paging. */
+-        /* move the index in the be_list which matches pr_be */
+-        while (be_list[index] && be_list[index+1] && pr_be != be_list[index])
+-          index++;
+-      } else {
+-        while (be_list[index] && be_list[index+1])
+-          index++;
+-      }
+-      /* "be" is either pr_be or the last backend */
+-      be = be_list[index];
+-    }
+-    else
+-      be = pr_be?pr_be:NULL;
+-  }
+-  else
+-  {
+-      /* specific backend be_name was requested, use slapi_be_select_by_instance_name
+-       */
+-      if (pr_be) {
+-        be_single = be = pr_be;
+-      } else {
+-        be_single = be = slapi_be_select_by_instance_name(be_name);
+-      }
+-      if (be_single)
+-        slapi_be_Rlock(be_single);
+-      be_list[0] = NULL;
+-      referral_list[0] = NULL;
+-      referral = NULL;
+-  }
+-
+   slapi_pblock_set(pb, SLAPI_BACKEND_COUNT, &index);
+ 
+   if (be)
+diff --git a/ldap/servers/slapd/pagedresults.c b/ldap/servers/slapd/pagedresults.c
+index e61c000..a3a5fc4 100644
+--- a/ldap/servers/slapd/pagedresults.c
++++ b/ldap/servers/slapd/pagedresults.c
+@@ -58,7 +58,7 @@
+ int
+ pagedresults_parse_control_value( Slapi_PBlock *pb,
+                                   struct berval *psbvp, ber_int_t *pagesize,
+-                                  int *index )
++                                  int *index, Slapi_Backend *be )
+ {
+     int rc = LDAP_SUCCESS;
+     struct berval cookie = {0};
+@@ -119,6 +119,7 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+         } else {
+             for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++) {
+                 if (!conn->c_pagedresults.prl_list[i].pr_current_be) {
++                    conn->c_pagedresults.prl_list[i].pr_current_be = be;
+                     *index = i;
+                     break;
+                 }
+diff --git a/ldap/servers/slapd/proto-slap.h b/ldap/servers/slapd/proto-slap.h
+index c987b4a..80504b2 100644
+--- a/ldap/servers/slapd/proto-slap.h
++++ b/ldap/servers/slapd/proto-slap.h
+@@ -1467,7 +1467,7 @@ int slapd_do_all_nss_ssl_init(int slapd_exemode, int importexport_encrypt,
+  * pagedresults.c
+  */
+ int pagedresults_parse_control_value(Slapi_PBlock *pb, struct berval *psbvp,
+-                                     ber_int_t *pagesize, int *index);
++                                     ber_int_t *pagesize, int *index, Slapi_Backend *be);
+ void pagedresults_set_response_control(Slapi_PBlock *pb, int iscritical, 
+                                        ber_int_t estimate,
+                                        int curr_search_count, int index);
+-- 
+1.9.3
+

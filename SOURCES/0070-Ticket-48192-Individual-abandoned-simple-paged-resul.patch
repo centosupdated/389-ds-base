@@ -1,0 +1,321 @@
+From 810e825adebf9f1669bab9f61831f158e0c2f941 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Thu, 4 Jun 2015 16:27:05 -0700
+Subject: [PATCH 70/72] Ticket #48192 - Individual abandoned simple paged
+ results request has no chance to be cleaned up
+
+Description: When allocating a slot in simple paged results array stashed
+in a connection in pagedresults_parse_control_value, a new code is added
+to scan the array if the existing slot is timed out or not.  If it is, the
+slot is released and a search results is released if it is attached.
+
+Also, if a request is abandoned, instead of returning a valid cookie, it
+changed to return an empty cookie to inform the client the request was not
+successfully completed.
+
+https://fedorahosted.org/389/ticket/48192
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!!)
+
+(cherry picked from commit f3c3125fc9fd4dc1cbd41027d6442cb525efd014)
+(cherry picked from commit 97c707df4e11936202310e99bcf5f45d15b49f0f)
+---
+ ldap/servers/slapd/opshared.c     |  41 +++++++-------
+ ldap/servers/slapd/pagedresults.c | 110 ++++++++++++++++++++++++--------------
+ 2 files changed, 89 insertions(+), 62 deletions(-)
+
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index 5dff42f..9cf431c 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -517,8 +517,7 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+           rc = pagedresults_parse_control_value(pb, ctl_value, &pagesize, &pr_idx, be);
+           /* Let's set pr_idx even if it fails; in case, pr_idx == -1. */
+           slapi_pblock_set(pb, SLAPI_PAGED_RESULTS_INDEX, &pr_idx);
+-          if ((LDAP_SUCCESS == rc) ||
+-              (LDAP_CANCELLED == rc) || (0 == pagesize)) {
++          if ((LDAP_SUCCESS == rc) || (LDAP_CANCELLED == rc) || (0 == pagesize)) {
+               unsigned int opnote = SLAPI_OP_NOTE_SIMPLEPAGED;
+               op_set_pagedresults(operation);
+               pr_be = pagedresults_get_current_be(pb->pb_conn, pr_idx);
+@@ -545,9 +544,8 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+               }
+               slapi_pblock_set( pb, SLAPI_OPERATION_NOTES, &opnote );
+               if ((LDAP_CANCELLED == rc) || (0 == pagesize)) {
+-                  /* paged-results-request was abandoned */
+-                  pagedresults_set_response_control(pb, 0, estimate, 
+-                                                    curr_search_count, pr_idx);
++                  /* paged-results-request was abandoned; making an empty cookie. */
++                  pagedresults_set_response_control(pb, 0, estimate, -1, pr_idx);
+                   send_ldap_result(pb, 0, NULL,
+                                    "Simple Paged Results Search abandoned",
+                                    0, NULL);
+@@ -574,10 +572,21 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+ 
+       /* adjust time and size limits */
+       compute_limits (pb);
+-    
+-      /* call the pre-search plugins. if they succeed, call the backend 
+-     search function. then call the post-search plugins. */
+ 
++      /* set the timelimit to clean up the too-long-lived-paged results requests */
++      if (op_is_pagedresults(operation)) {
++        time_t optime, time_up;
++        int tlimit;
++        slapi_pblock_get( pb, SLAPI_SEARCH_TIMELIMIT, &tlimit );
++        slapi_pblock_get( pb, SLAPI_OPINITIATED_TIME, &optime );
++        time_up = (tlimit==-1 ? -1 : optime + tlimit); /* -1: no time limit */
++        pagedresults_set_timelimit(pb->pb_conn, pb->pb_op, time_up, pr_idx);
++      }
++    
++      /*
++       * call the pre-search plugins. if they succeed, call the backend 
++       * search function. then call the post-search plugins.
++       */
+       /* ONREPL - should regular plugin be called for internal searches ? */
+       if (plugin_call_plugins(pb, SLAPI_PLUGIN_PRE_SEARCH_FN) == 0)
+       {
+@@ -642,16 +651,6 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+     }
+   }
+ 
+-  /* set the timelimit to clean up the too-long-lived-paged results requests */
+-  if (op_is_pagedresults(operation)) {
+-    time_t optime, time_up;
+-    int tlimit;
+-    slapi_pblock_get( pb, SLAPI_SEARCH_TIMELIMIT, &tlimit );
+-    slapi_pblock_get( pb, SLAPI_OPINITIATED_TIME, &optime );
+-    time_up = (tlimit==-1 ? -1 : optime + tlimit); /* -1: no time limit */
+-    pagedresults_set_timelimit(pb->pb_conn, pb->pb_op, time_up, pr_idx);
+-  }
+-
+   /* PAR: now filters have been rewritten, we can assign plugins to work on them */
+   index_subsys_assign_filter_decoders(pb);
+ 
+@@ -880,10 +879,7 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+             slapi_pblock_get(pb, SLAPI_SEARCH_RESULT_SET, &sr);
+             if (PAGEDRESULTS_SEARCH_END == pr_stat) {
+               if (sr) { /* in case a left over sr is found, clean it up */
+-                PR_Lock(pb->pb_conn->c_mutex);
+-                pagedresults_set_search_result(pb->pb_conn, operation, NULL, 1, pr_idx);
+-                be->be_search_results_release(&sr);
+-                PR_Unlock(pb->pb_conn->c_mutex);
++                pagedresults_free_one(pb->pb_conn, operation, pr_idx);
+               }
+               if (NULL == next_be) {
+                 /* no more entries && no more backends */
+@@ -1306,7 +1302,6 @@ iterate(Slapi_PBlock *pb, Slapi_Backend *be, int send_result,
+                 operation_out_of_disk_space();
+             }
+             pr_stat = PAGEDRESULTS_SEARCH_END;
+-            pagedresults_set_timelimit(pb->pb_conn, pb->pb_op, 0, pr_idx);
+             rval = -1;
+             done = 1;
+             continue;
+diff --git a/ldap/servers/slapd/pagedresults.c b/ldap/servers/slapd/pagedresults.c
+index 327da54..402dd10 100644
+--- a/ldap/servers/slapd/pagedresults.c
++++ b/ldap/servers/slapd/pagedresults.c
+@@ -41,6 +41,27 @@
+ 
+ #include "slap.h"
+ 
++/* helper function to clean up one prp slot */
++static void
++_pr_cleanup_one_slot(PagedResults *prp)
++{
++    PRLock *prmutex = NULL;
++    if (!prp) {
++        return;
++    }
++    if (prp->pr_current_be && prp->pr_current_be->be_search_results_release) {
++        /* sr is left; release it. */
++        prp->pr_current_be->be_search_results_release(&(prp->pr_search_result_set));
++    }
++    /* clean up the slot */
++    if (prp->pr_mutex) {
++        /* pr_mutex is reused; back it up and reset it. */
++        prmutex = prp->pr_mutex;
++    }
++    memset(prp, '\0', sizeof(PagedResults));
++    prp->pr_mutex = prmutex;
++}
++
+ /*
+  * Parse the value from an LDAPv3 "Simple Paged Results" control.  They look
+  * like this:
+@@ -65,6 +86,7 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+     Connection *conn = pb->pb_conn;
+     Operation *op = pb->pb_op;
+     BerElement *ber = NULL;
++    PagedResults *prp = NULL;
+ 
+     LDAPDebug0Args(LDAP_DEBUG_TRACE, "--> pagedresults_parse_control_value\n");
+     if ( NULL == conn || NULL == op || NULL == pagesize || NULL == index ) {
+@@ -117,13 +139,31 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+             }
+             *index = maxlen; /* the first position in the new area */
+         } else {
+-            for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++) {
+-                if (!conn->c_pagedresults.prl_list[i].pr_current_be) {
+-                    conn->c_pagedresults.prl_list[i].pr_current_be = be;
++            time_t ctime = current_time();
++            prp = conn->c_pagedresults.prl_list;
++            for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++, prp++) {
++                if (!prp->pr_current_be) { /* unused slot; take it */
++                    prp->pr_current_be = be;
++                    *index = i;
++                    break;
++                } else if (((prp->pr_timelimit > 0) && (ctime < prp->pr_timelimit)) || /* timelimit exceeded */
++                           (prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED) /* abandoned */) {
++                    _pr_cleanup_one_slot(prp);
++                    conn->c_pagedresults.prl_count--;
++                    prp->pr_current_be = be;
+                     *index = i;
+                     break;
+                 }
+             }
++            /* cleaning up the rest of the timedout if any */
++            for (++i; i < conn->c_pagedresults.prl_maxlen; i++, prp++) {
++                if (prp->pr_current_be &&
++                    (((prp->pr_timelimit > 0) && (ctime < prp->pr_timelimit)) || /* timelimit exceeded */
++                    (prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED)) /* abandoned */) {
++                    _pr_cleanup_one_slot(prp);
++                    conn->c_pagedresults.prl_count--;
++                }
++            }
+         }
+         if ((*index > -1) && (*index < conn->c_pagedresults.prl_maxlen) &&
+             !conn->c_pagedresults.prl_list[*index].pr_mutex) {
+@@ -131,7 +171,6 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+         }
+         conn->c_pagedresults.prl_count++;
+     } else {
+-        PagedResults *prp = NULL;
+         /* Repeated paged results request.
+          * PagedResults is already allocated. */
+         char *ptr = slapi_ch_malloc(cookie.bv_len + 1);
+@@ -156,8 +195,10 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+     slapi_ch_free((void **)&cookie.bv_val);
+ 
+     if ((*index > -1) && (*index < conn->c_pagedresults.prl_maxlen)) {
+-        if (conn->c_pagedresults.prl_list[*index].pr_flags &
+-            CONN_FLAG_PAGEDRESULTS_ABANDONED) {
++        if (conn->c_pagedresults.prl_list[*index].pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED) {
++            /* repeated case? */
++            prp = conn->c_pagedresults.prl_list + *index;
++            _pr_cleanup_one_slot(prp);
+             rc = LDAP_CANCELLED;
+         } else {
+             /* Need to keep the latest msgid to prepare for the abandon. */
+@@ -273,20 +314,8 @@ pagedresults_free_one( Connection *conn, Operation *op, int index )
+                            "conn=%d paged requests list count is %d\n",
+                            conn->c_connid, conn->c_pagedresults.prl_count);
+         } else if (index < conn->c_pagedresults.prl_maxlen) {
+-            PRLock *prmutex = NULL;
+             PagedResults *prp = conn->c_pagedresults.prl_list + index;
+-            if (prp && prp->pr_current_be &&
+-                prp->pr_current_be->be_search_results_release &&
+-                prp->pr_search_result_set) {
+-                prp->pr_current_be->be_search_results_release(&(prp->pr_search_result_set));
+-            }
+-            prp->pr_current_be = NULL;
+-            if (prp->pr_mutex) {
+-                /* pr_mutex is reused; back it up and reset it. */
+-                prmutex = prp->pr_mutex;
+-            }
+-            memset(prp, '\0', sizeof(PagedResults));
+-            prp->pr_mutex = prmutex;
++            _pr_cleanup_one_slot(prp);
+             conn->c_pagedresults.prl_count--;
+             rc = 0;
+         }
+@@ -309,7 +338,7 @@ pagedresults_free_one_msgid_nolock( Connection *conn, ber_int_t msgid )
+             ; /* Not a paged result. */
+         } else {
+             LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+-                          "--> pagedresults_free_one: msgid=%d\n", msgid);
++                          "--> pagedresults_free_one_msgid_nolock: msgid=%d\n", msgid);
+             for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++) {
+                 if (conn->c_pagedresults.prl_list[i].pr_msgid == msgid) {
+                     PagedResults *prp = conn->c_pagedresults.prl_list + i;
+@@ -318,16 +347,14 @@ pagedresults_free_one_msgid_nolock( Connection *conn, ber_int_t msgid )
+                         prp->pr_search_result_set) {
+                         prp->pr_current_be->be_search_results_release(&(prp->pr_search_result_set));
+                     }
+-                    prp->pr_current_be = NULL;
+                     prp->pr_flags |= CONN_FLAG_PAGEDRESULTS_ABANDONED;
+                     prp->pr_flags &= ~CONN_FLAG_PAGEDRESULTS_PROCESSING;
+-                    conn->c_pagedresults.prl_count--;
+                     rc = 0;
+                     break;
+                 }
+             }
+             LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+-                          "<-- pagedresults_free_one: %d\n", rc);
++                          "<-- pagedresults_free_one_msgid_nolock: %d\n", rc);
+         }
+     }
+ 
+@@ -845,37 +872,42 @@ pagedresults_reset_processing(Connection *conn, int index)
+ }
+ #endif
+ 
+-/* Are all the paged results requests timed out? */
++/*
++ * This timedout is mainly for an end user leaves a commandline untouched
++ * for a long time.  This should not affect a permanent connection which
++ * manages multiple simple paged results requests over the connection.
++ *
++ * [rule]
++ * If there is just one slot and it's timed out, we return it is timedout.
++ * If there are multiple slots, the connection may be a permanent one.
++ * Do not return timed out here.  But let the next request take care the
++ * timedout slot(s).
++ */
+ int
+ pagedresults_is_timedout_nolock(Connection *conn)
+ {
+-    int i;
+     PagedResults *prp = NULL;
+     time_t ctime;
+-    int rc = 0;
+ 
+     LDAPDebug0Args(LDAP_DEBUG_TRACE, "--> pagedresults_is_timedout\n");
+ 
+-    if (NULL == conn || 0 == conn->c_pagedresults.prl_count) {
+-        LDAPDebug0Args(LDAP_DEBUG_TRACE, "<-- pagedresults_is_timedout: -\n");
+-        return rc;
++    if (!conn || (0 == conn->c_pagedresults.prl_maxlen)) {
++        LDAPDebug0Args(LDAP_DEBUG_TRACE, "<-- pagedresults_is_timedout: false\n");
++        return 0;
+     }
+ 
+     ctime = current_time();
+-    for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++) {
+-        prp = conn->c_pagedresults.prl_list + i;
++    prp = conn->c_pagedresults.prl_list;
++    if (prp && (1 == conn->c_pagedresults.prl_maxlen)) {
+         if (prp->pr_current_be && (prp->pr_timelimit > 0)) {
+-            if (ctime < prp->pr_timelimit) {
+-                LDAPDebug0Args(LDAP_DEBUG_TRACE,
+-                               "<-- pagedresults_is_timedout: 0\n");
+-                return 0; /* at least, one request is not timed out. */
+-            } else {
+-                rc = 1;   /* possibly timed out */
++            if (ctime > prp->pr_timelimit) {
++                LDAPDebug0Args(LDAP_DEBUG_TRACE, "<-- pagedresults_is_timedout: true\n");
++                return 1;
+             }
+         }
+     }
+-    LDAPDebug0Args(LDAP_DEBUG_TRACE, "<-- pagedresults_is_timedout: 1\n");
+-    return rc; /* all requests are timed out. */
++    LDAPDebug0Args(LDAP_DEBUG_TRACE, "<-- pagedresults_is_timedout: false\n");
++    return 0;
+ }
+ 
+ /* reset all timeout */
+-- 
+1.9.3
+

@@ -25,7 +25,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.3.1
-Release:          %{?relprefix}16%{?prerel}%{?dist}
+Release:          %{?relprefix}20%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -177,6 +177,19 @@ Patch59:          0059-Ticket-47988-Schema-learning-mechanism-in-replicatio.patc
 Patch60:          0060-Ticket-47988-Schema-learning-mechanism-in-replicatio.patch
 Patch61:          0061-Ticket-48005-ns-slapd-crash-in-shutdown-phase.patch
 Patch62:          0062-CVE-2015-1854-389ds-base-access-control-bypass-with-.patch
+Patch63:          0063-Ticket-48190-idm-ipa-389-ds-base-entry-cache-converg.patch
+Patch64:          0064-Ticket-48146-async-simple-paged-results-issue.patch
+Patch65:          0065-Ticket-48146-async-simple-paged-results-issue-log-pr.patch
+Patch66:          0066-Ticket-48146-async-simple-paged-results-issue-need-t.patch
+Patch67:          0067-Ticket-48146-async-simple-paged-results-issue.patch
+Patch68:          0068-Ticket-48146-async-simple-paged-results-issue.patch
+Patch69:          0069-Ticket-48146-async-simple-paged-results-issue.patch
+Patch70:          0070-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
+Patch71:          0071-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
+Patch72:          0072-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
+Patch73:          0073-Ticket-48194-nsSSL3Ciphers-preference-not-enforced-s.patch
+Patch74:          0074-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
+Patch75:          0075-Ticket-48223-Winsync-fails-when-AD-users-have-multip.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -290,6 +303,19 @@ cp %{SOURCE2} README.devel
 %patch60 -p1
 %patch61 -p1
 %patch62 -p1
+%patch63 -p1
+%patch64 -p1
+%patch65 -p1
+%patch66 -p1
+%patch67 -p1
+%patch68 -p1
+%patch69 -p1
+%patch70 -p1
+%patch71 -p1
+%patch72 -p1
+%patch73 -p1
+%patch74 -p1
+%patch75 -p1
 
 %build
 %if %{use_openldap}
@@ -450,6 +476,23 @@ fi
 %{_libdir}/%{pkgname}/libns-dshttpd.so*
 
 %changelog
+* Thu Jul 16 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-20
+- release 1.3.3.1-20
+- Resolves: bug 1243718 - Winsync fails when AD users have multiple spaces (two)inside the value of the rdn attribute (DS 48223)
+
+* Mon Jul  6 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-19
+- release 1.3.3.1-19
+- Resolves: bug 1230037 - async simple paged results issue (DS 48192)
+
+* Tue Jun 16 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-18
+- release 1.3.3.1-18
+- Resolves: bug 1232100 - CVE-2015-3230 389-ds-base: nsSSL3Ciphers preference not enforced server side (DS 48194)
+
+* Wed Jun 10 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-17
+- release 1.3.3.1-17
+- Resolves: bug 1230038 - idm/ipa 389-ds-base entry cache converges to 500 KB in dblayer_is_cachesize_sane (DS 48190)
+- Resolves: bug 1230037 - async simple paged results issue (DS 48146, DS 48192)
+
 * Tue Apr 21 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-16
 - release 1.3.3.1-16
 - Resolves: bug 1212894 - CVE-2015-1854 389ds-base: access control bypass with modrdn

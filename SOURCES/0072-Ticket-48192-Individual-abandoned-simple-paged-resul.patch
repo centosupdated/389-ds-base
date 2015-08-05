@@ -1,0 +1,314 @@
+From 504609eadf933c726d829e1532dbe525ab71d1b2 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 9 Jun 2015 10:02:02 -0700
+Subject: [PATCH 72/72] Ticket #48192 - Individual abandoned simple paged
+ results request has no chance to be cleaned up
+
+Description: When a simple paged results is abandoned immediately and
+asynchronously just after the request, the abandon request has a chance
+to be handled before the simple paged results control is received and
+processed.  In the case, the search could be executed and the search
+result structure could be leaked.
+
+This patch adds more abandon checks.  In op_shared_search, after the
+send_results_ext call, if the SLAPI_OP_STATUS_ABANDONED bit is set in
+the status in the operation object, it cleans up the search results
+again, which gives the second chance.
+
+https://fedorahosted.org/389/ticket/48192
+
+Reviewed by tbordaz@redhat.com (Thank you so much, Thierry!!)
+
+(cherry picked from commit 1d18dd0107d48ac1d79f7c9988adf18b0905bbdb)
+(cherry picked from commit 798eae4f2240a5b47963a2bb09a2a17acfc488ec)
+---
+ ldap/servers/slapd/abandon.c               | 10 +++---
+ ldap/servers/slapd/back-ldbm/ldbm_search.c | 13 ++++++--
+ ldap/servers/slapd/opshared.c              | 36 +++++++++++++--------
+ ldap/servers/slapd/pagedresults.c          | 52 +++++++++++++++++-------------
+ ldap/servers/slapd/proto-slap.h            |  2 +-
+ 5 files changed, 69 insertions(+), 44 deletions(-)
+
+diff --git a/ldap/servers/slapd/abandon.c b/ldap/servers/slapd/abandon.c
+index 6b4bbf2..d80087e 100644
+--- a/ldap/servers/slapd/abandon.c
++++ b/ldap/servers/slapd/abandon.c
+@@ -132,8 +132,7 @@ do_abandon( Slapi_PBlock *pb )
+ 		}
+ 
+ 		operation_set_abandoned_op (pb->pb_op, o->o_abandoned_op);
+-		if ( plugin_call_plugins( pb, SLAPI_PLUGIN_PRE_ABANDON_FN )
+-		    == 0 ) {
++		if ( plugin_call_plugins( pb, SLAPI_PLUGIN_PRE_ABANDON_FN ) == 0 ) {
+ 			int	rc = 0;
+ 
+ 			if ( o->o_status != SLAPI_OP_STATUS_RESULT_SENT ) {
+@@ -148,14 +147,13 @@ do_abandon( Slapi_PBlock *pb )
+ 			suppressed_by_plugin = 1;
+ 		}
+ 	} else {
+-		LDAPDebug( LDAP_DEBUG_TRACE, "do_abandon: op not found\n", 0, 0,
+-		    0 );
++		LDAPDebug0Args(LDAP_DEBUG_TRACE, "do_abandon: op not found\n");
+ 	}
+ 
+ 	if ( 0 == pagedresults_free_one_msgid_nolock(pb->pb_conn, id) ) {
+ 		slapi_log_access( LDAP_DEBUG_STATS, "conn=%" NSPRIu64 
+-		    " op=%d ABANDON targetop=Simple Paged Results\n",
+-		    (long long unsigned int)pb->pb_conn->c_connid, pb->pb_op->o_opid );
++		    " op=%d ABANDON targetop=Simple Paged Results msgid=%d\n",
++		    (long long unsigned int)pb->pb_conn->c_connid, pb->pb_op->o_opid, id );
+ 	} else if ( NULL == o ) {
+ 		slapi_log_access( LDAP_DEBUG_STATS, "conn=%" NSPRIu64 " op=%d ABANDON"
+ 			" targetop=NOTFOUND msgid=%d\n",
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_search.c b/ldap/servers/slapd/back-ldbm/ldbm_search.c
+index e1951a0..c6c5735 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_search.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_search.c
+@@ -1817,12 +1817,21 @@ ldbm_back_next_search_entry_ext( Slapi_PBlock *pb, int use_extension )
+           }
+         }
+     }
++    /* check for the final abandon */
++    if (slapi_op_abandoned(pb)) {
++        slapi_pblock_set( pb, SLAPI_SEARCH_RESULT_SET_SIZE_ESTIMATE, &estimate );
++        if ( use_extension ) {
++            slapi_pblock_set( pb, SLAPI_SEARCH_RESULT_ENTRY_EXT, NULL );
++        }
++        slapi_pblock_set( pb, SLAPI_SEARCH_RESULT_ENTRY, NULL );
++        delete_search_result_set(pb, &sr);
++        rc = SLAPI_FAIL_GENERAL;
++    }
+ 
+ bail:
+-    if(rc){
++    if (rc && op) {
+         op->o_reverse_search_state = 0;
+     }
+-
+     return rc;
+ }
+ 
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index 9cf431c..4be5366 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -748,7 +748,7 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+         pagedresults_unlock(pb->pb_conn, pr_idx);
+         if (next_be) {
+           /* no more entries, but at least another backend */
+-          if (pagedresults_set_current_be(pb->pb_conn, next_be, pr_idx) < 0) {
++          if (pagedresults_set_current_be(pb->pb_conn, next_be, pr_idx, 0) < 0) {
+               goto free_and_return;
+           }
+         }
+@@ -878,23 +878,23 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+             curr_search_count = pnentries;
+             slapi_pblock_get(pb, SLAPI_SEARCH_RESULT_SET, &sr);
+             if (PAGEDRESULTS_SEARCH_END == pr_stat) {
+-              if (sr) { /* in case a left over sr is found, clean it up */
+-                pagedresults_free_one(pb->pb_conn, operation, pr_idx);
+-              }
++              /* no more entries, but at least another backend */
++              PR_Lock(pb->pb_conn->c_mutex);
++              pagedresults_set_search_result(pb->pb_conn, operation, NULL, 1, pr_idx);
++              be->be_search_results_release(&sr);
++              rc = pagedresults_set_current_be(pb->pb_conn, next_be, pr_idx, 1);
++              PR_Unlock(pb->pb_conn->c_mutex);
+               if (NULL == next_be) {
+-                /* no more entries && no more backends */
+-                curr_search_count = -1;
+-              } else {
+-                /* no more entries, but at least another backend */
+-                if (pagedresults_set_current_be(pb->pb_conn, next_be, pr_idx) < 0) {
++                  /* no more entries && no more backends */
++                  curr_search_count = -1;
++              } else if (rc < 0) {
+                   goto free_and_return;
+-                }
+               }
+             } else {
+               curr_search_count = pnentries;
+               slapi_pblock_get(pb, SLAPI_SEARCH_RESULT_SET_SIZE_ESTIMATE, &estimate);
+               pagedresults_lock(pb->pb_conn, pr_idx);
+-              if ((pagedresults_set_current_be(pb->pb_conn, be, pr_idx) < 0) ||
++              if ((pagedresults_set_current_be(pb->pb_conn, be, pr_idx, 0) < 0) ||
+                   (pagedresults_set_search_result(pb->pb_conn, operation, sr, 0, pr_idx) < 0) ||
+                   (pagedresults_set_search_result_count(pb->pb_conn, operation, curr_search_count, pr_idx) < 0) ||
+                   (pagedresults_set_search_result_set_size_estimate(pb->pb_conn, operation, estimate, pr_idx) < 0) ||
+@@ -904,10 +904,20 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+               }
+               pagedresults_unlock(pb->pb_conn, pr_idx);
+             }
+-            pagedresults_set_response_control(pb, 0, estimate, 
+-                                              curr_search_count, pr_idx);
+             slapi_pblock_set( pb, SLAPI_SEARCH_RESULT_SET, NULL );
+             next_be = NULL; /* to break the loop */
++            if (operation->o_status & SLAPI_OP_STATUS_ABANDONED) {
++                /* It turned out this search was abandoned. */
++                PR_Lock(pb->pb_conn->c_mutex);
++                pagedresults_free_one_msgid_nolock( pb->pb_conn, operation->o_msgid);
++                PR_Unlock(pb->pb_conn->c_mutex);
++                /* paged-results-request was abandoned; making an empty cookie. */
++                pagedresults_set_response_control(pb, 0, estimate, -1, pr_idx);
++                send_ldap_result(pb, 0, NULL, "Simple Paged Results Search abandoned", 0, NULL);
++                rc = LDAP_SUCCESS;
++                goto free_and_return;
++            }
++            pagedresults_set_response_control(pb, 0, estimate, curr_search_count, pr_idx);
+             if (curr_search_count == -1) {
+                 pagedresults_free_one(pb->pb_conn, operation, pr_idx);
+             }
+diff --git a/ldap/servers/slapd/pagedresults.c b/ldap/servers/slapd/pagedresults.c
+index 2e70e19..a7fe2cd 100644
+--- a/ldap/servers/slapd/pagedresults.c
++++ b/ldap/servers/slapd/pagedresults.c
+@@ -87,6 +87,8 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+     Operation *op = pb->pb_op;
+     BerElement *ber = NULL;
+     PagedResults *prp = NULL;
++    time_t ctime = current_time();
++    int i;
+ 
+     LDAPDebug0Args(LDAP_DEBUG_TRACE, "--> pagedresults_parse_control_value\n");
+     if ( NULL == conn || NULL == op || NULL == pagesize || NULL == index ) {
+@@ -121,7 +123,6 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+     /* the ber encoding is no longer needed */
+     ber_free(ber, 1);
+     if ( cookie.bv_len <= 0 ) {
+-        int i;
+         /* first time? */
+         int maxlen = conn->c_pagedresults.prl_maxlen;
+         if (conn->c_pagedresults.prl_count == maxlen) {
+@@ -138,15 +139,16 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+                 memset(conn->c_pagedresults.prl_list + maxlen, '\0', sizeof(PagedResults) * maxlen);
+             }
+             *index = maxlen; /* the first position in the new area */
++            prp = conn->c_pagedresults.prl_list + *index;
++            prp->pr_current_be = be;
+         } else {
+-            time_t ctime = current_time();
+             prp = conn->c_pagedresults.prl_list;
+             for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++, prp++) {
+                 if (!prp->pr_current_be) { /* unused slot; take it */
+                     prp->pr_current_be = be;
+                     *index = i;
+                     break;
+-                } else if (((prp->pr_timelimit > 0) && (ctime < prp->pr_timelimit)) || /* timelimit exceeded */
++                } else if (((prp->pr_timelimit > 0) && (ctime > prp->pr_timelimit)) || /* timelimit exceeded */
+                            (prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED) /* abandoned */) {
+                     _pr_cleanup_one_slot(prp);
+                     conn->c_pagedresults.prl_count--;
+@@ -155,15 +157,6 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+                     break;
+                 }
+             }
+-            /* cleaning up the rest of the timedout if any */
+-            for (++i; i < conn->c_pagedresults.prl_maxlen; i++, prp++) {
+-                if (prp->pr_current_be &&
+-                    (((prp->pr_timelimit > 0) && (ctime < prp->pr_timelimit)) || /* timelimit exceeded */
+-                    (prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED)) /* abandoned */) {
+-                    _pr_cleanup_one_slot(prp);
+-                    conn->c_pagedresults.prl_count--;
+-                }
+-            }
+         }
+         if ((*index > -1) && (*index < conn->c_pagedresults.prl_maxlen) &&
+             !conn->c_pagedresults.prl_list[*index].pr_mutex) {
+@@ -181,8 +174,8 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+         if ((conn->c_pagedresults.prl_maxlen <= *index) || (*index < 0)){
+             rc = LDAP_PROTOCOL_ERROR;
+             LDAPDebug1Arg(LDAP_DEBUG_ANY,
+-                          "pagedresults_parse_control_value: invalid cookie: %d\n",
+-                          *index);
++                          "pagedresults_parse_control_value: invalid cookie: %d\n", *index);
++            *index = -1; /* index is invalid. reinitializing it. */
+             goto bail;
+         }
+         prp = conn->c_pagedresults.prl_list + *index;
+@@ -206,11 +199,24 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+         }
+     } else {
+         rc = LDAP_PROTOCOL_ERROR;
+-        LDAPDebug1Arg(LDAP_DEBUG_ANY,
+-                      "pagedresults_parse_control_value: invalid cookie: %d\n",
+-                      *index);
++        LDAPDebug1Arg(LDAP_DEBUG_ANY, "pagedresults_parse_control_value: invalid cookie: %d\n", *index);
+     }
+ bail:
++    /* cleaning up the rest of the timedout or abandoned if any */
++    prp = conn->c_pagedresults.prl_list;
++    for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++, prp++) {
++        if (prp->pr_current_be &&
++            (((prp->pr_timelimit > 0) && (ctime > prp->pr_timelimit)) || /* timelimit exceeded */
++             (prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED)) /* abandoned */) {
++            _pr_cleanup_one_slot(prp);
++            conn->c_pagedresults.prl_count--;
++            if (i == *index) {
++                /* registered slot is expired and cleaned up. return cancelled. */
++                *index = -1;
++                rc = LDAP_CANCELLED;
++            }
++        }
++    }
+     PR_Unlock(conn->c_mutex);
+ 
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+@@ -326,7 +332,9 @@ pagedresults_free_one( Connection *conn, Operation *op, int index )
+     return rc;
+ }
+ 
+-/* Used for abandoning */
++/* 
++ * Used for abandoning - conn->c_mutex is already locked in do_abandone.
++ */
+ int 
+ pagedresults_free_one_msgid_nolock( Connection *conn, ber_int_t msgid )
+ {
+@@ -334,7 +342,7 @@ pagedresults_free_one_msgid_nolock( Connection *conn, ber_int_t msgid )
+     int i;
+ 
+     if (conn && (msgid > -1)) {
+-        if (conn->c_pagedresults.prl_count <= 0) {
++        if (conn->c_pagedresults.prl_maxlen <= 0) {
+             ; /* Not a paged result. */
+         } else {
+             LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+@@ -381,18 +389,18 @@ pagedresults_get_current_be(Connection *conn, int index)
+ }
+ 
+ int
+-pagedresults_set_current_be(Connection *conn, Slapi_Backend *be, int index)
++pagedresults_set_current_be(Connection *conn, Slapi_Backend *be, int index, int nolock)
+ {
+     int rc = -1;
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_set_current_be: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        if (!nolock) PR_Lock(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_current_be = be;
+         }
+-        PR_Unlock(conn->c_mutex);
+         rc = 0;
++        if (!nolock) PR_Unlock(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_set_current_be: %d\n", rc);
+diff --git a/ldap/servers/slapd/proto-slap.h b/ldap/servers/slapd/proto-slap.h
+index 80504b2..c5c412d 100644
+--- a/ldap/servers/slapd/proto-slap.h
++++ b/ldap/servers/slapd/proto-slap.h
+@@ -1472,7 +1472,7 @@ void pagedresults_set_response_control(Slapi_PBlock *pb, int iscritical,
+                                        ber_int_t estimate,
+                                        int curr_search_count, int index);
+ Slapi_Backend *pagedresults_get_current_be(Connection *conn, int index);
+-int pagedresults_set_current_be(Connection *conn, Slapi_Backend *be, int index);
++int pagedresults_set_current_be(Connection *conn, Slapi_Backend *be, int index, int nolock);
+ void *pagedresults_get_search_result(Connection *conn, Operation *op,
+                                      int index);
+ int pagedresults_set_search_result(Connection *conn, Operation *op, void *sr, 
+-- 
+1.9.3
+
