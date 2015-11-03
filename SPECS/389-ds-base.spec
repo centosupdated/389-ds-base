@@ -25,7 +25,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.3.1
-Release:          %{?relprefix}20%{?prerel}%{?dist}
+Release:          %{?relprefix}23%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -190,6 +190,18 @@ Patch72:          0072-Ticket-48192-Individual-abandoned-simple-paged-resul.patc
 Patch73:          0073-Ticket-48194-nsSSL3Ciphers-preference-not-enforced-s.patch
 Patch74:          0074-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
 Patch75:          0075-Ticket-48223-Winsync-fails-when-AD-users-have-multip.patch
+Patch76:          0076-Ticket-47553-Enhance-ACIs-to-have-more-control-over-.patch
+Patch77:          0077-Ticket-47553-Enhance-ACIs-to-have-more-control-over-.patch
+Patch78:          0078-Ticket-48265-Complex-filter-in-a-search-request-doen.patch
+Patch79:          0079-Ticket-47912-Proper-handling-of-No-original_tombston.patch
+Patch80:          0080-Ticket-48208-CleanAllRUV-should-completely-purge-cha.patch
+Patch81:          0081-Ticket-47931-memberOf-retrocl-deadlocks.patch
+Patch82:          0082-Ticket-47931-Fix-coverity-issues.patch
+Patch83:          0083-Ticket-47831-remove-debug-logging-from-retro-cl.patch
+Patch84:          0084-Ticket-47831-remove-debug-logging-from-retro-cl.patch
+Patch85:          0085-Ticket-48195-Slow-replication-when-deleting-large-qu.patch
+Patch86:          0086-Ticket-48226-In-MMR-double-free-coould-occur-under-s.patch
+Patch87:          0087-Ticket-48226-In-MMR-double-free-coould-occur-under-s.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -316,6 +328,18 @@ cp %{SOURCE2} README.devel
 %patch73 -p1
 %patch74 -p1
 %patch75 -p1
+%patch76 -p1
+%patch77 -p1
+%patch78 -p1
+%patch79 -p1
+%patch80 -p1
+%patch81 -p1
+%patch82 -p1
+%patch83 -p1
+%patch84 -p1
+%patch85 -p1
+%patch86 -p1
+%patch87 -p1
 
 %build
 %if %{use_openldap}
@@ -476,6 +500,22 @@ fi
 %{_libdir}/%{pkgname}/libns-dshttpd.so*
 
 %changelog
+* Thu Sep 24 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-23
+- release 1.3.3.1-23
+- Resolves: bug 1262363 - In MMR, double free coould occur under some special condition (DS 48226)
+
+* Fri Sep 11 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-22
+- release 1.3.3.1-22
+- Resolves: bug 1262363 - In MMR, double free coould occur under some special condition (DS 48226)
+
+* Tue Sep  8 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-21
+- release 1.3.3.1-21
+- Resolves: bug 1258318 - Deadlock with retrochangelog, memberof plugin (DS 47931)
+- Resolves: bug 1259466 - Enhance ACIs to have more control over MODRDN operations (DS 47553)
+- Resolves: bug 1259999 - Some filters in RHDS10 are not working fine. (DS 48265)
+- Resolves: bug 1260000 - handling of "No original_tombstone for changenumber" errors (DS 47912)
+- Resolves: bug 1260001 - cleanallruv should completely clean changelog (DS 48208)
+
 * Thu Jul 16 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-20
 - release 1.3.3.1-20
 - Resolves: bug 1243718 - Winsync fails when AD users have multiple spaces (two)inside the value of the rdn attribute (DS 48223)

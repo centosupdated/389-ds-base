@@ -1,0 +1,55 @@
+From 924a6ec6ca3131ff7233fd664ede9051907d96b1 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 2 Sep 2015 14:28:27 -0700
+Subject: [PATCH 78/84] Ticket #48265 - Complex filter in a search request
+ doen't work as expected. (regression)
+
+Description: commit c2658c14802783d0a8919783aa7123be9e749c18 to fix
+Ticket 47521 - Complex filter in a search request doen't work as expected.
+regressed this case:
+  "(&(&(|(l=A)(l=B)(l=C))(|(C=D)(c=E)))(|(uid=*test*)(cn=*test*))(o=X))"
+in which a simple filter follows a complex filter which choice is
+different from the outer choice.  I.e., '|' for (uid=...)(cn=...)
+is different from the first '&'.
+
+The fix for 47521 solves this case:
+  "(&(&(uid=A)(cn=B))(&(givenname=C))(mail=D)(&(description=E)))"
+in this case, (mail=D) used to be dropped from the filter in the
+function index_subsys_flatten_filter.
+
+The 47521 fix saved the simple filter "(mail=D)" in the 2nd example,
+but it forced to skip the complex filter with the different choice
+and converted the 1st example to:
+  "(&(&(|(l=A)(l=B)(l=C))(|(C=D)(c=E)))(o=X))"
+This patch saves such a complex filter, as well.
+
+https://fedorahosted.org/389/ticket/48265
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit 8c3d3e4648fbb5229e329e2154d46f1ae808ba02)
+(cherry picked from commit 3d9dbf2d441e551495a1f3169dc2020324c484b4)
+(cherry picked from commit c03a9f7c121355aefadc92ed67bcb6f400196017)
+---
+ ldap/servers/slapd/index_subsystem.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/ldap/servers/slapd/index_subsystem.c b/ldap/servers/slapd/index_subsystem.c
+index eff908e..d0ba1bd 100644
+--- a/ldap/servers/slapd/index_subsystem.c
++++ b/ldap/servers/slapd/index_subsystem.c
+@@ -441,6 +441,11 @@ static void index_subsys_flatten_filter(Slapi_Filter *flist)
+ 				}
+ 				else
+ 				{
++					/* don't loose a nested filter having a different choice */
++					if (flast) {
++						flast->f_next = f;
++						flast = f;
++					}
+ 					fprev = f;
+ 					f = f->f_next;
+ 				}
+-- 
+1.9.3
+

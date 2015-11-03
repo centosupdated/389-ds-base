@@ -1,0 +1,77 @@
+From 92af3c54655cdac45271d2111a53ba6bd6400052 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 15 Sep 2015 18:25:02 -0700
+Subject: [PATCH] Ticket #48226 - In MMR, double free coould occur under some
+ special condition
+
+Description: commit a0f8e0f981a046882db299a7a6d6d1c01bc19571 introduced
+a memory leak in the case of resolve_attribute_state_present_to_deleted.
+In the case, csnset is not consumed.  Thus, it has to be freed by csnset_
+free.
+
+https://fedorahosted.org/389/ticket/48226
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit b26ec6762fe2b5d37ade59243086cfd2308e8f0a)
+(cherry picked from commit 4a3efc3330a034fa485f33e453054758561d4cea)
+(cherry picked from commit 14e08bde4a48a8e8b56edc817b5d1e3d56b96c72)
+---
+ ldap/servers/slapd/entrywsi.c | 22 +++++++++++-----------
+ ldap/servers/slapd/valueset.c |  1 +
+ 2 files changed, 12 insertions(+), 11 deletions(-)
+
+diff --git a/ldap/servers/slapd/entrywsi.c b/ldap/servers/slapd/entrywsi.c
+index 41afe1a..6773b9f 100644
+--- a/ldap/servers/slapd/entrywsi.c
++++ b/ldap/servers/slapd/entrywsi.c
+@@ -1305,23 +1305,23 @@ resolve_attribute_state_present_to_deleted(Slapi_Entry *e, Slapi_Attr *a, Slapi_
+ 	const CSN *adcsn= attr_get_deletion_csn(a);
+ 	int i;
+ 	if ( valuestoupdate != NULL && valuestoupdate[0] != NULL ) {
+-	for (i=0;valuestoupdate[i]!=NULL;++i) {
+-	/* This call ensures that the value does not contain a deletion_csn
+-	 * which is before the presence_csn or distinguished_csn of the value.
+-	 */ 
+-	    purge_attribute_state_multi_valued(a, valuestoupdate[i]);
+-		vdcsn= value_get_csn(valuestoupdate[i], CSN_TYPE_VALUE_DELETED);
+-		vucsn= value_get_csn(valuestoupdate[i], CSN_TYPE_VALUE_UPDATED);
+-		deletedcsn= csn_max(vdcsn, adcsn);
++		for (i=0;valuestoupdate[i]!=NULL;++i) {
++			/* This call ensures that the value does not contain a deletion_csn
++			 * which is before the presence_csn or distinguished_csn of the value.
++			 */ 
++			purge_attribute_state_multi_valued(a, valuestoupdate[i]);
++			vdcsn= value_get_csn(valuestoupdate[i], CSN_TYPE_VALUE_DELETED);
++			vucsn= value_get_csn(valuestoupdate[i], CSN_TYPE_VALUE_UPDATED);
++			deletedcsn= csn_max(vdcsn, adcsn);
+ 			if(csn_compare(vucsn,deletedcsn)<0) 
+ 			{
+-	        		if(!value_distinguished_at_csn(e, a, valuestoupdate[i], deletedcsn))
++				if(!value_distinguished_at_csn(e, a, valuestoupdate[i], deletedcsn))
+ 				{
+ 					entry_present_value_to_deleted_value(a,valuestoupdate[i]);
+ 				}
+ 			}
+-		valuestoupdate[i]->v_csnset = NULL;
+-	}
++			csnset_free(&valuestoupdate[i]->v_csnset);
++		}
+ 	}
+ }
+ 
+diff --git a/ldap/servers/slapd/valueset.c b/ldap/servers/slapd/valueset.c
+index fb7a99b..7b5fa01 100644
+--- a/ldap/servers/slapd/valueset.c
++++ b/ldap/servers/slapd/valueset.c
+@@ -1445,6 +1445,7 @@ valueset_update_csn_for_valuearray_ext(Slapi_ValueSet *vs, const Slapi_Attr *a,
+ 			{
+ 				value_update_csn(v,t,csn);
+ 				if (csnref_updated) {
++					csnset_free(&valuestoupdate[i]->v_csnset);
+ 					valuestoupdate[i]->v_csnset = csnset_dup(value_get_csnset(v));
+ 				}
+ 				valuearrayfast_add_value_passin(&vaf_valuesupdated,valuestoupdate[i]);
+-- 
+1.9.3
+

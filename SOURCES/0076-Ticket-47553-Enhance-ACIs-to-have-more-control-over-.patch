@@ -1,0 +1,40 @@
+From b9771a9a3202b4d3a8562ed7359c824f8922b4fe Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 15 Oct 2014 16:20:51 -0700
+Subject: [PATCH 76/84] Ticket #47553 - Enhance ACIs to have more control over
+ MODRDN operations
+
+Description: Macro SLAPI_ACL_ALL does not contain SLAPI_ACL_MODDN.
+Thus, even though all operations are allowed by "allow (all)", just
+modrdn fails with "Insufficient access (50)".
+
+https://fedorahosted.org/389/ticket/47553
+
+Reviewed by tbordaz@redhat.com (Thank you, Thierry!!)
+
+(cherry picked from commit 4aafe7444d983c08b16a84b7c23c8d303de45dc6)
+---
+ ldap/servers/slapd/slapi-plugin.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/slapi-plugin.h b/ldap/servers/slapd/slapi-plugin.h
+index dfe75eb..5a7af5e 100644
+--- a/ldap/servers/slapd/slapi-plugin.h
++++ b/ldap/servers/slapd/slapi-plugin.h
+@@ -237,12 +237,12 @@ NSPR_API(PRUint32) PR_fprintf(struct PRFileDesc* fd, const char *fmt, ...)
+ #define SLAPI_ACL_ADD		0x20
+ #define SLAPI_ACL_SELF		0x40
+ #define SLAPI_ACL_PROXY		0x80
+-#define SLAPI_ACL_ALL		0x7f
+ /* Values 0x200 and 0x400 are booked (acl.h) by
+  * ACLPB_SLAPI_ACL_WRITE_ADD
+  * ACLPB_SLAPI_ACL_WRITE_DEL
+  */
+ #define SLAPI_ACL_MODDN         0x0800
++#define SLAPI_ACL_ALL           0x087f
+         
+ 
+ /*
+-- 
+1.9.3
+

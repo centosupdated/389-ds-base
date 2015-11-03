@@ -1,0 +1,115 @@
+From f5b9a4be65641b29e37e9a0f9a15fee91db2a1e6 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 8 Sep 2015 12:20:33 -0700
+Subject: [PATCH 84/84] Ticket 47831 - remove debug logging from retro cl
+
+Description: 47831 patch expects "skip_nested" which is not supposed
+to be in the branch rhel-7.1.
+---
+ ldap/servers/plugins/memberof/memberof.c        | 16 +++++++---------
+ ldap/servers/plugins/memberof/memberof_config.c |  6 +-----
+ 2 files changed, 8 insertions(+), 14 deletions(-)
+
+diff --git a/ldap/servers/plugins/memberof/memberof.c b/ldap/servers/plugins/memberof/memberof.c
+index 1840e34..4d79cf6 100644
+--- a/ldap/servers/plugins/memberof/memberof.c
++++ b/ldap/servers/plugins/memberof/memberof.c
+@@ -522,7 +522,7 @@ int memberof_postop_del(Slapi_PBlock *pb)
+ {
+ 	int ret = SLAPI_PLUGIN_SUCCESS;
+ 	MemberOfConfig *mainConfig = NULL;
+-	MemberOfConfig configCopy = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++	MemberOfConfig configCopy = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+ 	Slapi_DN *sdn;
+ 	void *caller_id = NULL;
+ 
+@@ -850,7 +850,7 @@ int memberof_postop_modrdn(Slapi_PBlock *pb)
+ 	if(memberof_oktodo(pb))
+ 	{
+ 		MemberOfConfig *mainConfig = 0;
+-		MemberOfConfig configCopy = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++		MemberOfConfig configCopy = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+ 		struct slapi_entry *pre_e = NULL;
+ 		struct slapi_entry *post_e = NULL;
+ 		Slapi_DN *pre_sdn = 0;
+@@ -1115,7 +1115,7 @@ int memberof_postop_modify(Slapi_PBlock *pb)
+ 	{
+ 		int config_copied = 0;
+ 		MemberOfConfig *mainConfig = 0;
+-		MemberOfConfig configCopy = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++		MemberOfConfig configCopy = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+ 
+ 		/* get the mod set */
+ 		slapi_pblock_get(pb, SLAPI_MODIFY_MODS, &mods);
+@@ -1293,7 +1293,7 @@ int memberof_postop_add(Slapi_PBlock *pb)
+ 	if(memberof_oktodo(pb) && (sdn = memberof_getsdn(pb)))
+ 	{
+ 		struct slapi_entry *e = NULL;
+-		MemberOfConfig configCopy = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++		MemberOfConfig configCopy = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+ 		MemberOfConfig *mainConfig;
+ 		slapi_pblock_get( pb, SLAPI_ENTRY_POST_OP, &e );
+ 
+@@ -2178,11 +2178,9 @@ int memberof_get_groups_callback(Slapi_Entry *e, void *callback_data)
+ 			slapi_valueset_add_value_ext(groupvals, group_dn_val, SLAPI_VALUE_FLAG_PASSIN);
+ 			slapi_valueset_add_value_ext(group_norm_vals, group_ndn_val, SLAPI_VALUE_FLAG_PASSIN);
+ 	}
+-	if(!config->skip_nested || config->fixup_task){
+-		/* now recurse to find parent groups of e */
+-		memberof_get_groups_r(((memberof_get_groups_data*)callback_data)->config,
+-			group_sdn, callback_data);
+-	}
++	/* now recurse to find parent groups of e */
++	memberof_get_groups_r(((memberof_get_groups_data*)callback_data)->config,
++		group_sdn, callback_data);
+ 
+ bail:
+ 	return rc;
+diff --git a/ldap/servers/plugins/memberof/memberof_config.c b/ldap/servers/plugins/memberof/memberof_config.c
+index c335cab..6be7f3c 100644
+--- a/ldap/servers/plugins/memberof/memberof_config.c
++++ b/ldap/servers/plugins/memberof/memberof_config.c
+@@ -77,7 +77,7 @@ static int memberof_search (Slapi_PBlock *pb, Slapi_Entry* entryBefore, Slapi_En
+ /* This is the main configuration which is updated from dse.ldif.  The
+  * config will be copied when it is used by the plug-in to prevent it
+  * being changed out from under a running memberOf operation. */
+-static MemberOfConfig theConfig = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
++static MemberOfConfig theConfig = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+ static Slapi_RWLock *memberof_config_lock = 0;
+ static int inited = 0;
+ 
+@@ -208,7 +208,6 @@ memberof_validate_config (Slapi_PBlock *pb, Slapi_Entry* entryBefore, Slapi_Entr
+ 	Slapi_DN **exclude_dn = NULL;
+ 	char *syntaxoid = NULL;
+ 	char *config_dn = NULL;
+-	char *skip_nested = NULL;
+ 	char **entry_scopes = NULL;
+ 	char **entry_exclude_scopes = NULL;
+ 	int not_dn_syntax = 0;
+@@ -462,7 +461,6 @@ memberof_apply_config (Slapi_PBlock *pb, Slapi_Entry* entryBefore, Slapi_Entry*
+ 	char **entryScopes = NULL;
+ 	char **entryScopeExcludeSubtrees = NULL;
+ 	char *sharedcfg = NULL;
+-	char *skip_nested = NULL;
+ 	int num_vals = 0;
+ 
+ 	*returncode = LDAP_SUCCESS;
+@@ -495,7 +493,6 @@ memberof_apply_config (Slapi_PBlock *pb, Slapi_Entry* entryBefore, Slapi_Entry*
+ 	groupattrs = slapi_entry_attr_get_charray(e, MEMBEROF_GROUP_ATTR);
+ 	memberof_attr = slapi_entry_attr_get_charptr(e, MEMBEROF_ATTR);
+ 	allBackends = slapi_entry_attr_get_charptr(e, MEMBEROF_BACKEND_ATTR);
+-	skip_nested = slapi_entry_attr_get_charptr(e, MEMBEROF_SKIP_NESTED_ATTR);
+ 
+ 	/*
+ 	 * We want to be sure we don't change the config in the middle of
+@@ -657,7 +654,6 @@ done:
+ 	slapi_ch_free_string(&sharedcfg);
+ 	slapi_ch_free_string(&memberof_attr);
+ 	slapi_ch_free_string(&allBackends);
+-	slapi_ch_free_string(&skip_nested);
+ 	slapi_ch_free((void **)&entryScopes);
+ 	slapi_ch_free((void **)&entryScopeExcludeSubtrees);
+ 
+-- 
+1.9.3
+
