@@ -1,0 +1,222 @@
+From bc26583d161168ce664d160592a30abbd98b9a1f Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 22 Jul 2015 09:41:46 -0700
+Subject: [PATCH 30/30] Ticket #48010 - winsync range retrieval gets only 5000
+ values upon initialization
+
+Description: Search with DirSync control does not support range subtype.
+On WS2012, it returns all the multi-valued attribute values regardless
+of MaxValRange, but on WS2008, it cuts at the physical limit 5000.
+This patch does not rely on the entry returned by the DirySync search.
+
+Also, since DirSync search does not support the range subtype, removing
+the range related code from the DirSync search.
+
+Researched and tested by vashirov@redhat.com (Thank you, Viktor!!)
+Reviewed by rmeggins@redhat.com (Thank you, Rich!!)
+
+https://fedorahosted.org/389/ticket/48010
+(cherry picked from commit c6b211f8ea4970623f8ac1b365d040756d46bf3c)
+(cherry picked from commit d9af22eb940353c0692b6d73cc0a2d6998311498)
+---
+ .../plugins/replication/windows_connection.c       | 21 ++-----
+ ldap/servers/plugins/replication/windows_private.c | 70 ----------------------
+ .../plugins/replication/windows_protocol_util.c    | 21 +++++--
+ ldap/servers/plugins/replication/windowsrepl.h     |  5 --
+ 4 files changed, 21 insertions(+), 96 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/windows_connection.c b/ldap/servers/plugins/replication/windows_connection.c
+index 5db43a5..a06a07e 100644
+--- a/ldap/servers/plugins/replication/windows_connection.c
++++ b/ldap/servers/plugins/replication/windows_connection.c
+@@ -821,7 +821,6 @@ send_dirsync_search(Repl_Connection *conn)
+ 		const char *old_dn = slapi_sdn_get_ndn( windows_private_get_windows_subtree(conn->agmt) );
+ 		/* LDAP_SERVER_DIRSYNC_OID requires the search base Naming Context */
+ 		char *dn = slapi_ch_strdup(strstr(old_dn, "dc="));
+-		char **exattrs = NULL;
+ 
+ 		if (conn->supports_dirsync == 0)
+ 		{
+@@ -847,10 +846,6 @@ send_dirsync_search(Repl_Connection *conn)
+ 
+ 		winsync_plugin_call_dirsync_search_params_cb(conn->agmt, old_dn, &dn, &scope, &filter,
+ 		                                             &attrs, &server_controls);
+-		exattrs = windows_private_get_range_attrs(conn->agmt);
+-		charray_merge(&attrs, exattrs, 0 /* pass in */);
+-		slapi_ch_free((void **)&exattrs); /* strings are passed in */
+-
+ 		LDAPDebug( LDAP_DEBUG_REPL, "Sending dirsync search request\n", 0, 0, 0 );
+ 
+ 		rc = ldap_search_ext( conn->ld, dn, scope, filter, attrs, PR_FALSE, server_controls,
+@@ -1010,20 +1005,14 @@ Slapi_Entry * windows_conn_get_search_result(Repl_Connection *conn)
+ 			{
+ 				if (( dn = ldap_get_dn( conn->ld, res )) != NULL ) 
+ 				{
+-					char **exattrs = NULL;
+ 					slapi_log_error(SLAPI_LOG_REPL, windows_repl_plugin_name,"received entry from dirsync: %s\n", dn);
+ 					lm = ldap_first_entry( conn->ld, res );
+-					e = windows_private_get_curr_entry(conn->agmt); /* if range search, e != NULL */
+-					e = windows_LDAPMessage2Entry(e, conn, lm, 0, &exattrs);
++					/* 
++					 * we don't have to retrieve all the members here.
++					 * here, we have to make sure to get the entry once.
++					 */
++					e = windows_LDAPMessage2Entry(e, conn, lm, 0, NULL);
+ 					ldap_memfree(dn);
+-					if (exattrs) {
+-						/* some attribute returned "<attr>;range=low-high" */
+-						windows_private_set_curr_entry(conn->agmt, e);
+-						windows_private_set_range_attrs(conn->agmt, exattrs);
+-					} else {
+-						windows_private_set_curr_entry(conn->agmt, NULL);
+-						windows_private_set_range_attrs(conn->agmt, NULL);
+-					}
+ 				}
+ 			}
+ 			break;
+diff --git a/ldap/servers/plugins/replication/windows_private.c b/ldap/servers/plugins/replication/windows_private.c
+index f5cb44e..c118236 100644
+--- a/ldap/servers/plugins/replication/windows_private.c
++++ b/ldap/servers/plugins/replication/windows_private.c
+@@ -1570,76 +1570,6 @@ windows_private_set_move_action(const Repl_Agmt *ra, int value)
+ 	LDAPDebug0Args( LDAP_DEBUG_TRACE, "<= windows_private_set_move_action\n" );
+ }
+ 
+-/* Get entry being retrieved; used for the range retrieval */
+-Slapi_Entry *
+-windows_private_get_curr_entry(const Repl_Agmt *ra)
+-{
+-	Dirsync_Private *dp;
+-
+-	LDAPDebug0Args( LDAP_DEBUG_TRACE, "=> windows_private_get_curr_entry\n" );
+-
+-	PR_ASSERT(ra);
+-
+-	dp = (Dirsync_Private *) agmt_get_priv(ra);
+-	PR_ASSERT (dp);
+-
+-	LDAPDebug0Args( LDAP_DEBUG_TRACE, "<= windows_private_get_curr_entry\n" );
+-
+-	return dp->curr_entry;	
+-}
+-
+-/* Set entry being retrieved; used for the range retrieval */
+-void
+-windows_private_set_curr_entry(const Repl_Agmt *ra, Slapi_Entry *e)
+-{
+-	Dirsync_Private *dp;
+-
+-	LDAPDebug0Args( LDAP_DEBUG_TRACE, "=> windows_private_set_curr_entry\n" );
+-
+-	PR_ASSERT(ra);
+-
+-	dp = (Dirsync_Private *) agmt_get_priv(ra);
+-	PR_ASSERT (dp);
+-	dp->curr_entry = e;
+-
+-	LDAPDebug0Args( LDAP_DEBUG_TRACE, "<= windows_private_set_curr_entry\n" );
+-}
+-
+-/* Get next range retrieval attributes */
+-char **
+-windows_private_get_range_attrs(const Repl_Agmt *ra)
+-{
+-	Dirsync_Private *dp;
+-
+-	LDAPDebug0Args( LDAP_DEBUG_TRACE, "=> windows_private_get_range_attrs\n" );
+-
+-	PR_ASSERT(ra);
+-
+-	dp = (Dirsync_Private *) agmt_get_priv(ra);
+-	PR_ASSERT (dp);
+-
+-	LDAPDebug0Args( LDAP_DEBUG_TRACE, "<= windows_private_get_range_attrs\n" );
+-
+-	return dp->range_attrs;	
+-}
+-
+-/* Set next range retrieval attributes */
+-void
+-windows_private_set_range_attrs(const Repl_Agmt *ra, char **attrs)
+-{
+-	Dirsync_Private *dp;
+-
+-	LDAPDebug0Args( LDAP_DEBUG_TRACE, "=> windows_private_set_move_action\n" );
+-
+-	PR_ASSERT(ra);
+-
+-	dp = (Dirsync_Private *) agmt_get_priv(ra);
+-	PR_ASSERT (dp);
+-	dp->range_attrs = attrs;
+-
+-	LDAPDebug0Args( LDAP_DEBUG_TRACE, "<= windows_private_set_move_action\n" );
+-}
+-
+ static PRCallOnceType winsync_callOnce = {0,0};
+ 
+ struct winsync_plugin {
+diff --git a/ldap/servers/plugins/replication/windows_protocol_util.c b/ldap/servers/plugins/replication/windows_protocol_util.c
+index 6bf20b7..4cfa20d 100644
+--- a/ldap/servers/plugins/replication/windows_protocol_util.c
++++ b/ldap/servers/plugins/replication/windows_protocol_util.c
+@@ -5847,6 +5847,9 @@ windows_process_dirsync_entry(Private_Repl_Protocol *prp,Slapi_Entry *e, int is_
+ 		/* Is this entry one we should be interested in ? */
+ 		if (is_subject_of_agreement_remote(e,prp->agmt)) 
+ 		{
++			ConnResult cres = 0;
++			const char *searchbase = slapi_entry_get_dn_const(e);
++			char *filter = "(objectclass=*)";
+ retry:
+ 			/* First make its local DN */
+ 			rc = map_entry_dn_inbound(e, &local_sdn, prp->agmt);
+@@ -5902,7 +5905,19 @@ retry:
+ 					/* If it doesn't exist, try to make it */
+ 					if (add_local_entry_allowed(prp,e))
+ 					{
+-						windows_create_local_entry(prp,e,local_sdn);
++						found_entry = NULL;
++						/* 
++						 * BZ 1172037: Search with DirSync Control does not return the range subtype.
++						 * Re-search the entry to get all the attribute values over hard limit MaxValRange
++						 * on 2008R2.  Note: 2012R2 does not have the hard limit.
++						 * If we stop supporting 2008R2, this windows_search_entry_ext call can be removed.
++						 */
++						cres = windows_search_entry_ext(prp->conn, (char*)searchbase, 
++						                                filter, &found_entry, NULL, LDAP_SCOPE_BASE);
++						if (found_entry) {
++							e = found_entry;
++						}
++						windows_create_local_entry(prp, e, local_sdn);
+ 					} else
+ 					{
+ 						slapi_log_error(SLAPI_LOG_REPL, windows_repl_plugin_name,"%s: windows_process_dirsync_entry: not allowed to add entry %s.\n",agmt_get_long_name(prp->agmt)
+@@ -5918,10 +5933,6 @@ retry:
+ 			 	 * We search Windows with the dn and retry using the found 
+ 				 * entry.
+ 			 	 */
+-				ConnResult cres = 0;
+-				const char *searchbase = slapi_entry_get_dn_const(e);
+-				char *filter = "(objectclass=*)";
+-
+ 				retried = 1;
+ 				cres = windows_search_entry_ext(prp->conn, (char*)searchbase, 
+ 												filter, &found_entry, NULL, LDAP_SCOPE_BASE);
+diff --git a/ldap/servers/plugins/replication/windowsrepl.h b/ldap/servers/plugins/replication/windowsrepl.h
+index fd80212..66f4804 100644
+--- a/ldap/servers/plugins/replication/windowsrepl.h
++++ b/ldap/servers/plugins/replication/windowsrepl.h
+@@ -66,11 +66,6 @@ void windows_private_set_one_way(const Repl_Agmt *ra, PRBool value);
+ int windows_private_get_move_action(const Repl_Agmt *ra);
+ void windows_private_set_move_action(const Repl_Agmt *ra, int value);
+ 
+-Slapi_Entry *windows_private_get_curr_entry(const Repl_Agmt *ra);
+-void windows_private_set_curr_entry(const Repl_Agmt *ra, Slapi_Entry *e);
+-char **windows_private_get_range_attrs(const Repl_Agmt *ra);
+-void windows_private_set_range_attrs(const Repl_Agmt *ra, char **attrs);
+-
+ void windows_private_set_directory_userfilter(const Repl_Agmt *ra, char *filter);
+ void windows_private_set_windows_userfilter(const Repl_Agmt *ra, char *filter);
+ const char* windows_private_get_directory_userfilter(const Repl_Agmt *ra);
+-- 
+1.9.3
+

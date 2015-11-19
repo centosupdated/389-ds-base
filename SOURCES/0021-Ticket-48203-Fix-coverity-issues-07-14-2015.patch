@@ -1,0 +1,64 @@
+From e88ffac24b49acb01fb7d460ff4282abe85d3799 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 14 Jul 2015 16:00:03 -0700
+Subject: [PATCH 21/22] Ticket #48203 - Fix coverity issues - 07/14/2015
+
+Description: Overrunning array "mctx.negativeErrors" of 19 4-byte
+elements at element index 122 (byte offset 488) using index "abs(err)"
+(which evaluates to 122).
+
+Commit 71be5faaa478593bb056887410ca8e48e05b2fe4 to fix Ticket #47799
+introduced this problem.  The error count checking has to be done per
+error.
+
+https://fedorahosted.org/389/ticket/48203
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!)
+
+(cherry picked from commit cc435b8c382f7da662b5c27339d23fd33a8f4117)
+(cherry picked from commit 6ec1001e507908ba60f8c52568d24b5c7c727855)
+---
+ ldap/servers/slapd/tools/ldclt/threadMain.c | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/tools/ldclt/threadMain.c b/ldap/servers/slapd/tools/ldclt/threadMain.c
+index 5d915fd..88353c6 100644
+--- a/ldap/servers/slapd/tools/ldclt/threadMain.c
++++ b/ldap/servers/slapd/tools/ldclt/threadMain.c
+@@ -477,7 +477,7 @@ addErrorStat (
+ #else
+     if ((err <= 0) || (err >= MAX_ERROR_NB))
+ #endif
+-	{
++    {
+       if (mctx.errorsBad > mctx.maxErrors) {
+         printf ("ldclt[%d]: Max error limit reached - exiting.\n", mctx.pid);
+         (void) printGlobalStatistics();				/*JLS 25-08-00*/
+@@ -485,8 +485,22 @@ addErrorStat (
+         ldclt_sleep (5);
+         ldcltExit (EXIT_MAX_ERRORS);				/*JLS 25-08-00*/
+       }
+-    } else {
+-      if (mctx.errors[err] + mctx.negativeErrors[abs(err)] > mctx.maxErrors) {
++    }
++#if defined(USE_OPENLDAP)
++    else if (err < 0)
++    {
++      if (mctx.negativeErrors[abs(err)] > mctx.maxErrors) {
++        printf ("ldclt[%d]: Max error limit reached - exiting.\n", mctx.pid);
++        (void) printGlobalStatistics();				/*JLS 25-08-00*/
++        fflush (stdout);
++        ldclt_sleep (5);
++        ldcltExit (EXIT_MAX_ERRORS);				/*JLS 25-08-00*/
++      }
++    }
++#endif
++    else
++    {
++      if (mctx.errors[err] > mctx.maxErrors) {
+         printf ("ldclt[%d]: Max error limit reached - exiting.\n", mctx.pid);
+         (void) printGlobalStatistics();				/*JLS 25-08-00*/
+         fflush (stdout);
+-- 
+1.9.3
+

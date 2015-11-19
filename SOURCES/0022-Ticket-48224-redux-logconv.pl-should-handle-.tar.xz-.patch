@@ -1,0 +1,174 @@
+From abfd367015c9d0dfa0b97b8473923c97eab0dab5 Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Wed, 15 Jul 2015 14:09:24 -0600
+Subject: [PATCH 22/22] Ticket #48224 - redux - logconv.pl should handle
+ *.tar.xz, *.txz, *.xz log files
+
+https://fedorahosted.org/389/ticket/48224
+Reviewed by: nhosoi, mreynolds (Thanks!)
+Branch: 389-ds-base-1.3.4
+Fix Description: Some platforms have no IO::Uncompress::UnXz, so have
+to pipe out to the 'xz' command for uncompression.
+Doing the 'xz' pipe will not work with compressed xz files in tar
+archives, so issue an appropriate error.
+The tar archive file handling was wrong - have to wrap the data in a
+filehandle before passing to uncompress.
+Added a lot of error checking - trying to uncompress plain text files,
+trying to untar non-tar archives, trying to untar and uncompress a
+tar file that is not compressed, other weird stuff like specifying a
+.bz2 extension on a file compressed with .xz.
+This will also need a spec file change:
+Requires: perl-IO-Compress
+Requires: perl-DB_File
+Requires: perl-Archive-Tar
+Requires: xz
+Platforms tested: Fedora 21, RHEL 7.2 candidate
+Flag Day: no
+Doc impact: no
+
+(cherry picked from commit ae5b62f53557c8ce2d174999c4b561ebc4ccde55)
+(cherry picked from commit 8473ae0c49492dd7931dbdd3a8377119f53ce49b)
+---
+ ldap/admin/src/logconv.pl | 73 ++++++++++++++++++++++++++++++++++++-----------
+ 1 file changed, 57 insertions(+), 16 deletions(-)
+
+diff --git a/ldap/admin/src/logconv.pl b/ldap/admin/src/logconv.pl
+index a6bd6c2..d26e91e 100755
+--- a/ldap/admin/src/logconv.pl
++++ b/ldap/admin/src/logconv.pl
+@@ -398,17 +398,11 @@ my $totalLineCount = 0;
+ 
+ sub isTarArchive {
+ 	local $_ = shift;
+-	if (/\.txz$/ || /\.tar.xz$/) {
+-		use IO::Uncompress::UnXz;
+-	}
+ 	return /\.tar$/ || /\.tar\.bz2$/ || /\.tar.gz$/ || /\.tar.xz$/ || /\.tgz$/ || /\.tbz$/ || /\.txz$/;
+ }
+ 
+ sub isCompressed {
+ 	local $_ = shift;
+-	if (/\.xz$/) {
+-		use IO::Uncompress::UnXz;
+-	}
+ 	return /\.gz$/ || /\.bz2$/ || /\.xz$/;
+ }
+ 
+@@ -418,6 +412,43 @@ sub tarNeedsUncompress {
+ 	return /\.tar.xz$/ || /\.txz$/;
+ }
+ 
++# rhel7 can't grok xz
++sub doUncompress {
++	local $_ = shift;
++	my $data = shift;
++	my $TARFH;
++	# some platforms don't have xz support in IO::Uncompress::AnyUncompress
++	if (/\.tar.xz$/ || /\.txz$/ || /\.xz$/) {
++		if ($data) {
++			openFailed("Cannot read from compressed xz file in tar archive.\nPlease un-tar the tar file first, then pass individual .xz files to this program.\n", $_);
++		}
++		# so use the xz command directly
++		# NOTE: This doesn't work if the argument is a file handle e.g. from
++		# Archive::Tar
++		$! = 0; # clear
++		if (!open($TARFH, "xz -dc $_ |") or $!) {
++			openFailed($!, $_);
++			return;
++		}
++	} else {
++		my $uncompressthing;
++		if ($data) {
++			# make a filehandle object from data
++			open($uncompressthing, "<", \$data) or openFailed($!, $_);
++		} else {
++			# just read from the file
++			$uncompressthing = $_;
++		}
++		$TARFH = new IO::Uncompress::AnyUncompress $uncompressthing or
++			do { openFailed($AnyUncompressError, $_); return; };
++		if (*$TARFH->{Plain}) {
++			openFailed("Unknown compression", $_);
++			return;
++		}
++	}
++	return $TARFH;
++}
++
+ sub convertTimeToSeconds {
+ 	my $log_line = shift;
+ 
+@@ -497,6 +528,10 @@ for (my $count=0; $count < $file_count; $count++){
+ 	if($logCount > 1 && $count == 0 && $skipFirstFile == 1){
+ 		next;
+ 	}
++	if (! -r $logname) {
++		print "File not found: $logname\n";
++		next;
++	}
+ 	$linesProcessed = 0; $lineBlockCount = 0;
+ 	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$atime,$mtime,$ctime,$blksize,$blocks);
+ 	($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$cursize,
+@@ -513,11 +548,12 @@ for (my $count=0; $count < $file_count; $count++){
+ 	my $tariter = 0;
+ 	my $tarfile = 0;
+ 	my $comp = 0;
++	$LOGFH = undef;
+ 	if (isTarArchive($logname)) {
+ 		$tar = Archive::Tar->new();
+ 		if (tarNeedsUncompress($logname)) {
+-			my $TARFH = new IO::Uncompress::AnyUncompress $logname or
+-				do { openFailed($AnyUncompressError, $logname); next };
++			my $TARFH = doUncompress($logname);
++			next if (!$TARFH);
+ 			$tariter = Archive::Tar->iter($TARFH);
+ 		} else {
+ 			$tariter = Archive::Tar->iter($logname);
+@@ -540,24 +576,21 @@ for (my $count=0; $count < $file_count; $count++){
+ 				next;
+ 			}
+ 			if (isCompressed($tarfile->name)) {
+-				$LOGFH = new IO::Uncompress::AnyUncompress \$tarfile->name or
+-					do { openFailed($AnyUncompressError, $logname); next };
++				$LOGFH = doUncompress($tarfile->name, $tarfile->get_content);
++				next if (!$LOGFH);
+ 				# no way in general to know how big the uncompressed file is - so
+ 				# assume a factor of 10 inflation - only used for progress reporting
+ 				$cursize *= 10;
+ 			} else {
+-				open(LOG,"<",\$tarfile->data) or do { openFailed($!, $tarfile->name) ; next };
+-				$LOGFH = \*LOG;
++				open($LOGFH,"<",\$tarfile->data) or do { openFailed($!, $tarfile->name) ; next };
+ 			}
+ 		} elsif ($comp) {
+-			$LOGFH = new IO::Uncompress::AnyUncompress $logname or
+-				do { openFailed($AnyUncompressError, $logname); next };
++			$LOGFH = doUncompress($logname);
+ 			# no way in general to know how big the uncompressed file is - so
+ 			# assume a factor of 10 inflation - only used for progress reporting
+ 			$cursize *= 10;
+ 		} else {
+-			open(LOG,$logname) or do { openFailed($!, $logname); next };
+-			$LOGFH = \*LOG;
++			open($LOGFH,$logname) or do { openFailed($!, $logname); next };
+ 		}
+ 		my $firstline = "yes";
+ 		while(<$LOGFH>){
+@@ -588,6 +621,14 @@ for (my $count=0; $count < $file_count; $count++){
+ 		}
+ 		last if (!$tariter);
+ 	}
++	if ($tar) {
++		if ($tar->error()) {
++			openFailed($tar->error(), $logname);
++		}
++		if ($Archive::Tar::error) {
++			openFailed($Archive::Tar::error, $logname);
++		}
++	}
+ }
+ 
+ if ($totalLineCount eq "0"){
+-- 
+1.9.3
+

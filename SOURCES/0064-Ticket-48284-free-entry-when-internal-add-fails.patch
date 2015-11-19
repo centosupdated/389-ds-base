@@ -1,0 +1,53 @@
+From d1598673937a83127249e6c26de6af3a18a5f51c Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 22 Sep 2015 13:41:06 -0400
+Subject: [PATCH 64/65] Ticket 48284 - free entry when internal add fails
+
+Bug Description:  The entry passed to an internal add operaton is expected
+                  to be consumed, but it is not freed during an internal
+                  add when setting slapi_add_internal_pb() returns an error.
+
+Fix Description:  Free the entry in slapi_add_internal_pb() when the operation
+                  is not allowed.
+
+https://fedorahosted.org/389/ticket/48284
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 622be8bfbc942fe100b8880df72db26e99e1c954)
+(cherry picked from commit 99dbfb7601daea80f80d1ea9d29766d76555e01a)
+---
+ ldap/servers/slapd/add.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/slapd/add.c b/ldap/servers/slapd/add.c
+index 5eb2042..31012a2 100644
+--- a/ldap/servers/slapd/add.c
++++ b/ldap/servers/slapd/add.c
+@@ -316,6 +316,12 @@ int slapi_add_internal_pb (Slapi_PBlock *pb)
+ 
+ 	if (!allow_operation (pb))
+ 	{
++		/* free the entry as it's expected to be consumed */
++		Slapi_Entry *e;
++		slapi_pblock_get(pb, SLAPI_ADD_ENTRY, &e);
++		slapi_pblock_set(pb, SLAPI_ADD_ENTRY, NULL);
++		slapi_entry_free(e);
++
+ 		slapi_send_ldap_result( pb, LDAP_UNWILLING_TO_PERFORM, NULL,
+ 						 "This plugin is not configured to access operation target data", 0, NULL );
+ 		return 0;
+@@ -727,8 +733,8 @@ static void op_shared_add (Slapi_PBlock *pb)
+ 				slapi_pblock_get(pb, SLAPI_ENTRY_POST_OP, &pse);
+ 				do_ps_service(pse, NULL, LDAP_CHANGETYPE_ADD, 0);
+ 				/* 
+-				 * If be_add succeeded, then e is consumed except the resurect case.
+-				 * If it is resurect, the corresponding tombstone entry is resurected
++				 * If be_add succeeded, then e is consumed except the resurrect case.
++				 * If it is resurrect, the corresponding tombstone entry is resurrected
+ 				 * and put into the cache.
+ 				 * Otherwise, we set e to NULL to prevent freeing it ourselves.
+ 				 */
+-- 
+1.9.3
+

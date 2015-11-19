@@ -1,0 +1,38 @@
+From 8d4369e6060f7c079b02fa87a0cd0d2ae0488ecd Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 2 Sep 2015 18:04:27 -0700
+Subject: [PATCH 54/54] Ticket #47981 - COS cache doesn't properly mark vattr
+ cache as invalid when there are multiple suffixes
+
+Description: commit 42e2df3858a4e14706d57b5c907d1d3768f4d970 for fixing
+icket 47981 accidentally added "break" to the while loop when a
+condition is satisfied:
+  if(!cos_cache_add_dn_defs(suffixVals[valIndex]->bv_val ,pDefs))
+which skips the rest of the definitions.  This patch removes the
+"break".
+
+https://fedorahosted.org/389/ticket/47981
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit 6557b820dca7980067afc2a33184197b2d154a51)
+(cherry picked from commit c1721f1d6e2344eefaec817ed47119c15c43fcfc)
+---
+ ldap/servers/plugins/cos/cos_cache.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/cos/cos_cache.c b/ldap/servers/plugins/cos/cos_cache.c
+index ddb85ab..e0b841d 100644
+--- a/ldap/servers/plugins/cos/cos_cache.c
++++ b/ldap/servers/plugins/cos/cos_cache.c
+@@ -647,7 +647,6 @@ static int cos_cache_build_definition_list(cosDefinitions **pDefs, int *vattr_ca
+ 									{
+ 										*vattr_cacheable = -1;
+ 										cos_def_available = 1;
+-										break;
+ 									}
+ 								}
+ 								valIndex++;
+-- 
+1.9.3
+

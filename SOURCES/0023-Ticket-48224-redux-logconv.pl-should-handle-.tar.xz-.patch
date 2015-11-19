@@ -1,0 +1,37 @@
+From 23c9a297b240d1538125721fb0f93abb876ce9c1 Mon Sep 17 00:00:00 2001
+From: Rich Megginson <rmeggins@redhat.com>
+Date: Thu, 16 Jul 2015 09:06:45 -0600
+Subject: [PATCH 23/30] Ticket #48224 - redux - logconv.pl should handle
+ *.tar.xz, *.txz, *.xz log files
+
+https://fedorahosted.org/389/ticket/48224
+Reviewed by:
+Branch: master
+Fix Description: Fix Requires: in spec file
+Platforms tested: Fedora 21, RHEL 7.2 candidate
+Flag Day: no
+Doc impact: no
+
+(cherry picked from commit 193d79d4a459b709c5a55cea88794105fa60c453)
+(cherry picked from commit 9109a570edd3ddb58434b19a9fca2f7c021b18ca)
+---
+ rpm/389-ds-base.spec.in | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/rpm/389-ds-base.spec.in b/rpm/389-ds-base.spec.in
+index 3405ccd..d0bbb7a 100644
+--- a/rpm/389-ds-base.spec.in
++++ b/rpm/389-ds-base.spec.in
+@@ -116,9 +116,6 @@ Requires:         perl-Socket6
+ Requires:         perl-Socket
+ %endif
+ Requires:         perl-NetAddr-IP
+-# for logconv compressed file support
+-Requires:         perl-IO-Compress
+-Requires:         perl-IO-Compress-Lzma
+ 
+ Source0:          http://port389.org/sources/%{name}-%{version}%{?prerel}.tar.bz2
+ # 389-ds-git.sh should be used to generate the source tarball from git
+-- 
+1.9.3
+

@@ -1,0 +1,66 @@
+From 4c275349c72a01803b772717ee29e7ac6f9a903f Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 20 Jul 2015 14:22:05 -0400
+Subject: [PATCH 29/30] Ticket 48206 - Crash during retro changelog trimming
+
+Bug Description:  If the retro changelog entry is small, its possible that
+                  during the trimming the reto changelog entry is not in the
+                  cache after the trim, but its tries to blindly unlock it
+                  from the cache, which leads to a crash.
+
+FIx Description:  After we call the post op plugins and retrieve the entry
+                  from the cache, double check that it was found.  If it
+                  is not found, do not unlock it.
+
+https://fedorahosted.org/389/ticket/48206
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 2a8a8c8ced5849dada34ab28d79e87dd3636e413)
+(cherry picked from commit 6d439887b99da557e8d7bc0c611d9afa909fdce7)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_delete.c | 27 +++++++++++++++++----------
+ 1 file changed, 17 insertions(+), 10 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_delete.c b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+index 59c1f76..f31d545 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_delete.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+@@ -1257,17 +1257,24 @@ ldbm_back_delete( Slapi_PBlock *pb )
+ 				CACHE_RETURN(&inst->inst_cache, &e);
+ 			}
+ 		}
+-		if (cache_is_in_cache(&inst->inst_cache, e)) {
+-			ep_id = e->ep_id; /* Otherwise, e might have been freed. */
+-			CACHE_REMOVE(&inst->inst_cache, e);
+-		}
+-		cache_unlock_entry(&inst->inst_cache, e);
+-		CACHE_RETURN(&inst->inst_cache, &e);
+-		/* 
+-		 * e is unlocked and no longer in cache.
+-		 * It could be freed at any moment.
++
++		/*
++		 * e could have been replaced by cache_find_id(), recheck if it's NULL
++		 * before trying to unlock it, etc.
+ 		 */
+-		e = NULL;
++		if (e) {
++			if (cache_is_in_cache(&inst->inst_cache, e)) {
++				ep_id = e->ep_id; /* Otherwise, e might have been freed. */
++				CACHE_REMOVE(&inst->inst_cache, e);
++			}
++			cache_unlock_entry(&inst->inst_cache, e);
++			CACHE_RETURN(&inst->inst_cache, &e);
++			/*
++			 * e is unlocked and no longer in cache.
++			 * It could be freed at any moment.
++			 */
++			e = NULL;
++		}
+ 
+ 		if (entryrdn_get_switch() && ep_id) { /* subtree-rename: on */
+ 			/* since the op was successful, delete the tombstone dn from the dn cache */
+-- 
+1.9.3
+

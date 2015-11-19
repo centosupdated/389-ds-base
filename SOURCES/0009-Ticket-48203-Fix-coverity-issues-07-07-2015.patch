@@ -1,0 +1,38 @@
+From 4b532c2fde59790981142e3245535a0176bb7e4f Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 7 Jul 2015 12:54:38 -0700
+Subject: [PATCH] Ticket #48203 - Fix coverity issues - 07/07/2015
+
+Description:
+1. Defect type: CLANG_WARNING
+   389-ds-base-1.3.4.0/ldap/servers/slapd/conntable.c:161:11: warning:
+   Access to field 'c_ct' results in a dereference of a null pointer
+   (loaded from variable 'c')
+
+Thanks to rmeggins@redhat.com for the advice:
+> PR_NewLock() returns NULL then the server is severely out of some
+> resource (like RAM, stack space, etc.) and probably should just exit.
+
+https://fedorahosted.org/389/ticket/48203#comment:8
+(cherry picked from commit bca0908b1e10ada69cdc051d4aaceda73a940597)
+(cherry picked from commit a741911c9a5090d78f7a81c475bea3f6593d72ad)
+---
+ ldap/servers/slapd/conntable.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/conntable.c b/ldap/servers/slapd/conntable.c
+index 0364d94..d5b9058 100644
+--- a/ldap/servers/slapd/conntable.c
++++ b/ldap/servers/slapd/conntable.c
+@@ -147,7 +147,7 @@ connection_table_get_connection(Connection_Table *ct, int sd)
+ 				c->c_mutex = NULL;
+ 				c->c_pdumutex = NULL;
+ 				LDAPDebug( LDAP_DEBUG_ANY,"PR_NewLock failed\n",0, 0, 0 );
+-				c= NULL;
++				exit(1);
+ 			}
+ 		}
+ 		/* Let's make sure there's no cruft left on there from the last time this connection was used. */
+-- 
+1.9.3
+

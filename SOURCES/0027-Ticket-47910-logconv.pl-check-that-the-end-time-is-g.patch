@@ -1,0 +1,72 @@
+From 422028f6589250523c8a8669827bd0cccc347090 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 20 Jul 2015 11:18:12 -0400
+Subject: [PATCH 27/30] Ticket 47910 - logconv.pl - check that the end time is
+ greater than the start time
+
+Bug Description:  There is no check if the end time is greater than the start time.
+                  This leads to an empty report being generated, when an error
+                  should be returned instead.
+
+Fix Description:  If start and end time are used, validate that the end time is
+                  greater than the start time.
+
+                  Also, improved an error message when the tool options are not
+                  correctly used.
+
+https://fedorahosted.org/389/ticket/47910
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 34ffa6c44734b99c252e7585bb499089ac8e6a67)
+(cherry picked from commit 16b95b12d26fb293d68be154c602398798353bb8)
+---
+ ldap/admin/src/logconv.pl | 22 +++++++++++++++++-----
+ 1 file changed, 17 insertions(+), 5 deletions(-)
+
+diff --git a/ldap/admin/src/logconv.pl b/ldap/admin/src/logconv.pl
+index d26e91e..0038a03 100755
+--- a/ldap/admin/src/logconv.pl
++++ b/ldap/admin/src/logconv.pl
+@@ -148,14 +148,13 @@ while($arg_count <= $#ARGV){
+ }
+ 
+ if($file_count == 0){
+-	if($reportStatsSecFile or $reportStatsMinFile){
+-		print "Usage error for option -m or -M, either the output file or access log is missing!\n\n";
+-	} else {
+-		print "There are no access logs specified!\n\n";
+-	}
++	print "There are no access logs specified, or the tool options have not been used correctly!\n";
+ 	exit 1;
+ }
+ 
++#
++# Initialize the statistic blocks
++#
+ if ($reportStatsSecFile) {
+ 	$s_stats = new_stats_block($reportStatsSecFile);
+ 	$reportStats = "-m";
+@@ -357,6 +356,19 @@ my %monthname = (
+ 
+ );
+ 
++#
++# Validate start/end times (if specified)
++#
++if ($startTime and $endTime){
++	# Make sure the end time is not earlier than the start time
++	my $testStart = convertTimeToSeconds($startTime);
++	my $testEnd = convertTimeToSeconds($endTime);
++	if ($testStart > $testEnd){
++		print "Start time ($startTime) is greater than end time ($endTime)!\n";
++		exit 1;
++	}
++}
++
+ my $linesProcessed;
+ my $lineBlockCount;
+ my $cursize = 0;
+-- 
+1.9.3
+

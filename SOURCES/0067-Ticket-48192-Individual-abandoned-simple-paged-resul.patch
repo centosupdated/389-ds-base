@@ -1,0 +1,53 @@
+From 6b1aeee584c74c47abf8f7190d4783c061607279 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Thu, 1 Oct 2015 15:11:24 -0700
+Subject: [PATCH 67/68] Ticket #48192 - Individual abandoned simple paged
+ results request has no chance to be cleaned up
+
+Description: If CONN_FLAG_PAGEDRESULTS_ABANDONED is set to pr_flags,
+the search results in the pagedresults handle is supposed to have been
+cleaned up.  But when there is a contention, there is a case that it
+is reset with the already released search results.  This patch adds an
+additional check for abandoned flag in pagedresults_set_search_result.
+If the pagedresults handle shows it is abandoned, the search results
+is not set to the handle unless it is for cleaning up with NULL.
+
+https://fedorahosted.org/389/ticket/48192
+
+Reviewed by rmeggins@redhat.com (Thanks, Rich!!)
+
+(cherry picked from commit 6e453918e82af6c597390aebf92a8eb3283c3591)
+(cherry picked from commit 96b9b6794e0a6bfa0d74c84f6c80131c4f820fa7)
+---
+ ldap/servers/slapd/pagedresults.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/slapd/pagedresults.c b/ldap/servers/slapd/pagedresults.c
+index 6dd6432..87447c4 100644
+--- a/ldap/servers/slapd/pagedresults.c
++++ b/ldap/servers/slapd/pagedresults.c
+@@ -337,7 +337,7 @@ pagedresults_free_one_msgid_nolock( Connection *conn, ber_int_t msgid )
+             for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++) {
+                 if (conn->c_pagedresults.prl_list[i].pr_msgid == msgid) {
+                     PagedResults *prp = conn->c_pagedresults.prl_list + i;
+-                    if (prp && prp->pr_current_be &&
++                    if (prp->pr_current_be &&
+                         prp->pr_current_be->be_search_results_release &&
+                         prp->pr_search_result_set) {
+                         prp->pr_current_be->be_search_results_release(&(prp->pr_search_result_set));
+@@ -429,7 +429,11 @@ pagedresults_set_search_result(Connection *conn, Operation *op, void *sr,
+     if (conn && (index > -1)) {
+         if (!locked) PR_Lock(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+-            conn->c_pagedresults.prl_list[index].pr_search_result_set = sr;
++            PagedResults *prp = conn->c_pagedresults.prl_list + index;
++            if (!(prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED) || !sr) {
++                /* If abandoned, don't set the search result unless it is NULL */
++                prp->pr_search_result_set = sr;
++            }
+             rc = 0;
+         }
+         if (!locked) PR_Unlock(conn->c_mutex);
+-- 
+1.9.3
+

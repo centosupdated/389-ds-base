@@ -1,0 +1,47 @@
+From 4040a7b0968db2aa5b905c7268abf57eca2ec8c2 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 14 Sep 2015 12:01:08 -0400
+Subject: [PATCH 55/61] Ticket 48276 - initialize free_flags in
+ reslimit_update_from_entry()
+
+Description:  In reslimit_update_from_entry() the free_flags was not initialized,
+              which could lead to it being seen as set, and cause an entry's
+              vattrs to be incorrectly/unexpectedly freed.
+
+https://fedorahosted.org/389/ticket/48276
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 2311c71cec33c29863bdb1dabe1ed363679316d3)
+(cherry picked from commit 5f32582d043a5498791dda5af7091bf1a4a320f0)
+---
+ ldap/servers/slapd/resourcelimit.c | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/ldap/servers/slapd/resourcelimit.c b/ldap/servers/slapd/resourcelimit.c
+index 8c0a09c..7630f88 100644
+--- a/ldap/servers/slapd/resourcelimit.c
++++ b/ldap/servers/slapd/resourcelimit.c
+@@ -342,11 +342,14 @@ reslimit_update_from_dn( Slapi_Connection *conn, Slapi_DN *dn )
+ int
+ reslimit_update_from_entry( Slapi_Connection *conn, Slapi_Entry *e )
+ {
+-	char					*fnname = "reslimit_update_from_entry()";
+-	char					*actual_type_name, *get_ext_logname;
+-	int						i, rc, type_name_disposition, free_flags;
+-	SLAPIResLimitConnData	*rlcdp;
+-	Slapi_ValueSet			*vs;
++	SLAPIResLimitConnData *rlcdp = NULL;
++	Slapi_ValueSet *vs = NULL;
++	char *fnname = "reslimit_update_from_entry()";
++	char *actual_type_name = NULL;
++	char *get_ext_logname = NULL;
++	int type_name_disposition = 0;
++	int free_flags = 0;
++	int rc, i;
+ 
+ 	LDAPDebug( SLAPI_RESLIMIT_TRACELEVEL, "=> %s conn=0x%x, entry=0x%x\n",
+ 			fnname, conn, e );
+-- 
+1.9.3
+

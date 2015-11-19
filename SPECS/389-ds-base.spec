@@ -11,6 +11,15 @@
 %global use_db4 0
 # If perl-Socket-2.000 or newer is available, set 0 to use_Socket6.
 %global use_Socket6 0
+# nunc-stans only builds on x86_64 for now
+%ifarch x86_64
+# To build without nunc-stans, set 0 to use_nunc_stans.
+%global use_nunc_stans 1
+%else
+%global use_nunc_stans 0
+%endif 
+
+%global nunc_stans_ver 0.1.5
 
 # fedora 15 and later uses tmpfiles.d
 # otherwise, comment this out
@@ -24,8 +33,8 @@
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          1.3.3.1
-Release:          %{?relprefix}23%{?prerel}%{?dist}
+Version:          1.3.4.0
+Release:          %{?relprefix}19%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -105,8 +114,7 @@ Requires(postun): systemd-units
 # for setup-ds.pl to support ipv6 
 %if %{use_Socket6}
 Requires:         perl-Socket6
-%else
-Requires:         perl-Socket
+%else Requires:         perl-Socket
 %endif
 Requires:         perl-NetAddr-IP
 
@@ -114,94 +122,75 @@ Source0:          http://port389.org/sources/%{name}-%{version}%{?prerel}.tar.bz
 # 389-ds-git.sh should be used to generate the source tarball from git
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
-Patch0:           0000-Ticket-47748-Simultaneous-adding-a-user-and-binding-.patch
-Patch1:           0001-Ticket-47834-Tombstone_to_glue-if-parents-are-also-c.patch
-Patch2:           0002-Ticket-47890-minor-memory-leaks-in-utilities.patch
-Patch3:           0003-fix-for-47885-did-not-always-return-a-response-contr.patch
-Patch4:           0004-Ticket-47838-harden-the-list-of-ciphers-available-by.patch
-Patch5:           0005-Ticket-47838-47895-CI-test-add-test-cases-for-ticket.patch
-Patch6:           0006-Ticket-47895-If-no-effective-ciphers-are-available-d.patch
-Patch7:           0007-Ticket-47889-DS-crashed-during-ipa-server-install-on.patch
-Patch8:           0008-Ticket-47892-coverity-defects-found-in-1.3.3.1.patch
-Patch9:           0009-Ticket-47750-Creating-a-glue-fails-if-one-above-leve.patch
-Patch10:          0010-Ticket-47908-389-ds-1.3.3.0-does-not-adjust-cipher-s.patch
-Patch11:          0011-Ticket-47838-harden-the-list-of-ciphers-available-by.patch
-Patch12:          0012-Ticket-47838-CI-test-adjusted-test-cases-based-on-th.patch
-Patch13:          0013-Ticket-47880-provide-enabled-ciphers-as-search-resul.patch
-Patch14:          0014-Ticket-47880-CI-test-added-test-cases-for-ticket-478.patch
-Patch15:          0015-Ticket-47892-coverity-defects-found-in-1.3.3.x.patch
-Patch16:          0016-Ticket-47918-result-of-dna_dn_is_shared_config-is-in.patch
-Patch17:          0017-Ticket-47892-Fix-remaining-compiler-warnings.patch
-Patch18:          0018-Ticket-47919-ldbm_back_modify-SLAPI_PLUGIN_BE_PRE_MO.patch
-Patch19:          0019-Ticket-47920-Encoding-of-SearchResultEntry-is-missin.patch
-Patch20:          0020-Ticket-47897-Need-to-move-slapi_pblock_set-pb-SLAPI_.patch
-Patch21:          0021-Ticket-47922-dynamically-added-macro-aci-is-not-eval.patch
-Patch22:          0022-Ticket-47928-Disable-SSL-v3-by-default.patch
-Patch23:          0023-Ticket-47928-CI-test-added-test-cases-for-ticket-479.patch
-Patch24:          0024-Ticket-47937-Crash-in-entry_add_present_values_wsi_m.patch
-Patch25:          0025-Ticket-47928-Disable-SSL-v3-by-default.patch
-Patch26:          0026-Ticket-47939-Malformed-cookie-for-LDAP-Sync-makes-DS.patch
-Patch27:          0027-Ticket-47945-Add-SSL-TLS-version-info-to-the-access-.patch
-Patch28:          0028-Ticket-47948-ldap_sasl_bind-fails-assertion-ld-NULL-.patch
-Patch29:          0029-Ticket-47953-Should-not-check-aci-syntax-when-deleti.patch
-Patch30:          0030-Ticket-47928-Disable-SSL-v3-by-default.patch
-Patch31:          0031-Fix-for-CVE-2014-8112.patch
-Patch32:          0032-Ticket-47942-DS-hangs-during-online-total-update.patch
-Patch33:          0033-Fix-for-CVE-2014-8105.patch
-Patch34:          0034-Additional-fix-for-ticket-47526-v3.patch
-Patch35:          0035-fix-jenkins-warning.patch
-Patch36:          0036-Ticket-47950-Bind-DN-tracking-unable-to-write-to-int.patch
-Patch37:          0037-Ticket-47949-logconv.pl-support-parsing-showing-repo.patch
-Patch38:          0038-Ticket-47947-start-dirsrv-after-chrony-on-RHEL7-and-.patch
-Patch39:          0039-Ticket-47967-cos_cache_build_definition_list-does-no.patch
-Patch40:          0040-Ticket-47969-COS-memory-leak-when-rebuilding-the-cac.patch
-Patch41:          0041-Ticket-47969-Fix-coverity-issue.patch
-Patch42:          0042-Ticket-47970-Account-lockout-attributes-incorrectly-.patch
-Patch43:          0043-Ticket-47970-add-lib389-testcase.patch
-Patch44:          0044-Ticket-47960-cookie_change_info-returns-random-negat.patch
-Patch45:          0045-Ticket-47960-cookie_change_info-returns-random-negat.patch
-Patch46:          0046-Ticket-47636-Error-log-levels-not-displayed-correctl.patch
-Patch47:          0047-Ticket-47722-Using-the-filter-file-does-not-work.patch
-Patch48:          0048-Ticket-47451-Need-to-unregister-tasks-created-by-plu.patch
-Patch49:          0049-Ticket-47451-Running-a-plugin-task-can-crash-the-ser.patch
-Patch50:          0050-Ticket-47451-Dynamic-Plugin-various-fixes.patch
-Patch51:          0051-Ticket-47451-Fix-jenkins-errors.patch
-Patch52:          0052-Ticket-47451-Add-Dynamic-Plugin-CI-Suite.patch
-Patch53:          0053-Ticket-47525-Crash-if-setting-invalid-plugin-config-.patch
-Patch54:          0054-Ticket-47965-Fix-coverity-issues-2014-11-24.patch
-Patch55:          0055-Ticket-47965-Fix-coverity-issues-2014-12-16.patch
-Patch56:          0056-Ticket-47750-During-delete-operation-do-not-refresh-.patch
-Patch57:          0057-Ticket-47989-Windows-Sync-accidentally-cleared-raw_e.patch
-Patch58:          0058-Ticket-47991-upgrade-script-fails-if-etc-and-var-are.patch
-Patch59:          0059-Ticket-47988-Schema-learning-mechanism-in-replicatio.patch
-Patch60:          0060-Ticket-47988-Schema-learning-mechanism-in-replicatio.patch
-Patch61:          0061-Ticket-48005-ns-slapd-crash-in-shutdown-phase.patch
-Patch62:          0062-CVE-2015-1854-389ds-base-access-control-bypass-with-.patch
-Patch63:          0063-Ticket-48190-idm-ipa-389-ds-base-entry-cache-converg.patch
-Patch64:          0064-Ticket-48146-async-simple-paged-results-issue.patch
-Patch65:          0065-Ticket-48146-async-simple-paged-results-issue-log-pr.patch
-Patch66:          0066-Ticket-48146-async-simple-paged-results-issue-need-t.patch
-Patch67:          0067-Ticket-48146-async-simple-paged-results-issue.patch
-Patch68:          0068-Ticket-48146-async-simple-paged-results-issue.patch
-Patch69:          0069-Ticket-48146-async-simple-paged-results-issue.patch
-Patch70:          0070-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
-Patch71:          0071-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
-Patch72:          0072-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
-Patch73:          0073-Ticket-48194-nsSSL3Ciphers-preference-not-enforced-s.patch
-Patch74:          0074-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
-Patch75:          0075-Ticket-48223-Winsync-fails-when-AD-users-have-multip.patch
-Patch76:          0076-Ticket-47553-Enhance-ACIs-to-have-more-control-over-.patch
-Patch77:          0077-Ticket-47553-Enhance-ACIs-to-have-more-control-over-.patch
-Patch78:          0078-Ticket-48265-Complex-filter-in-a-search-request-doen.patch
-Patch79:          0079-Ticket-47912-Proper-handling-of-No-original_tombston.patch
-Patch80:          0080-Ticket-48208-CleanAllRUV-should-completely-purge-cha.patch
-Patch81:          0081-Ticket-47931-memberOf-retrocl-deadlocks.patch
-Patch82:          0082-Ticket-47931-Fix-coverity-issues.patch
-Patch83:          0083-Ticket-47831-remove-debug-logging-from-retro-cl.patch
-Patch84:          0084-Ticket-47831-remove-debug-logging-from-retro-cl.patch
-Patch85:          0085-Ticket-48195-Slow-replication-when-deleting-large-qu.patch
-Patch86:          0086-Ticket-48226-In-MMR-double-free-coould-occur-under-s.patch
-Patch87:          0087-Ticket-48226-In-MMR-double-free-coould-occur-under-s.patch
+Source3:          https://git.fedorahosted.org/cgit/nunc-stans.git/snapshot/nunc-stans-%{nunc_stans_ver}.tar.bz2
+Patch0:           0001-Ticket-48203-Fix-coverity-issues-06-22-2015.patch
+Patch1:           0002-Ticket-48195-Slow-replication-when-deleting-large-qu.patch
+Patch2:           0003-Ticket-48212-Dynamic-nsMatchingRule-changes-had-no-e.patch
+Patch3:           0004-Ticket-48212-CI-test-added-test-cases-for-ticket-482.patch
+Patch4:           0005-Ticket-48214-ldapsearch-on-nsslapd-maxbersize-return.patch
+Patch5:           0006-Ticket-48214-CI-test-added-test-cases-for-ticket-482.patch
+Patch6:           0007-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
+Patch7:           0008-Ticket-48119-setup-ds.pl-does-not-log-invalid-file-p.patch
+Patch8:           0009-Ticket-48203-Fix-coverity-issues-07-07-2015.patch
+Patch9:           0010-Ticket-48208-CleanAllRUV-should-completely-purge-cha.patch
+Patch10:          0011-Ticket-47799-Any-negative-LDAP-error-code-number-rep.patch
+Patch11:          0012-Ticket-48013-Inconsistent-behaviour-of-DS-when-LDAP-.patch
+Patch12:          0013-Ticket-48217-cleanAllRUV-hangs-shutdown-if-not-all-o.patch
+Patch13:          0014-Ticket-48216-crash-in-ns-slapd-when-deleting-winSync.patch
+Patch14:          0015-Ticket-48119-Silent-install-needs-to-properly-exit-w.patch
+Patch15:          0016-Ticket-47878-Remove-warning-suppression-in-1.3.4.patch
+Patch16:          0017-Ticket-48223-Winsync-fails-when-AD-users-have-multip.patch
+Patch17:          0018-Ticket-47910-logconv.pl-validate-start-and-end-time-.patch
+Patch18:          0019-Ticket-48224-logconv.pl-should-handle-.tar.xz-.txz-..patch
+Patch19:          0020-Ticket-48194-CI-test-fixing-test-cases-for-ticket-48.patch
+Patch20:          0021-Ticket-48203-Fix-coverity-issues-07-14-2015.patch
+Patch21:          0022-Ticket-48224-redux-logconv.pl-should-handle-.tar.xz-.patch
+Patch22:          0023-Ticket-48224-redux-logconv.pl-should-handle-.tar.xz-.patch
+Patch23:          0024-Ticket-48226-In-MMR-double-free-coould-occur-under-s.patch
+Patch24:          0025-Ticket-48226-CI-test-added-test-cases-for-ticket-482.patch
+Patch25:          0026-Ticket-48179-Starting-a-replica-agreement-can-lead-t.patch
+Patch26:          0027-Ticket-47910-logconv.pl-check-that-the-end-time-is-g.patch
+Patch27:          0028-Ticket-48224-redux-2-logconv.pl-should-handle-.tar.x.patch
+Patch28:          0029-Ticket-48206-Crash-during-retro-changelog-trimming.patch
+Patch29:          0030-Ticket-48010-winsync-range-retrieval-gets-only-5000-.patch
+Patch30:          0031-Ticket-48232-winsync-lastlogon-attribute-not-syncing.patch
+Patch31:          0032-Ticket-48231-logconv-autobind-handling-regression-ca.patch
+Patch32:          0033-Ticket-47810-memberOf-plugin-not-properly-rejecting-.patch
+Patch33:          0034-Ticket-48215-verify_db.pl-doesn-t-verify-DB-specifie.patch
+Patch34:          0035-Ticket-48215-update-dbverify-usage.patch
+Patch35:          0036-Ticket-48215-update-dbverify-usage-in-main.c.patch
+Patch36:          0037-Ticket-48228-wrong-password-check-if-passwordInHisto.patch
+Patch37:          0038-Ticket-48228-CI-test-added-test-cases-for-ticket-482.patch
+Patch38:          0039-Ticket-47931-memberOf-retrocl-deadlocks.patch
+Patch39:          0040-Ticket-47931-Fix-coverity-issues.patch
+Patch40:          0041-Ticket-47686-removing-chaining-database-links-trigge.patch
+Patch41:          0042-Ticket-47511-bashisms-in-389-ds-base-admin-scripts.patch
+Patch42:          0043-Ticket-48245-Man-pages-and-help-for-remove-ds.pl-doe.patch
+Patch43:          0044-Ticket-48249-sync_repl-uuid-may-be-invalid.patch
+Patch44:          0045-Ticket-48250-Slapd-crashes-reported-from-latest-buil.patch
+Patch45:          0046-Ticket-48233-Server-crashes-in-ACL_LasFindFlush-duri.patch
+Patch46:          0047-Ticket-48243-replica-upgrade-failed-in-starting-dirs.patch
+Patch47:          0048-Ticket-47831-remove-debug-logging-from-retro-cl.patch
+Patch48:          0049-Ticket-48254-CLI-db2index-fails-with-usage-errors.patch
+Patch49:          0050-Ticket-48254-Shell-CLI-fails-with-usage-errors-if-an.patch
+Patch50:          0051-Ticket-47757-Unable-to-dereference-unqiemember-attri.patch
+Patch51:          0052-Ticket-48228-wrong-password-check-if-passwordInHisto.patch
+Patch52:          0053-Ticket-48265-Complex-filter-in-a-search-request-doen.patch
+Patch53:          0054-Ticket-47981-COS-cache-doesn-t-properly-mark-vattr-c.patch
+Patch54:          0055-Ticket-48276-initialize-free_flags-in-reslimit_updat.patch
+Patch55:          0056-Ticket-48226-In-MMR-double-free-coould-occur-under-s.patch
+Patch56:          0057-Ticket-48266-Fractional-replication-evaluates-severa.patch
+Patch57:          0058-Ticket-48266-coverity-issue.patch
+Patch58:          0059-Ticket-48217-cleanallruv-fix-regression-with-server-.patch
+Patch59:          0060-Ticket-48188-segfault-in-ns-slapd-due-to-accessing-S.patch
+Patch60:          0061-Ticket-48188-segfault-in-ns-slapd-due-to-accessing-S.patch
+Patch61:          0062-Ticket-48266-coverity-unused-variable-init_retry.patch
+Patch62:          0063-Ticket-48266-Online-init-crashes-consumer.patch
+Patch63:          0064-Ticket-48284-free-entry-when-internal-add-fails.patch
+Patch64:          0065-Ticket-48266-do-not-free-repl-keep-alive-entry-on-er.patch
+Patch65:          0066-Ticket-48299-pagedresults-when-timed-out-search-resu.patch
+Patch66:          0067-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
+Patch67:          0068-Ticket-48298-ns-slapd-crash-during-ipa-replica-manag.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -226,6 +215,11 @@ BuildRequires:    libdb-devel
 BuildRequires:    cyrus-sasl-devel
 BuildRequires:    libicu-devel
 BuildRequires:    pcre-devel
+%if %{use_nunc_stans}
+BuildRequires:    libtalloc-devel
+BuildRequires:    libevent-devel
+BuildRequires:    libtevent-devel
+%endif
 
 %description      libs
 Core libraries for the 389 Directory Server base package.  These libraries
@@ -245,12 +239,20 @@ Requires:         openldap-devel
 %else
 Requires:         mozldap-devel
 %endif
+%if %{use_nunc_stans}
+Requires:         libtalloc
+Requires:         libevent
+Requires:         libtevent
+%endif
 
 %description      devel
 Development Libraries and headers for the 389 Directory Server base package.
 
 %prep
 %setup -q -n %{name}-%{version}%{?prerel}
+%if %{use_nunc_stans}
+%setup -q -n %{name}-%{version}%{?prerel} -T -D -b 3
+%endif
 cp %{SOURCE2} README.devel
 %patch0 -p1
 %patch1 -p1
@@ -320,38 +322,32 @@ cp %{SOURCE2} README.devel
 %patch65 -p1
 %patch66 -p1
 %patch67 -p1
-%patch68 -p1
-%patch69 -p1
-%patch70 -p1
-%patch71 -p1
-%patch72 -p1
-%patch73 -p1
-%patch74 -p1
-%patch75 -p1
-%patch76 -p1
-%patch77 -p1
-%patch78 -p1
-%patch79 -p1
-%patch80 -p1
-%patch81 -p1
-%patch82 -p1
-%patch83 -p1
-%patch84 -p1
-%patch85 -p1
-%patch86 -p1
-%patch87 -p1
 
 %build
+%if %{use_nunc_stans}
+pushd ../nunc-stans-%{nunc_stans_ver}
+%configure --with-fhs --libdir=%{_libdir}/%{pkgname}
+make %{?_smp_mflags}
+mkdir lib
+cp .libs/libnunc-stans.so.0.0.0 lib/libnunc-stans.so
+mkdir -p include/nunc-stans
+cp nunc-stans.h include/nunc-stans/nunc-stans.h
+popd
+%endif
+
 %if %{use_openldap}
 OPENLDAP_FLAG="--with-openldap"
 %endif
 %{?with_tmpfiles_d: TMPFILES_FLAG="--with-tmpfiles-d=%{with_tmpfiles_d}"}
 # hack hack hack https://bugzilla.redhat.com/show_bug.cgi?id=833529
 NSSARGS="--with-svrcore-inc=%{_includedir} --with-svrcore-lib=%{_libdir} --with-nss-lib=%{_libdir} --with-nss-inc=%{_includedir}/nss3"
+%if %{use_nunc_stans}
+NUNC_STANS_FLAGS="--enable-nunc-stans --with-nunc-stans=../nunc-stans-%{nunc_stans_ver}" 
+%endif
 %configure --enable-autobind --with-selinux $OPENLDAP_FLAG $TMPFILES_FLAG \
            --with-systemdsystemunitdir=%{_unitdir} \
            --with-systemdsystemconfdir=%{_sysconfdir}/systemd/system \
-           --with-systemdgroupname=%{groupname} $NSSARGS
+           --with-systemdgroupname=%{groupname} $NSSARGS $NUNC_STANS_FLAGS
 
 # Generate symbolic info for debuggers
 export XCFLAGS=$RPM_OPT_FLAGS
@@ -365,6 +361,14 @@ make %{?_smp_mflags}
 
 %install
 rm -rf $RPM_BUILD_ROOT 
+
+%if %{use_nunc_stans}
+pushd ../nunc-stans-%{nunc_stans_ver}
+make DESTDIR="$RPM_BUILD_ROOT" install
+rm -rf $RPM_BUILD_ROOT%{_includedir} $RPM_BUILD_ROOT%{_datadir} \
+    $RPM_BUILD_ROOT%{_libdir}/%{pkgname}/pkgconfig
+popd
+%endif
 
 make DESTDIR="$RPM_BUILD_ROOT" install
 
@@ -389,6 +393,7 @@ rm -rf $RPM_BUILD_ROOT
 
 %post
 output=/dev/null
+output2=/dev/null
 %systemd_post %{pkgname}-snmp.service
 # reload to pick up any changes to systemd files
 /bin/systemctl daemon-reload >$output 2>&1 || :
@@ -401,12 +406,17 @@ instances="" # instances that require a restart after upgrade
 ninst=0 # number of instances found in total
 if [ -n "$DEBUGPOSTTRANS" ] ; then
    output=$DEBUGPOSTTRANS
+   output2=${DEBUGPOSTTRANS}.upgrade
 fi
-echo looking for services in %{_sysconfdir}/systemd/system/%{groupname}.wants/* >> $output 2>&1 || :
-for service in %{_sysconfdir}/systemd/system/%{groupname}.wants/* ; do
-    if [ ! -f "$service" ] ; then continue ; fi # in case nothing matches
-    inst=`echo $service | sed -e 's,%{_sysconfdir}/systemd/system/%{groupname}.wants/,,'`
-    echo found instance $inst - getting status >> $output 2>&1 || :
+echo looking for instances in %{_sysconfdir}/%{pkgname} > $output 2>&1 || :
+instbase="%{_sysconfdir}/%{pkgname}"
+for dir in $instbase/slapd-* ; do
+    echo dir = $dir >> $output 2>&1 || :
+    if [ ! -d "$dir" ] ; then continue ; fi
+    case "$dir" in *.removed) continue ;; esac
+    basename=`basename $dir`
+    inst="%{pkgname}@`echo $basename | sed -e 's/slapd-//g'`"
+    echo found instance $inst - getting status  >> $output 2>&1 || :
     if /bin/systemctl -q is-active $inst ; then
        echo instance $inst is running >> $output 2>&1 || :
        instances="$instances $inst"
@@ -431,9 +441,9 @@ echo remove pid files . . . >> $output 2>&1 || :
 echo upgrading instances . . . >> $output 2>&1 || :
 DEBUGPOSTSETUPOPT=`/usr/bin/echo $DEBUGPOSTSETUP | /usr/bin/sed -e "s/[^d]//g"`
 if [ -n "$DEBUGPOSTSETUPOPT" ] ; then
-    %{_sbindir}/setup-ds.pl -l $output -$DEBUGPOSTSETUPOPT -u -s General.UpdateMode=offline >> $output 2>&1 || :
+    %{_sbindir}/setup-ds.pl -l $output2 -$DEBUGPOSTSETUPOPT -u -s General.UpdateMode=offline >> $output 2>&1 || :
 else
-    %{_sbindir}/setup-ds.pl -l $output -u -s General.UpdateMode=offline >> $output 2>&1 || :
+    %{_sbindir}/setup-ds.pl -l $output2 -u -s General.UpdateMode=offline >> $output 2>&1 || :
 fi
 
 # restart instances that require it
@@ -459,7 +469,7 @@ fi
 
 %files
 %defattr(-,root,root,-)
-%doc LICENSE EXCEPTION LICENSE.GPLv2
+%doc LICENSE LICENSE.GPLv3+ LICENSE.openssl
 %dir %{_sysconfdir}/%{pkgname}
 %dir %{_sysconfdir}/%{pkgname}/schema
 %config(noreplace)%{_sysconfdir}/%{pkgname}/schema/*.ldif
@@ -487,51 +497,170 @@ fi
 
 %files devel
 %defattr(-,root,root,-)
-%doc LICENSE EXCEPTION LICENSE.GPLv2 README.devel
+%doc LICENSE LICENSE.GPLv3+ LICENSE.openssl README.devel
 %{_includedir}/%{pkgname}
 %{_libdir}/%{pkgname}/libslapd.so
+%if %{use_nunc_stans}
+%{_libdir}/%{pkgname}/libnunc-stans.so
+%endif
 %{_libdir}/pkgconfig/*
 
 %files libs
 %defattr(-,root,root,-)
-%doc LICENSE EXCEPTION LICENSE.GPLv2 README.devel
+%doc LICENSE LICENSE.GPLv3+ LICENSE.openssl README.devel
 %dir %{_libdir}/%{pkgname}
 %{_libdir}/%{pkgname}/libslapd.so.*
 %{_libdir}/%{pkgname}/libns-dshttpd.so*
+%if %{use_nunc_stans}
+%{_libdir}/%{pkgname}/libnunc-stans.so*
+%endif
 
 %changelog
-* Thu Sep 24 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-23
-- release 1.3.3.1-23
-- Resolves: bug 1262363 - In MMR, double free coould occur under some special condition (DS 48226)
+* Mon Oct  5 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-19
+- release 1.3.4.0-19
+- Resolves: bug 1228823 - async simple paged results issue (DS 48299, DS 48192)
+- Resolves: bug 1266944 - ns-slapd crash during ipa-replica-manage del (DS 48298)
 
-* Fri Sep 11 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-22
-- release 1.3.3.1-22
-- Resolves: bug 1262363 - In MMR, double free coould occur under some special condition (DS 48226)
+* Tue Sep 22 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-18
+- release 1.3.4.0-18
+- Resolves: bug 1259949 - Fractional replication evaluates several times the same CSN (DS 48266, DS 48284)
 
-* Tue Sep  8 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-21
-- release 1.3.3.1-21
-- Resolves: bug 1258318 - Deadlock with retrochangelog, memberof plugin (DS 47931)
-- Resolves: bug 1259466 - Enhance ACIs to have more control over MODRDN operations (DS 47553)
-- Resolves: bug 1259999 - Some filters in RHDS10 are not working fine. (DS 48265)
-- Resolves: bug 1260000 - handling of "No original_tombstone for changenumber" errors (DS 47912)
-- Resolves: bug 1260001 - cleanallruv should completely clean changelog (DS 48208)
+* Fri Sep 18 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-17
+- release 1.3.4.0-17
+- Resolves: bug 1259949 - A backport error (coverity -- unused variable 'init_retry')
 
-* Thu Jul 16 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-20
-- release 1.3.3.1-20
-- Resolves: bug 1243718 - Winsync fails when AD users have multiple spaces (two)inside the value of the rdn attribute (DS 48223)
+* Fri Sep 18 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-16
+- release 1.3.4.0-16
+- Resolves: bug 1243970 - In MMR, double free coould occur under some special condition (DS 48276, DS 48226)
+- Resolves: bug 1259949 - Fractional replication evaluates several times the same CSN (DS 48266)
+- Resolves: bug 1241723 - cleanallruv - fix regression with server shutdown (DS 48217)
+- Resolves: bug 1264224 - segfault in ns-slapd due to accessing Slapi_DN freed in pre bind plug-in (DS 48188)
 
-* Mon Jul  6 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-19
+* Fri Sep  4 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-15
+- release 1.3.4.0-15
+- Resolves: bug 1258996 - Complex filter in a search request doen't work as expected. (regression) (DS 48265)
+- Resolves: bug 1179370 - COS cache doesn't properly mark vattr cache as invalid when there are multiple suffixes (DS 47981)
+
+* Tue Aug 25 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-14
+- release 1.3.4.0-14
+- Resolves: bug 1246389 - wrong password check if passwordInHistory is decreased. (DS 48228)
+- Resolves: bug 1255851 - Shell CLI fails with usage errors if an argument containing white spaces is given (DS 48254)
+- Resolves: bug 1256938 - Unable to dereference unqiemember attribute because it is dn [#UID] not dn syntax (DS 47757)
+
+* Wed Aug 19 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-13
+- release 1.3.4.0-13
+- Resolves: bug 1245519 - remove debug logging from retro cl (DS 47831)
+
+* Tue Aug 18 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-12
+- release 1.3.4.0-12
+- Resolves: bug 1252133 - replica upgrade failed in starting dirsrv service (DS 48243)
+- Resolves: bug 1254344 - Server crashes in ACL_LasFindFlush during shutdown if ACIs contain IP addresss restrictions (DS 48233)
+
+* Fri Aug 14 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-11
+- release 1.3.4.0-11
+- Resolves: bug 1249784 - ipa-dnskeysyncd unhandled exception on named-pkcs11 start (DS 48249)
+- Resolves: bug 1252082 - removing chaining database links trigger valgrind read error (DS 47686)
+- Resolves: bug 1252207 - bashisms in 389-ds-base admin scripts (DS 47511)
+- Resolves: bug 1252533 - Man pages and help for remove-ds.pl doesn't display "-a" option (DS 48245)
+- Resolves: bug 1252781 - Slapd crashes reported from latest builds (DS 48250)
+
+* Mon Aug 10 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-10
+- release 1.3.4.0-10
+- Resolves: bug 1245519 - Fix coverity issues (DS 47931)
+
+* Fri Aug  7 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-9
+- release 1.3.4.0-9
+- Resolves: bug 1240876 - verify_db.pl doesn't verify DB specified by -a option. (DS 48215)
+- Resolves: bug 1245235 - winsync lastlogon attribute not syncing between IPA & Windows 2008. (DS 48232)
+- Resolves: bug 1245519 - Deadlock with retrochangelog, memberof plugin (DS 47931)
+- Resolves: bug 1246389 - wrong password check if passwordInHistory is decreased. (DS 48228)
+- Resolves: bug 1247811 - logconv autobind handling regression caused by 47446 (DS 48231)
+- Resolves: bug 1250177 - Investigate betxn plugins to ensure they return the correct error code (DS 47810)
+
+* Thu Jul 23 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-8
+- release 1.3.4.0-8
+- Resolves: bug 1160243 - [RFE] allow logconv.pl -S/-E switches to work even when exact/same timestamps are not present in access log file (DS 47910)
+- Resolves: bug 1172037 - winsync range retrieval gets only 5000 values upon initialization (DS 48010)
+- Resolves: bug 1242531 - logconv.pl should handle *.tar.xz, *.txz, *.xz log files (DS 48224)
+- Resolves: bug 1243950 - When starting a replica agreement a deadlock can occur with an op updating nsuniqueid index (DS 48179)
+- Resolves: bug 1243970 -  In MMR, double free coould occur under some special condition (DS 48226)
+- Resolves: bug 1244926 - Crash while triming the retro changelog (DS 48206)
+
+* Thu Jul 16 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-7
+- release 1.3.4.0-7
+- Resolves: bug 1235060 - Fix coverity issues - 07/14/2015 (DS 48203)
+- Resolves: bug 1242531 - redux - logconv.pl should handle *.tar.xz, *.txz, *.xz log files (DS 48224)
+
+* Tue Jul 14 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-6
+- release 1.3.4.0-6
+- Resolves: bug 1240845 - cleanallruv should completely clean changelog (DS 48208)
+- Resolves: bug 1095603 - Any negative LDAP error code number reported as Illegal error by ldclt. (DS 47799)
+- Resolves: bug 1168675 - Inconsistent behaviour of DS when LDAP Sync is used with an invalid cookie (DS 48013)
+- Resolves: bug 1241723 - cleanAllRUV hangs shutdown if not all of the replicas are online (DS 48217)
+- Resolves: bug 1241497 - crash in ns-slapd when deleting winSyncSubtreePair from sync agreement (DS 48216)
+- Resolves: bug 1240404 - Silent install needs to properly exit when INF file is missing (DS 48119)
+- Resolves: bug 1240406 - Remove warning suppression in 1.3.4 (DS 47878)
+- Resolves: bug 1242683 - Winsync fails when AD users have multiple spaces (two)inside the value of the rdn attribute (DS 48223)
+- Resolves: bug 1160243 - logconv.pl - validate start and end time args (DS 47910)
+- Resolves: bug 1242531 - logconv.pl should handle *.tar.xz, *.txz, *.xz log files (DS 48224)
+- Resolves: bug 1230996 - CI test: fixing test cases for ticket 48194 (DS 48194)
+
+* Tue Jul  7 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-5
+- release 1.3.4.0-5
+- Resolves: bug 1235060 - Fix coverity issues (DS 48203)
+
+* Tue Jul  7 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-4
+- release 1.3.4.0-4
+- Resolves: bug 1240404 - setup-ds.pl does not log invalid --file path errors the same (DS 48119)
+- Resolves: bug 1240406 - setup -u stops after first failure (DS 47878)
+
+* Mon Jul  6 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-3
+- release 1.3.4.0-3
+- Resolves: bug 1228823 - async simple paged results issue (DS 48192)
+- Resolves: bug 1237325 - reindex off-line twice could provoke index corruption (DS 48212)
+- Resolves: bug 1238790 - ldapsearch on nsslapd-maxbersize returns 0 instead of current value (DS 48214)
+
+* Wed Jun 24 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-2
+- release 1.3.4.0-2
+- Resolves: bug 1235060 - Fix coverity issues 
+- Resolves: bug 1235387 - Slow replication when deleting large quantities of multi-valued attributes (DS 48195)
+
+* Fri Jun 19 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-1
+- Release 1.3.4.0-1 (rebase)
+- Enable nunc-stans for x86_64.
+- Resolves: bug 1034325 - Linked attributes betxnpreoperation - transaction not aborted when linked entry does not exit (DS 47640)
+- Resolves: bug 1052755 - Retro Changelog Plugin accepts invalid value in nsslapd-changelogmaxage attribute (DS 47669)
+- Resolves: bug 1096409 - RHDS keeps on logging write_changelog_and_ruv: failed to update RUV for unknown (DS 47801)
+- Resolves: bug 1145378 - Adding an entry with an invalid password as rootDN is incorrectly rejected (DS 47900)
+- Resolves: bug 1145382 - Bad manipulation of passwordhistory (DS 47905)
+- Resolves: bug 1154147 - Uniqueness plugin: should allow to exclude some subtrees from its scope (DS 47927)
+- Resolves: bug 1171358 - Make ReplicaWaitForAsyncResults configurable (DS 47957)
+- Resolves: bug 1171663 - MODDN fails when entry doesn't have memberOf attribute and new DN is in the scope of memberOfExcludeSubtree (DS 47526)
+- Resolves: bug 1174457 - [RFE] memberOf - add option to skip nested group lookups during delete operations (DS 47963)
+- Resolves: bug 1178640 - db2bak.pl man page should be improved. (DS 48008)
+- Resolves: bug 1179370 - COS cache doesn't properly mark vattr cache as invalid when there are multiple suffixes (DS 47981)
+- Resolves: bug 1180331 - Local Password Policies for Nested OU's not honoured (DS 47980)
+- Resolves: bug 1180776 - nsslapd-db-locks modify not taking into account (DS 47934)
+- Resolves: bug 1181341 - nsslapd-changelogtrim-interval and nsslapd-changelogcompactdb-interval are not validated (DS 47617)
+- Resolves: bug 1185882 - ns-activate.pl fails to activate account if it was disabled on AD (DS 48001)
+- Resolves: bug 1186548 - ns-slapd crash in shutdown phase (DS 48005)
+- Resolves: bug 1189154 - DNS errors after IPA upgrade due to broken ReplSync (DS 48030)
+- Resolves: bug 1206309 - winsync sets AccountUserControl in AD to 544 (DS 47723)
+- Resolves: bug 1210845 - slapd crashes during Dogtag clone reinstallation (DS 47966)
+- Resolves: bug 1210850 - add an option '-u' to dbgen.pl for adding group entries with (DS 48025)
+- Resolves: bug 1210852 - aci with wildcard and macro not correctly evaluated (DS 48141)
+
+* Fri Jun 12 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-19
 - release 1.3.3.1-19
-- Resolves: bug 1230037 - async simple paged results issue (DS 48192)
+- Resolves: bug 1230996 - nsSSL3Ciphers preference not enforced server side (DS 48194)
 
-* Tue Jun 16 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-18
+* Fri Jun  5 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-18
 - release 1.3.3.1-18
-- Resolves: bug 1232100 - CVE-2015-3230 389-ds-base: nsSSL3Ciphers preference not enforced server side (DS 48194)
+- Resolves: bug 1228823 - async simple paged results issue (DS 48146, DS 48192)
 
-* Wed Jun 10 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-17
+* Tue Jun  2 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-17
 - release 1.3.3.1-17
-- Resolves: bug 1230038 - idm/ipa 389-ds-base entry cache converges to 500 KB in dblayer_is_cachesize_sane (DS 48190)
-- Resolves: bug 1230037 - async simple paged results issue (DS 48146, DS 48192)
+- Resolves: bug 1226510 - idm/ipa 389-ds-base entry cache converges to 500 KB in dblayer_is_cachesize_sane (DS 48190)
 
 * Tue Apr 21 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.3.1-16
 - release 1.3.3.1-16

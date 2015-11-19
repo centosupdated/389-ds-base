@@ -1,0 +1,343 @@
+From 5b2efd34c07c65e24f4129430064f7299803dbf8 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Fri, 2 Oct 2015 11:38:01 -0700
+Subject: [PATCH 68/68] Ticket #48298 - ns-slapd crash during
+ ipa-replica-manage del
+
+Bug Description: The cause of the problem is rather not a race condition but
+accessing an already freed agreement in a plug-in:
+> The crashed thread is deleting an agreement object, which calls mep_pre_op.
+> It eventually calls op_shared_search with the deleted agreement object with
+> base scope and filter "(|(objectclass=*)(objectclass=ldapsubentry))"
+> Since it is a DSE entry it goes to dse_search, in which it calls agmt_get_
+> replarea and crashes in slapi_sdn_copy by NULL dereference in from SDN...
+
+Fix Description: This patch adds the check to agmt_get_replarea, in which if
+the agreement is not in the agreement list, it returnes NULL repl area.  When
+the NULL repl area is returned the callers back off with an error.
+
+https://fedorahosted.org/389/ticket/48298
+
+Reviewed by rmeggins@redhat.com (Thanks, Rich!)
+
+(cherry picked from commit 3cbdfa613ed8668337213fe9c3c15cf54ce798aa)
+(cherry picked from commit f09eb8c0f8ee315b2a20d6460c975a546207411e)
+---
+ ldap/servers/plugins/replication/repl5.h           |  1 +
+ ldap/servers/plugins/replication/repl5_agmt.c      | 17 +++++++++--
+ ldap/servers/plugins/replication/repl5_agmtlist.c  | 34 ++++++++++++++++++----
+ .../plugins/replication/repl5_inc_protocol.c       | 10 ++++++-
+ .../plugins/replication/repl5_replica_config.c     |  6 +++-
+ .../plugins/replication/repl5_tot_protocol.c       | 12 ++++++--
+ .../plugins/replication/repl_session_plugin.c      | 22 +++++++++++---
+ .../plugins/replication/windows_protocol_util.c    | 12 ++++++++
+ 8 files changed, 98 insertions(+), 16 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5.h b/ldap/servers/plugins/replication/repl5.h
+index 17282bb..df92ca0 100644
+--- a/ldap/servers/plugins/replication/repl5.h
++++ b/ldap/servers/plugins/replication/repl5.h
+@@ -390,6 +390,7 @@ void agmtlist_shutdown();
+ void agmtlist_notify_all(Slapi_PBlock *pb);
+ Object* agmtlist_get_first_agreement_for_replica (Replica *r);
+ Object* agmtlist_get_next_agreement_for_replica (Replica *r, Object *prev);
++int agmtlist_agmt_exists(const Repl_Agmt *ra);
+ 
+ /* In repl5_backoff.c */
+ typedef struct backoff_timer Backoff_Timer;
+diff --git a/ldap/servers/plugins/replication/repl5_agmt.c b/ldap/servers/plugins/replication/repl5_agmt.c
+index f84eacb..76d26a1 100644
+--- a/ldap/servers/plugins/replication/repl5_agmt.c
++++ b/ldap/servers/plugins/replication/repl5_agmt.c
+@@ -696,6 +696,12 @@ agmt_start(Repl_Agmt *ra)
+      * index.
+      */
+     repl_sdn = agmt_get_replarea(ra);
++    if (!repl_sdn) {
++        slapi_log_error(SLAPI_LOG_REPL, repl_plugin_name,
++                        "agmt_start: failed to get repl area.  Please check agreement.\n");
++        prot_free(&prot);
++        return -1;
++    }
+ 
+     pb = slapi_pblock_new();
+     attrs[0] = (char*)type_agmtMaxCSN;
+@@ -770,7 +776,7 @@ agmt_start(Repl_Agmt *ra)
+                                 slapi_rdn_get_value_by_ref(slapi_rdn_get_rdn(ra->rdn)),
+                                 ra->hostname, ra->port);
+                     if(strstr(maxcsns[i], buf) || strstr(maxcsns[i], unavail_buf)){
+-                    	/* Set the maxcsn */
++                        /* Set the maxcsn */
+                         slapi_ch_free_string(&ra->maxcsn);
+                         ra->maxcsn = slapi_ch_strdup(maxcsns[i]);
+                         ra->consumerRID = agmt_maxcsn_get_rid(maxcsns[i]);
+@@ -976,8 +982,11 @@ agmt_get_bindmethod(const Repl_Agmt *ra)
+ Slapi_DN *
+ agmt_get_replarea(const Repl_Agmt *ra)
+ {
+-	Slapi_DN *return_value;
++	Slapi_DN *return_value = NULL;
+ 	PR_ASSERT(NULL != ra);
++	if (!agmtlist_agmt_exists(ra)) {
++		return return_value;
++	}
+ 	PR_Lock(ra->lock);
+ 	return_value = slapi_sdn_new();
+ 	slapi_sdn_copy(ra->replarea, return_value);
+@@ -2690,6 +2699,9 @@ get_agmt_status(Slapi_PBlock *pb, Slapi_Entry* e, Slapi_Entry* entryAfter,
+ 		Object *repl_obj = NULL;
+ 
+ 		replarea_sdn = agmt_get_replarea(ra);
++		if (!replarea_sdn) {
++			goto bail;
++		}
+ 		repl_obj = replica_get_replica_from_dn(replarea_sdn);
+ 		slapi_sdn_free(&replarea_sdn);
+ 		if (repl_obj) {
+@@ -2748,6 +2760,7 @@ get_agmt_status(Slapi_PBlock *pb, Slapi_Entry* e, Slapi_Entry* entryAfter,
+ 			slapi_entry_add_string(e, "nsds5replicaLastInitStatus", ra->last_init_status);
+ 		}
+ 	}
++bail:
+ 	return SLAPI_DSE_CALLBACK_OK;
+ }
+ 
+diff --git a/ldap/servers/plugins/replication/repl5_agmtlist.c b/ldap/servers/plugins/replication/repl5_agmtlist.c
+index 34650b4..f50862f 100644
+--- a/ldap/servers/plugins/replication/repl5_agmtlist.c
++++ b/ldap/servers/plugins/replication/repl5_agmtlist.c
+@@ -109,6 +109,24 @@ agmtlist_release_agmt(Repl_Agmt *ra)
+ 	}
+ }
+ 
++int
++agmtlist_agmt_exists(const Repl_Agmt *ra)
++{
++	Object *ro;
++	int exists = 0;
++
++	PR_ASSERT(NULL != agmt_set);
++	if (!ra) {
++		return exists;
++	}
++	ro = objset_find(agmt_set, agmt_ptr_cmp, (const void *)ra);
++	if (ro) {
++		exists = 1;
++		object_release(ro);
++	}
++	return exists;
++}
++
+ 
+ /*
+  * Note: when we add the new object, we have a reference to it. We hold
+@@ -135,6 +153,9 @@ add_new_agreement(Slapi_Entry *e)
+ 
+     /* get the replica for this agreement */
+     replarea_sdn = agmt_get_replarea(ra);
++    if (!replarea_sdn) {
++        return 1;
++    }
+     repl_obj = replica_get_replica_from_dn(replarea_sdn);
+     slapi_sdn_free(&replarea_sdn);
+     if (repl_obj) {
+@@ -841,13 +862,16 @@ Object* agmtlist_get_next_agreement_for_replica (Replica *r, Object *prev)
+     else
+         obj = objset_first_obj(agmt_set);
+         
+-    while (obj)
+-    {
++    for ( ; obj; obj = objset_next_obj(agmt_set, obj)) {
+         agmt = (Repl_Agmt*)object_get_data (obj);
+-        PR_ASSERT (agmt);
++        if (!agmt) {
++            continue;
++        }
+ 
+         agmt_root = agmt_get_replarea(agmt);
+-        PR_ASSERT (agmt_root);
++        if (!agmt_root) {
++            continue;
++        }
+ 
+         if (slapi_sdn_compare (replica_root, agmt_root) == 0)
+         {
+@@ -856,7 +880,7 @@ Object* agmtlist_get_next_agreement_for_replica (Replica *r, Object *prev)
+         }
+ 
+         slapi_sdn_free (&agmt_root);
+-        obj = objset_next_obj(agmt_set, obj);
++
+     }
+ 
+     return NULL;
+diff --git a/ldap/servers/plugins/replication/repl5_inc_protocol.c b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+index 7680340..244bbb2 100644
+--- a/ldap/servers/plugins/replication/repl5_inc_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+@@ -1906,6 +1906,7 @@ send_updates(Private_Repl_Protocol *prp, RUV *remote_update_vector, PRUint32 *nu
+ 		{
+ 			Replica *replica;
+ 			ReplicaId rid = -1; /* Used to create the replica keep alive subentry */
++			Slapi_DN *replarea_sdn = NULL;
+ 			replica = (Replica*) object_get_data(prp->replica_object);
+ 			if (replica)
+ 			{
+@@ -1914,7 +1915,14 @@ send_updates(Private_Repl_Protocol *prp, RUV *remote_update_vector, PRUint32 *nu
+ 			slapi_log_error(SLAPI_LOG_REPL, repl_plugin_name,
+ 					"%s: skipped updates was definitely too high (%d) update the subentry now\n",
+ 					agmt_get_long_name(prp->agmt), skipped_updates);
+-			replica_subentry_update(agmt_get_replarea(prp->agmt), rid);
++			replarea_sdn = agmt_get_replarea(prp->agmt);
++			if (!replarea_sdn) {
++				slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name,
++				                "send_updates: Unknown replication area due to agreement not found.");
++				return_value = UPDATE_FATAL_ERROR;
++			} else {
++				replica_subentry_update(replarea_sdn, rid);
++			}
+ 		}
+ 		/* Terminate the results reading thread */
+ 		if (!prp->repl50consumer) 
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index 8d3c481..e85ae3e 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -2368,13 +2368,17 @@ replica_send_cleanruv_task(Repl_Agmt *agmt, cleanruv_data *clean_data)
+         conn_delete_internal_ext(conn);
+         return;
+     }
+-    val.bv_len = PR_snprintf(data, sizeof(data), "CLEANRUV%d", clean_data->rid);
+     sdn = agmt_get_replarea(agmt);
++    if (!sdn) {
++        conn_delete_internal_ext(conn);
++        return;
++    }
+     mod.mod_op  = LDAP_MOD_ADD|LDAP_MOD_BVALUES;
+     mod.mod_type = "nsds5task";
+     mod.mod_bvalues = vals;
+     vals [0] = &val;
+     vals [1] = NULL;
++    val.bv_len = PR_snprintf(data, sizeof(data), "CLEANRUV%d", clean_data->rid);
+     val.bv_val = data;
+     mods[0] = &mod;
+     mods[1] = NULL;
+diff --git a/ldap/servers/plugins/replication/repl5_tot_protocol.c b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+index 7da893a..16b51b5 100644
+--- a/ldap/servers/plugins/replication/repl5_tot_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+@@ -329,6 +329,13 @@ repl5_tot_run(Private_Repl_Protocol *prp)
+ 		goto done;
+ 	}
+ 
++	area_sdn = agmt_get_replarea(prp->agmt);
++	if (!area_sdn) {
++		slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name, "Warning: unable to "
++		                "get repl area.  Please check agreement.\n");
++		goto done;
++	}
++
+ 	conn_set_timeout(prp->conn, agmt_get_timeout(prp->agmt));
+ 
+     /* acquire remote replica */
+@@ -387,11 +394,10 @@ repl5_tot_run(Private_Repl_Protocol *prp)
+     slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name, "Beginning total update of replica "
+ 		"\"%s\".\n", agmt_get_long_name(prp->agmt));
+ 
+-    pb = slapi_pblock_new ();
++    /* RMREPL - need to send schema here */
+ 
+-	/* RMREPL - need to send schema here */
++    pb = slapi_pblock_new ();
+ 
+-	area_sdn = agmt_get_replarea(prp->agmt);
+     /* we need to provide managedsait control so that referral entries can
+        be replicated */
+     ctrls = (LDAPControl **)slapi_ch_calloc (3, sizeof (LDAPControl *));
+diff --git a/ldap/servers/plugins/replication/repl_session_plugin.c b/ldap/servers/plugins/replication/repl_session_plugin.c
+index 1c04089..2fa993d 100644
+--- a/ldap/servers/plugins/replication/repl_session_plugin.c
++++ b/ldap/servers/plugins/replication/repl_session_plugin.c
+@@ -48,6 +48,10 @@ repl_session_plugin_call_agmt_init_cb(Repl_Agmt *ra)
+     }
+     if (initfunc) {
+         replarea = agmt_get_replarea(ra);
++        if (!replarea) {
++            LDAPDebug0Args(LDAP_DEBUG_ANY, "repl_session_plugin_call_agmt_init_cb -- Aborted -- No replication area\n");
++            return;
++        }
+         cookie = (*initfunc)(replarea);
+         slapi_sdn_free(&replarea);
+     }
+@@ -73,8 +77,11 @@ repl_session_plugin_call_pre_acquire_cb(const Repl_Agmt *ra, int is_total,
+ 
+     if (thefunc) {
+         replarea = agmt_get_replarea(ra);
+-        rc = (*thefunc)(agmt_get_priv(ra), replarea, is_total,
+-                data_guid, data);
++        if (!replarea) {
++            LDAPDebug0Args(LDAP_DEBUG_ANY, "repl_session_plugin_call_pre_acquire_cb -- Aborted -- No replication area\n");
++            return 1;
++        }
++        rc = (*thefunc)(agmt_get_priv(ra), replarea, is_total, data_guid, data);
+         slapi_sdn_free(&replarea);
+     }
+ 
+@@ -95,8 +102,11 @@ repl_session_plugin_call_post_acquire_cb(const Repl_Agmt *ra, int is_total,
+ 
+     if (thefunc) {
+         replarea = agmt_get_replarea(ra);
+-        rc = (*thefunc)(agmt_get_priv(ra), replarea,
+-		is_total, data_guid, data);
++        if (!replarea) {
++            LDAPDebug0Args(LDAP_DEBUG_ANY, "repl_session_plugin_call_post_acquire_cb -- Aborted -- No replication area\n");
++            return 1;
++        }
++        rc = (*thefunc)(agmt_get_priv(ra), replarea, is_total, data_guid, data);
+         slapi_sdn_free(&replarea);
+     }
+ 
+@@ -151,6 +161,10 @@ repl_session_plugin_call_destroy_agmt_cb(const Repl_Agmt *ra)
+ 
+     if (thefunc) {
+         replarea = agmt_get_replarea(ra);
++        if (!replarea) {
++            LDAPDebug0Args(LDAP_DEBUG_ANY, "repl_session_plugin_call_destroy_agmt_cb -- Aborted -- No replication area\n");
++            return;
++        }
+         (*thefunc)(agmt_get_priv(ra), replarea);
+         slapi_sdn_free(&replarea);
+     }
+diff --git a/ldap/servers/plugins/replication/windows_protocol_util.c b/ldap/servers/plugins/replication/windows_protocol_util.c
+index 5c12af7..084b520 100644
+--- a/ldap/servers/plugins/replication/windows_protocol_util.c
++++ b/ldap/servers/plugins/replication/windows_protocol_util.c
+@@ -5319,6 +5319,13 @@ windows_update_local_entry(Private_Repl_Protocol *prp,Slapi_Entry *remote_entry,
+ 		 * in the groups caused by moving member entries.
+ 		 * We need to update the local groups manually... */
+ 		local_subtree = agmt_get_replarea(prp->agmt); 
++		if (!local_subtree) {
++			slapi_log_error(SLAPI_LOG_FATAL, windows_repl_plugin_name,
++			                "failed to get local subtree from agreement\n");
++			local_entry = orig_local_entry;
++			orig_local_entry = NULL;
++			goto bail;
++		}
+ 		local_subtree_sdn = local_subtree;
+ 		orig_local_sdn = slapi_entry_get_sdn_const(orig_local_entry);
+ 		escaped_filter_val = slapi_escape_filter_value((char *)slapi_sdn_get_ndn(orig_local_sdn),
+@@ -5651,6 +5658,11 @@ windows_search_local_entry_by_uniqueid(Private_Repl_Protocol *prp,
+ 	*ret_entry = NULL;
+ 	if (is_global) { /* Search from the suffix (rename case) */
+ 		local_subtree = agmt_get_replarea(prp->agmt); 
++		if (!local_subtree) {
++			slapi_log_error(SLAPI_LOG_FATAL, windows_repl_plugin_name,
++			                "failed to get local subtree from agreement\n");
++			return LDAP_PARAM_ERROR;
++		}
+ 		local_subtree_sdn = local_subtree;
+ 	} else {
+ 		local_subtree_sdn = windows_private_get_directory_treetop(prp->agmt);
+-- 
+1.9.3
+

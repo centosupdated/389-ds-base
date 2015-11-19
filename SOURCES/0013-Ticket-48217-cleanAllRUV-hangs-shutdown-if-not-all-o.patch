@@ -1,0 +1,146 @@
+From cb54fa78fdd5e94f890c3fa1c03481358e3c82ce Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 9 Jul 2015 09:59:46 -0400
+Subject: [PATCH 13/20] Ticket 48217 - cleanAllRUV hangs shutdown if not all of
+ the  replicas are online
+
+Bug Description:  There are race conditions where we might not notify the
+                  clean task when a shutdown is occuring.  This casues the
+                  task refcount to be not decremented, which hangs the
+                  destructor function.
+
+Fix Description:  Check that the server is not shutting down before going
+                  to sleep, and notify the clean/abort tasks to stop in
+                  the destructor functions(instead of in the mmr plugin stop
+                  function).
+
+https://fedorahosted.org/389/ticket/48217
+
+Reviewed by: lkrispen(Thanks!)
+
+(cherry picked from commit d6269f2e6898a187d43e3368860b13cdbd39ec55)
+(cherry picked from commit 0bb881aea92d64e509cf7604e86559779e4f9b77)
+---
+ .../plugins/replication/repl5_replica_config.c     | 49 ++++++++++++++--------
+ 1 file changed, 31 insertions(+), 18 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index faa86b8..446da3f 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -1738,7 +1738,9 @@ replica_cleanallruv_thread(void *arg)
+     }
+     if (data->task) {
+         slapi_task_inc_refcount(data->task);
+-        slapi_log_error(SLAPI_LOG_PLUGIN, repl_plugin_name, "replica_cleanallruv_thread --> refcount incremented.\n");
++        slapi_log_error(SLAPI_LOG_PLUGIN, repl_plugin_name,
++            "replica_cleanallruv_thread --> refcount incremented (%d).\n",
++            data->task->task_refcount);
+     }
+     /*
+      *  Initialize our settings
+@@ -1871,10 +1873,11 @@ replica_cleanallruv_thread(void *arg)
+          */
+         cleanruv_log(data->task, data->rid, CLEANALLRUV_ID, "Not all replicas have received the "
+             "cleanallruv extended op, retrying in %d seconds",interval);
+-        PR_Lock( notify_lock );
+-        PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
+-        PR_Unlock( notify_lock );
+-
++        if(!slapi_is_shutting_down()){
++            PR_Lock( notify_lock );
++            PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
++            PR_Unlock( notify_lock );
++        }
+         if(interval < 14400){ /* 4 hour max */
+             interval = interval * 2;
+         } else {
+@@ -1974,6 +1977,7 @@ done:
+     if(data->repl_obj && free_obj){
+         object_release(data->repl_obj);
+     }
++
+     csn_free(&data->maxcsn);
+     slapi_sdn_free(&data->sdn);
+     slapi_ch_free_string(&data->repl_root);
+@@ -1987,6 +1991,7 @@ replica_cleanall_ruv_destructor(Slapi_Task *task)
+ {
+ 	slapi_log_error( SLAPI_LOG_PLUGIN, repl_plugin_name,
+ 		"replica_cleanall_ruv_destructor -->\n" );
++	stop_ruv_cleaning();
+ 	if (task) {
+ 		while (slapi_task_get_refcount(task) > 0) {
+ 			/* Yield to wait for the fixup task finishes. */
+@@ -2002,6 +2007,7 @@ replica_cleanall_ruv_abort_destructor(Slapi_Task *task)
+ {
+ 	slapi_log_error( SLAPI_LOG_PLUGIN, repl_plugin_name,
+ 		"replica_cleanall_ruv_abort_destructor -->\n" );
++	stop_ruv_cleaning();
+ 	if (task) {
+ 		while (slapi_task_get_refcount(task) > 0) {
+ 			/* Yield to wait for the fixup task finishes. */
+@@ -2055,9 +2061,11 @@ check_replicas_are_done_cleaning(cleanruv_data *data )
+             break;
+         }
+         cleanruv_log(data->task, data->rid, CLEANALLRUV_ID, "Not all replicas finished cleaning, retrying in %d seconds",interval);
+-        PR_Lock( notify_lock );
+-        PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
+-        PR_Unlock( notify_lock );
++        if(!slapi_is_shutting_down()){
++            PR_Lock( notify_lock );
++            PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
++            PR_Unlock( notify_lock );
++        }
+         if(interval < 14400){ /* 4 hour max */
+             interval = interval * 2;
+         } else {
+@@ -2158,9 +2166,11 @@ check_replicas_are_done_aborting(cleanruv_data *data )
+             break;
+         }
+         cleanruv_log(data->task, data->rid, ABORT_CLEANALLRUV_ID, "Not all replicas finished aborting, retrying in %d seconds",interval);
+-        PR_Lock( notify_lock );
+-        PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
+-        PR_Unlock( notify_lock );
++        if(!slapi_is_shutting_down()){
++            PR_Lock( notify_lock );
++            PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
++            PR_Unlock( notify_lock );
++        }
+         if(interval < 14400){ /* 4 hour max */
+             interval = interval * 2;
+         } else {
+@@ -2212,10 +2222,11 @@ check_agmts_are_caught_up(cleanruv_data *data, char *maxcsn)
+         }
+         cleanruv_log(data->task, data->rid, CLEANALLRUV_ID,
+                 "Not all replicas caught up, retrying in %d seconds",interval);
+-        PR_Lock( notify_lock );
+-        PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
+-        PR_Unlock( notify_lock );
+-
++        if(!slapi_is_shutting_down()){
++            PR_Lock( notify_lock );
++            PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
++            PR_Unlock( notify_lock );
++        }
+         if(interval < 14400){ /* 4 hour max */
+             interval = interval * 2;
+         } else {
+@@ -2271,10 +2282,12 @@ check_agmts_are_alive(Replica *replica, ReplicaId rid, Slapi_Task *task)
+         }
+         cleanruv_log(task, rid, CLEANALLRUV_ID, "Not all replicas online, retrying in %d seconds...",
+                 interval);
+-        PR_Lock( notify_lock );
+-        PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
+-        PR_Unlock( notify_lock );
+ 
++        if(!slapi_is_shutting_down()){
++            PR_Lock( notify_lock );
++            PR_WaitCondVar( notify_cvar, PR_SecondsToInterval(interval) );
++            PR_Unlock( notify_lock );
++        }
+         if(interval < 14400){ /* 4 hour max */
+             interval = interval * 2;
+         } else {
+-- 
+1.9.3
+

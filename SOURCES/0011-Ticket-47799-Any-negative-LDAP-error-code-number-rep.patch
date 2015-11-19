@@ -1,0 +1,224 @@
+From 3c2165deb45571a0ff0547e5c8c2c970095cca04 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 8 Jul 2015 10:19:15 -0700
+Subject: [PATCH 11/20] Ticket #47799 - Any negative LDAP error code number
+ reported as Illegal error by ldclt.
+
+Description: ldclt was implemented with mozldap, which did not expect
+negative erorr codes, but openldap does.  E.g., LDAP_FILTER_ERROR (-7)
+This patch prepares a negativeError array for the negative error codes.
+Example:
+  $ ldclt [...] -e esearch -e random -b "<basedn>" -f "<bad filter>" -v
+  Filter             = "<bad filter>"
+   ...
+  ldclt[16030]: T000: Cannot ldap_search(), error=-7 (Bad search filter) -- NULL result
+   ...
+  ldclt[16030]: Global error -7 (Bad search filter) occurs  1001 times
+  ldclt[16030]: Exit status 3 - Max errors reached.
+
+https://fedorahosted.org/389/ticket/47799
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit 71be5faaa478593bb056887410ca8e48e05b2fe4)
+(cherry picked from commit 0680a45773ab4b0e92ec26caa3acbb6bab379103)
+---
+ ldap/servers/slapd/tools/ldclt/ldapfct.c    |  4 +++
+ ldap/servers/slapd/tools/ldclt/ldclt.c      | 35 ++++++++++++++++-----
+ ldap/servers/slapd/tools/ldclt/ldclt.h      | 11 ++++++-
+ ldap/servers/slapd/tools/ldclt/threadMain.c | 48 +++++++++++++++++++----------
+ 4 files changed, 73 insertions(+), 25 deletions(-)
+
+diff --git a/ldap/servers/slapd/tools/ldclt/ldapfct.c b/ldap/servers/slapd/tools/ldclt/ldapfct.c
+index f906c5a..13e66b8 100644
+--- a/ldap/servers/slapd/tools/ldclt/ldapfct.c
++++ b/ldap/servers/slapd/tools/ldclt/ldapfct.c
+@@ -1382,6 +1382,10 @@ printErrorFromLdap (
+   printf ("ldclt[%d]: T%03d: %s, error=%d (%s",
+ 		mctx.pid, tttctx->thrdNum, errmsg,
+ 		errcode, my_ldap_err2string (errcode));
++  if (!res) {
++    printf (") -- NULL result\n");
++    return -1;
++  }
+ 
+   /*
+    * See if there is an additional error message...
+diff --git a/ldap/servers/slapd/tools/ldclt/ldclt.c b/ldap/servers/slapd/tools/ldclt/ldclt.c
+index edb687f..9e573a5 100644
+--- a/ldap/servers/slapd/tools/ldclt/ldclt.c
++++ b/ldap/servers/slapd/tools/ldclt/ldclt.c
+@@ -716,19 +716,35 @@ printGlobalStatistics (void)
+    * Note:	Maybe implement a way to stop the running threads ?
+    */
+   found = 0;
+-  for (i=0 ; i<MAX_ERROR_NB ; i++)
+-    if (mctx.errors[i] > 0)
+-    {
++  for (i = 0; i < MAX_ERROR_NB; i++) {
++    if (mctx.errors[i] > 0) {
+       found = 1;
+       sprintf (buf, "(%s)", my_ldap_err2string (i));
+       printf ("ldclt[%d]: Global error %2d %s occurs %5d times\n",
+           mctx.pid, i, buf, mctx.errors[i]);
+     }
++  }
++#if defined(USE_OPENLDAP)
++  for (i = 0; i < ABS(NEGATIVE_MAX_ERROR_NB); i++) {
++    if (mctx.negativeErrors[i] > 0) {
++      found = 1;
++      sprintf (buf, "(%s)", my_ldap_err2string (-i));
++      printf ("ldclt[%d]: Global error %2d %s occurs %5d times\n",
++          mctx.pid, -i, buf, mctx.negativeErrors[i]);
++    }
++  }
++#endif
+   if (mctx.errorsBad > 0)
+   {
+     found = 1;
+-    printf ("ldclt[%d]: Global illegal errors (codes not in [0, %d]) occurs %5d times\n",
+-	mctx.pid, MAX_ERROR_NB-1, mctx.errorsBad);
++    printf("ldclt[%d]: Global illegal errors (codes not in [%d, %d]) occurs %5d times\n",
++            mctx.pid, 
++#if defined(USE_OPENLDAP)
++			NEGATIVE_MAX_ERROR_NB, 
++#else
++			0,
++#endif
++			MAX_ERROR_NB-1, mctx.errorsBad);
+   }
+   if (!found)
+     printf ("ldclt[%d]: Global no error occurs during this session.\n", mctx.pid);
+@@ -1293,9 +1309,14 @@ basicInit (void)
+   mctx.totNbOpers   = 0;
+   mctx.totNbSamples = 0;
+   mctx.errorsBad    = 0;
+-  for (i=0 ; i<MAX_ERROR_NB ; i++)
++  for (i = 0; i < MAX_ERROR_NB; i++) {
+     mctx.errors[i] = 0;
+-
++  }
++#if defined(USE_OPENLDAP)
++  for (i = 0; i < ABS(NEGATIVE_MAX_ERROR_NB); i++) {
++    mctx.negativeErrors[i] = 0;
++  }
++#endif
+   /*
+    * Initiate the mutex that protect the errors statistics
+    */
+diff --git a/ldap/servers/slapd/tools/ldclt/ldclt.h b/ldap/servers/slapd/tools/ldclt/ldclt.h
+index a48ab79..4f8f485 100644
+--- a/ldap/servers/slapd/tools/ldclt/ldclt.h
++++ b/ldap/servers/slapd/tools/ldclt/ldclt.h
+@@ -169,6 +169,9 @@ dd/mm/yy | Author	| Comments
+ #ifndef LDCLT_H
+ #define LDCLT_H
+ 
++#if defined(USE_OPENLDAP)
++#define ABS(x) ((x > 0) ? (x) : (-x))
++#endif
+ /*
+  * Misc constant definitions
+  */
+@@ -183,7 +186,10 @@ dd/mm/yy | Author	| Comments
+ #define DEF_PORT_CHECK	  16000 /* Port used for check processing */
+ #define MAX_ATTRIBS	     40 /* Max number of attributes */	/*JLS 28-03-01*/
+ #define MAX_DN_LENGTH	   1024 /* Max length for a DN */
+-#define MAX_ERROR_NB	   0x62 /* Max ldap err number + 1 */
++#define MAX_ERROR_NB	   0x7b /* Max ldap err number + 1 */
++#if defined(USE_OPENLDAP)
++#define NEGATIVE_MAX_ERROR_NB	   (LDAP_X_CONNECTING - 1) /* Mininum ldap err number */
++#endif
+ #define MAX_IGN_ERRORS	     20 /* Max errors ignored */
+ #define MAX_FILTER	    512 /* Max filters length */
+ #define MAX_THREADS	   1000 /* Max number of threads */	/*JLS 21-11-00*/
+@@ -504,6 +510,9 @@ typedef struct main_context {
+         char            *certfile;      /* certificate file */ /* BK 11-10-00 */
+         char            *cltcertname;   /* client cert name */ /* BK 23 11-00 */
+ 	data_list_file	*dlf;		/* Data list files */	/*JLS 23-03-01*/
++#if defined(USE_OPENLDAP)
++	int		 negativeErrors[ABS(NEGATIVE_MAX_ERROR_NB)]; /* Err stats */
++#endif
+ 	int		 errors[MAX_ERROR_NB]; /* Err stats */
+ 	int		 errorsBad;	/* Bad errors */
+ 	ldclt_mutex_t	 errors_mutex;	/* Protect errors */	/*JLS 28-11-00*/
+diff --git a/ldap/servers/slapd/tools/ldclt/threadMain.c b/ldap/servers/slapd/tools/ldclt/threadMain.c
+index be41186..5d915fd 100644
+--- a/ldap/servers/slapd/tools/ldclt/threadMain.c
++++ b/ldap/servers/slapd/tools/ldclt/threadMain.c
+@@ -430,14 +430,26 @@ addErrorStat (
+   /*
+    * Update the counters
+    */
++#if defined(USE_OPENLDAP)
++  if ((err <= NEGATIVE_MAX_ERROR_NB) || (err >= MAX_ERROR_NB))
++#else
+   if ((err <= 0) || (err >= MAX_ERROR_NB))
++#endif
+   {
+     fprintf (stderr, "ldclt[%d]: Illegal error number %d\n", mctx.pid, err);
+     fflush (stderr);
+     mctx.errorsBad++;
+   }
++#if defined(USE_OPENLDAP)
++  else if (err < 0)
++  {
++    mctx.negativeErrors[abs(err)]++;
++  }
++#endif
+   else
++  {
+     mctx.errors[err]++;
++  }
+ 
+   /*
+    * Release the mutex
+@@ -460,26 +472,28 @@ addErrorStat (
+      * Ok, we should not ignore this error...
+      * Maybe the limit is reached ?
+      */
++#if defined(USE_OPENLDAP)
++    if ((err <= NEGATIVE_MAX_ERROR_NB) || (err >= MAX_ERROR_NB))
++#else
+     if ((err <= 0) || (err >= MAX_ERROR_NB))
+-    {
+-      if (mctx.errorsBad > mctx.maxErrors)
+-      {
+-	printf ("ldclt[%d]: Max error limit reached - exiting.\n", mctx.pid);
+-	(void) printGlobalStatistics();				/*JLS 25-08-00*/
+-	fflush (stdout);
+-	ldclt_sleep (5);
+-	ldcltExit (EXIT_MAX_ERRORS);				/*JLS 25-08-00*/
++#endif
++	{
++      if (mctx.errorsBad > mctx.maxErrors) {
++        printf ("ldclt[%d]: Max error limit reached - exiting.\n", mctx.pid);
++        (void) printGlobalStatistics();				/*JLS 25-08-00*/
++        fflush (stdout);
++        ldclt_sleep (5);
++        ldcltExit (EXIT_MAX_ERRORS);				/*JLS 25-08-00*/
+       }
+-    }
+-    else
+-      if (mctx.errors[err] > mctx.maxErrors)
+-      {
+-	printf ("ldclt[%d]: Max error limit reached - exiting.\n", mctx.pid);
+-	(void) printGlobalStatistics();				/*JLS 25-08-00*/
+-	fflush (stdout);
+-	ldclt_sleep (5);
+-	ldcltExit (EXIT_MAX_ERRORS);				/*JLS 25-08-00*/
++    } else {
++      if (mctx.errors[err] + mctx.negativeErrors[abs(err)] > mctx.maxErrors) {
++        printf ("ldclt[%d]: Max error limit reached - exiting.\n", mctx.pid);
++        (void) printGlobalStatistics();				/*JLS 25-08-00*/
++        fflush (stdout);
++        ldclt_sleep (5);
++        ldcltExit (EXIT_MAX_ERRORS);				/*JLS 25-08-00*/
+       }
++    }
+   }
+ 
+   /*
+-- 
+1.9.3
+

@@ -1,0 +1,70 @@
+From a6532aa364e350224dcace082484a7cc58d678dc Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 10 Aug 2015 12:19:00 -0400
+Subject: [PATCH 41/45] Ticket 47686 - removing chaining database links trigger
+ valgrind read errors
+
+Bug Description:  Plugins that remove their dse callback from the dse callback
+                  function lead to invalid reads in dse_call_callback().
+
+Fix Description:  In dse_call_callback(), save the pointers to the next callback,
+                  and its plugin, before we call the callback function.  So in
+                  case the callback function removes itself, we are not accessing
+                  the freed callback pointer later on.
+
+https://fedorahosted.org/389/ticket/47686
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit a799c4670f2e6f6be1fc9a2828dc4a0f738d3021)
+(cherry picked from commit 29c669e43e16611a290e1c82dfdcf5b51903319e)
+---
+ ldap/servers/slapd/dse.c | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/ldap/servers/slapd/dse.c b/ldap/servers/slapd/dse.c
+index 61e2629..e8e393b 100644
+--- a/ldap/servers/slapd/dse.c
++++ b/ldap/servers/slapd/dse.c
+@@ -2607,18 +2607,21 @@ dse_call_callback(struct dse* pdse, Slapi_PBlock *pb, int operation, int flags,
+ 
+     if (pdse->dse_callback != NULL) {
+         struct dse_callback *p = pdse->dse_callback;
++        struct dse_callback *next = NULL;
+         int result = SLAPI_DSE_CALLBACK_OK;
+ 
+         while (p != NULL) {
++            next = p->next;
+             if ((p->operation & operation) && (p->flags & flags)) {
+                 if(slapi_sdn_scope_test(slapi_entry_get_sdn_const(entryBefore), p->base, p->scope)){
+                     if(NULL == p->slapifilter || slapi_vattr_filter_test(pb, entryBefore, p->slapifilter, 0) == 0){
++                        struct slapdplugin *plugin = p->plugin;
+                         int plugin_started = 1;
+ 
+-                        if(p->plugin){
++                        if(plugin){
+                             /* this is a plugin callback, update the operation counter */
+-                            slapi_plugin_op_started(p->plugin);
+-                            if(!p->plugin->plg_started){
++                            slapi_plugin_op_started(plugin);
++                            if(!plugin->plg_started){
+                                 /* must be a task function being called */
+                                 result = SLAPI_DSE_CALLBACK_ERROR;
+                                 PR_snprintf (returntext, SLAPI_DSE_RETURNTEXT_SIZE,
+@@ -2633,11 +2636,11 @@ dse_call_callback(struct dse* pdse, Slapi_PBlock *pb, int operation, int flags,
+                         if(result < rc){
+                             rc = result;
+                         }
+-                        slapi_plugin_op_finished(p->plugin);
++                        slapi_plugin_op_finished(plugin);
+                     }
+                 }
+             }
+-            p = p->next;
++            p = next;
+         }
+     }
+     return rc;
+-- 
+1.9.3
+

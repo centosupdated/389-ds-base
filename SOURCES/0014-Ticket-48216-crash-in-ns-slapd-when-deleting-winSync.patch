@@ -1,0 +1,70 @@
+From 4fe9f07d50f383e3765ba97294f8b641f7feefa3 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Thu, 9 Jul 2015 17:23:57 -0700
+Subject: [PATCH 14/20] Ticket #48216 - crash in ns-slapd when deleting
+ winSyncSubtreePair from sync agreement
+
+Description: In free_subtree_pairs, the condition for stopping the
+loop to clean up the AD and DS subtree dn was incomplete.
+
+This patch checks the AD and DS subtree dn and if any of the pair
+is NULL, it stops the clean up.  Related to the issue, more checks
+for the validation of the winSyncSubtreePair is added so that any
+single valued cases are ignored with an error log.
+[single valued case examples]
+  winSyncSubtreePair: ou=People,dc=anytree
+  winSyncSubtreePair: ou=People,dc=anytree:
+  winSyncSubtreePair: :ou=People,dc=anytree
+
+https://fedorahosted.org/389/ticket/48216
+
+Reviewed by rmeggins@redht.com (Thank you, Rich!!)
+
+(cherry picked from commit 6dce81e77a47dc23e0b825952c97112039f45201)
+(cherry picked from commit 6d177bf359c022f1e46d575c6fe3ad3d97f1cfeb)
+---
+ ldap/servers/plugins/replication/windows_private.c | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/windows_private.c b/ldap/servers/plugins/replication/windows_private.c
+index 36015c2..f5cb44e 100644
+--- a/ldap/servers/plugins/replication/windows_private.c
++++ b/ldap/servers/plugins/replication/windows_private.c
+@@ -885,7 +885,7 @@ windows_private_get_subtreepairs(const Repl_Agmt *ra)
+ 	return dp->subtree_pairs;
+ }
+ 
+-/* parray is NOT passed in */
++/* parray is NOT passed in; caller frees it. */
+ void
+ windows_private_set_subtreepairs(const Repl_Agmt *ra, char **parray)
+ {
+@@ -930,6 +930,12 @@ create_subtree_pairs(char **pairs)
+ 	for (ptr = pairs; ptr && *ptr; ptr++) {
+ 		p0 = ldap_utf8strtok_r(*ptr, ":", &saveptr);
+ 		p1 = ldap_utf8strtok_r(NULL, ":", &saveptr);
++		if ((NULL == p0) || (NULL == p1)) {
++			LDAPDebug1Arg(LDAP_DEBUG_ANY, 
++			              "create_subtree_pairs: "
++			              "Ignoring invalid subtree pairs \"%s\".\n", *ptr);
++			continue;
++		}
+ 		spp->DSsubtree = slapi_sdn_new_dn_byval(p0);
+ 		if (NULL == spp->DSsubtree) {
+ 			LDAPDebug1Arg(LDAP_DEBUG_ANY, 
+@@ -960,7 +966,11 @@ free_subtree_pairs(subtreePair **pairs)
+ 	if (NULL == pairs) {
+ 		return;
+ 	}
+-	for (p = *pairs; p; p++) {
++	/*
++	 * If exists, the subtree pair is both non-NULL or NULL.
++	 * Both NULL is the condition to stop the loop.
++	 */
++	for (p = *pairs; p && p->ADsubtree && p->DSsubtree; p++) {
+ 		slapi_sdn_free(&(p->ADsubtree));
+ 		slapi_sdn_free(&(p->DSsubtree));
+ 	}
+-- 
+1.9.3
+

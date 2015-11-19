@@ -1,0 +1,123 @@
+From 695f06f02f6285bad4c494fda98f8f17ace2d1aa Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 30 Sep 2015 13:32:05 -0700
+Subject: [PATCH 66/68] Ticket #48299 - pagedresults - when timed out, search
+ results could have been already freed.
+
+Description: When a search results object is freed, there is a window
+until the information is set to the pagedresults handle.  If the paged-
+results handle is released due to a timeout in the window, double free
+occurs.
+
+This patch sets NULL just before the search results object is freed
+in the backend as well as in dse.
+
+Plus, fixed a minor memory leak in pagedresults_parse_control_value.
+
+https://fedorahosted.org/389/ticket/48299
+
+Reviewed and a bug found by tbordaz@redhat.com (Thank you, Thierry!!)
+
+(cherry picked from commit f90c3a6e1933b9cc19a51b17a038f26652c4b2bc)
+(cherry picked from commit 56151ed75bbd63af80932fe73a512df835b17593)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_search.c |  1 +
+ ldap/servers/slapd/dse.c                   |  1 +
+ ldap/servers/slapd/pagedresults.c          | 33 +++++++++++++++++++++++++++++-
+ ldap/servers/slapd/proto-slap.h            |  1 +
+ 4 files changed, 35 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_search.c b/ldap/servers/slapd/back-ldbm/ldbm_search.c
+index 73c54d3..8ed6b4d 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_search.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_search.c
+@@ -1890,6 +1890,7 @@ delete_search_result_set( Slapi_PBlock *pb, back_search_result_set **sr )
+             /* If the op is pagedresults, let the module clean up sr. */
+             return;
+         }
++        pagedresults_set_search_result_pb(pb, NULL, 0);
+         slapi_pblock_set(pb, SLAPI_SEARCH_RESULT_SET, NULL);
+     }
+     if ( NULL != (*sr)->sr_candidates )
+diff --git a/ldap/servers/slapd/dse.c b/ldap/servers/slapd/dse.c
+index e8e393b..68ce751 100644
+--- a/ldap/servers/slapd/dse.c
++++ b/ldap/servers/slapd/dse.c
+@@ -2830,6 +2830,7 @@ dse_next_search_entry (Slapi_PBlock *pb)
+ 	/* we reached the end of the list */
+ 	if (e == NULL)
+ 	{
++		pagedresults_set_search_result_pb(pb, NULL, 0);
+ 		dse_search_set_delete (ss);
+ 		slapi_pblock_set(pb, SLAPI_SEARCH_RESULT_SET, NULL);
+ 	}
+diff --git a/ldap/servers/slapd/pagedresults.c b/ldap/servers/slapd/pagedresults.c
+index d0c93cd..6dd6432 100644
+--- a/ldap/servers/slapd/pagedresults.c
++++ b/ldap/servers/slapd/pagedresults.c
+@@ -172,7 +172,6 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+     }
+     /* reset sizelimit */
+     op->o_pagedresults_sizelimit = -1;
+-    slapi_ch_free((void **)&cookie.bv_val);
+ 
+     if ((*index > -1) && (*index < conn->c_pagedresults.prl_maxlen)) {
+         if (conn->c_pagedresults.prl_list[*index].pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED) {
+@@ -189,6 +188,7 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+         LDAPDebug1Arg(LDAP_DEBUG_ANY, "pagedresults_parse_control_value: invalid cookie: %d\n", *index);
+     }
+ bail:
++    slapi_ch_free((void **)&cookie.bv_val);
+     /* cleaning up the rest of the timedout or abandoned if any */
+     prp = conn->c_pagedresults.prl_list;
+     for (i = 0; i < conn->c_pagedresults.prl_maxlen; i++, prp++) {
+@@ -1010,3 +1010,34 @@ pagedresults_is_abandoned_or_notavailable( Connection *conn, int index )
+     PR_Unlock(conn->c_mutex);
+     return prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED;
+ }
++
++int
++pagedresults_set_search_result_pb(Slapi_PBlock *pb, void *sr, int locked)
++{
++    int rc = -1;
++    Connection *conn = NULL;
++    Operation *op = NULL;
++    int index = -1;
++    if (!pb) {
++        return 0;
++    }
++    slapi_pblock_get(pb, SLAPI_OPERATION, &op);
++    if (!op_is_pagedresults(op)) {
++        return 0; /* noop */
++    }
++    slapi_pblock_get(pb, SLAPI_CONNECTION, &conn);
++    slapi_pblock_get(pb, SLAPI_PAGED_RESULTS_INDEX, &index);
++    LDAPDebug2Args(LDAP_DEBUG_TRACE,
++                   "--> pagedresults_set_search_result_pb: idx=%d, sr=%p\n", index, sr);
++    if (conn && (index > -1)) {
++        if (!locked) PR_Lock(conn->c_mutex);
++        if (index < conn->c_pagedresults.prl_maxlen) {
++            conn->c_pagedresults.prl_list[index].pr_search_result_set = sr;
++            rc = 0;
++        }
++        if (!locked) PR_Unlock(conn->c_mutex);
++    }
++    LDAPDebug1Arg(LDAP_DEBUG_TRACE,
++                  "<-- pagedresults_set_search_result_pb: %d\n", rc);
++    return rc;
++}
+diff --git a/ldap/servers/slapd/proto-slap.h b/ldap/servers/slapd/proto-slap.h
+index e8673e1..b10c1eb 100644
+--- a/ldap/servers/slapd/proto-slap.h
++++ b/ldap/servers/slapd/proto-slap.h
+@@ -1488,6 +1488,7 @@ void op_set_pagedresults(Operation *op);
+ void pagedresults_lock(Connection *conn, int index);
+ void pagedresults_unlock(Connection *conn, int index);
+ int pagedresults_is_abandoned_or_notavailable(Connection *conn, int index);
++int pagedresults_set_search_result_pb(Slapi_PBlock *pb, void *sr, int locked);
+ 
+ /*
+  * sort.c
+-- 
+1.9.3
+

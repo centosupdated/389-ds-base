@@ -1,0 +1,52 @@
+From 2ad324a00c8e429171d5c096a56c32aed3206466 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 1 Jul 2015 18:16:20 -0700
+Subject: [PATCH 3/7] Ticket #48212 - Dynamic nsMatchingRule changes had no
+ effect on the attrinfo thus following reindexing, as well.
+
+Description: When nsMatchingRule was dynamically updated in an index entry,
+the value was set to the configuration but was not applied to the attribute
+info.  On-line reindexing following the nsMatchingRule change actually ignored
+the setting. On the other hand, the standalone utility dbverify independently
+picked up the nsMatchingRule from the configuration and generated the attribute
+info, which expected the index reindexed based upon the new nsMatchingRule. But
+it was actually not and dbverify reported the index corruption.
+
+This patch applies the changes to the attribute info when nsMatchingRule is
+modified.
+
+https://fedorahosted.org/389/ticket/48212
+
+Reviewed by rmeggins@redhat.com (Thank you, Rich!)
+
+(cherry picked from commit d9679725e69df1d191864ca00bad6b79b13e7362)
+(cherry picked from commit d15beff66fd28902bd8ca80af12ad76a7ecbe57d)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_attr.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_attr.c b/ldap/servers/slapd/back-ldbm/ldbm_attr.c
+index 62ed6e1..092b6b5 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_attr.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_attr.c
+@@ -127,7 +127,16 @@ ainfo_dup(
+   attrinfo_delete_idlistinfo(&a->ai_idlistinfo);
+   a->ai_idlistinfo = b->ai_idlistinfo;
+   b->ai_idlistinfo = NULL;
+-  
++
++  /* copy cmp functions and substr lengths */
++  a->ai_key_cmp_fn = b->ai_key_cmp_fn;
++  a->ai_dup_cmp_fn = b->ai_dup_cmp_fn;
++  if (b->ai_substr_lens) {
++    size_t substrlen = sizeof(int) * INDEX_SUBSTRLEN;
++    a->ai_substr_lens = (int *)slapi_ch_calloc(1, substrlen);
++    memcpy(a->ai_substr_lens, b->ai_substr_lens, substrlen);
++  }
++
+   return( 1 );
+ }
+ 
+-- 
+1.9.3
+

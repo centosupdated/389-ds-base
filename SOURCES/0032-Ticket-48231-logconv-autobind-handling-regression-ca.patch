@@ -1,0 +1,39 @@
+From ddf6d5dfd566d44a10af342d049f22b5dbe26381 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Thu, 30 Jul 2015 11:07:40 -0700
+Subject: [PATCH 32/39] Ticket #48231 - logconv autobind handling regression
+ caused by 47446
+
+Description: When there are autobinds with ldapi, the tool fails with
+an syntax error:
+ Use of uninitialized value in transliteration (tr///) at /Local/dirsrv/bin/logconv.pl line 2018, <$LOGFH> line 207.
+ Use of uninitialized value $tmpp in hash element at /Local/dirsrv/bin/logconv.pl line 2019, <$LOGFH> line 207.
+
+Thanks for providing the fix and testing it, pj101 and rmeggins@redhat.com.
+
+Reviewed by nhosoi@redhat.com.
+
+https://fedorahosted.org/389/ticket/48231
+(cherry picked from commit 44a223f73a537445976a77af1652515ea46f970b)
+(cherry picked from commit e7fc14305e7e431034d5e076f31d2ee22742578f)
+---
+ ldap/admin/src/logconv.pl | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/admin/src/logconv.pl b/ldap/admin/src/logconv.pl
+index 3113f8a..9cd9aaa 100755
+--- a/ldap/admin/src/logconv.pl
++++ b/ldap/admin/src/logconv.pl
+@@ -2025,8 +2025,8 @@ sub parseLineNormal
+ 			if($1 eq $rootDN){
+ 				$rootDNBindCount++;
+ 			}
++			$tmpp = $1;
+ 			if($usage =~ /f/ || $usage =~ /u/ || $usage =~ /U/ || $usage =~ /b/ || $verb eq "yes"){
+-				$tmpp = $1;
+ 				$tmpp =~ tr/A-Z/a-z/;
+ 				$hashes->{bindlist}->{$tmpp}++;
+ 			}
+-- 
+1.9.3
+
