@@ -1,0 +1,43 @@
+From 1a10e14ce3f05f961e80c4c8cf170d92945c25a1 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 6 Nov 2015 14:41:36 -0500
+Subject: [PATCH 73/75] Ticket 48325 - Replica promotion leaves RUV out of
+ order
+
+Bug Description:  When promoting a consumer to a master the new RUV
+                  element is appended to the RUV.  However, when trying
+                  to replicate from the newly promoted replica the
+                  remote replica checks the first element in the RUV
+                  and sees that its the same replica ID, and aborts the
+                  replication session.  Essentailly this completely
+                  breaks replication between the two servers, and can
+                  actually corrupt other RUVs on other replicas.
+
+Fix Description:  When promoting a replica to a master, reorder the RUV
+                  so that it is the first in the list.
+
+https://fedorahosted.org/389/ticket/48325
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit b896840d270a540698f35a4aac4f7a91742952b0)
+(cherry picked from commit 6180b91c3f65e9c5e375816a72baa95678458a0a)
+---
+ ldap/servers/plugins/replication/repl5_replica_config.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index e85ae3e..4d7135c 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -1003,6 +1003,7 @@ replica_config_change_type_and_id (Replica *r, const char *new_type,
+                 csngen_rewrite_rid(gen, rid);
+                 if(purl && type == REPLICA_TYPE_UPDATABLE){
+                     ruv_add_replica(ruv, rid, purl);
++                    ruv_move_local_supplier_to_first(ruv, rid);
+                     replica_reset_csn_pl(r);
+                 }
+                 ruv_delete_replica(ruv, oldrid);
+-- 
+2.4.3
+

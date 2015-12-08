@@ -1,0 +1,57 @@
+From 62d2b0026e895448b9dff76f2565012340afdfcd Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 18 Nov 2015 11:44:35 -0800
+Subject: [PATCH] Ticket #48338 - SimplePagedResults -- abandon could happen
+ between the abandon check and sending results
+
+Description: commit 390b8bd9076e8976facc0858e60985d6b4fac05c introduced
+a self deadlock (see also bz1282607: 389-ds-base-1.2.11.15-67.el6_7 hang)
+
+First phase of the following approach:
+  Fix design by Ludwig Krispenz and Rich Megginson (Thanks!)
+  Investigate the connection params used in the pblock access one by one and.
+  - for fields not used, either remove the access or just leave it as is
+  - With a big ASSERT to flag cases if the field is ever used, and a plan to
+    deprecate and remove the field.
+  - for fields with atomic access, like c_isreplication_session remove the mutex
+  - for filelds requiring copying, define them directly in the pblock and when
+    the pblock is created, populate them from the connection, the pblock access
+    would no longer need the c_mutex.
+Removing PR_Lock(c_mutex) from slapi_pblock_get(SLAPI_CONN_CLIENTNETADDR) since
+acquiring the lock is not necessary for the atomic reads.  This change solves
+the self deadlock.
+
+https://fedorahosted.org/389/ticket/48338#comment:11
+
+Reviewed by nkinder@redhat.com and mreynolds@redhat.com (Thank you, Nathan and Mark!)
+
+(cherry picked from commit 79ca67d1fc5d50d8a9ae6b686b9564f3960f8592)
+(cherry picked from commit 36245abd78f7abfed8219a5ac4a4cf50c1c0237c)
+---
+ ldap/servers/slapd/pblock.c | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/ldap/servers/slapd/pblock.c b/ldap/servers/slapd/pblock.c
+index bf57a33..f2017be 100644
+--- a/ldap/servers/slapd/pblock.c
++++ b/ldap/servers/slapd/pblock.c
+@@ -223,14 +223,12 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			memset( value, 0, sizeof( PRNetAddr ));
+ 			break;
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		/* For fields with atomic access, remove the PR_Lock(c_mutex) */
+ 		if ( pblock->pb_conn->cin_addr == NULL ) {
+ 			memset( value, 0, sizeof( PRNetAddr ));
+ 		} else {
+-			(*(PRNetAddr *)value) =
+-			    *(pblock->pb_conn->cin_addr);
++			(*(PRNetAddr *)value) = *(pblock->pb_conn->cin_addr);
+ 		}
+-		PR_Unlock( pblock->pb_conn->c_mutex );
+ 		break;
+ 	case SLAPI_CONN_SERVERNETADDR:
+ 		if (pblock->pb_conn == NULL)
+-- 
+2.4.3
+

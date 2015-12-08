@@ -1,0 +1,44 @@
+From 0fa9e46da9f56221b579a7729deebaed73364c27 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 10 Nov 2015 15:35:41 -0800
+Subject: [PATCH 74/75] Ticket #48344 - acl - regression - trailing ', (comma)'
+ in macro matched value is not removed.
+
+Description: acl_match_macro_in_target in acl plug-in returns matched value
+with a trailing comma, e.g., "o=kaki.com,". It's used to create a group DN,
+e.g., "cn=Domain Administrators,ou=Groups,o=kaki.como=ace industry,c=us".
+
+Due to the duplicated commas, the bind unexpectedly fails with 50 (insufficient
+access).
+
+In getting the matched value from target DN, it checks if a character at the
+end position is a comma or not.  If it is, '\0' is set there.  The position
+was one byte ahead.  It was introduced by #48141 - aci with wildcard and macro
+not correctly evaluated.
+
+https://fedorahosted.org/389/ticket/48344
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit 8e421fb9af2752144cc93e62090fd873524c5633)
+(cherry picked from commit 1a6390d6ffa743f38be206f7ed7bb0ac3bcfe26b)
+---
+ ldap/servers/plugins/acl/aclutil.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/acl/aclutil.c b/ldap/servers/plugins/acl/aclutil.c
+index 2f37107..308cf8b 100644
+--- a/ldap/servers/plugins/acl/aclutil.c
++++ b/ldap/servers/plugins/acl/aclutil.c
+@@ -935,7 +935,7 @@ acl_match_macro_in_target( const char *ndn, char * match_this,
+ 
+ 					matched_val_len = ndn_len-macro_suffix_len-
+ 										ndn_prefix_end;
+-					if (ndn[ndn_len - macro_suffix_len] == ',')
++					if (ndn[ndn_len - macro_suffix_len - 1] == ',')
+ 						matched_val_len -= 1;
+ 					
+ 					matched_val = (char *)slapi_ch_malloc(matched_val_len + 1);
+-- 
+2.4.3
+

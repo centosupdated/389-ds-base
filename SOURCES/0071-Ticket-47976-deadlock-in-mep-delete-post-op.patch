@@ -1,0 +1,47 @@
+From 34239335f2658905a2f96865bea0503bb6ad5ec1 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Tue, 3 Nov 2015 15:59:54 +0100
+Subject: [PATCH 71/75] Ticket 47976: deadlock in mep delete post op
+
+Bug Description:
+	When deleting the original entry, some DB pages are acquired in write.
+	The deadlock occurs because when reading the parent entry of the MEP entry
+	MEP plugin requires read access to one of the page acquired by the deletion of the original entry.
+        The read access can be granted if it is using the parent txn.
+	This bug requires that the parent entry of the MEP entry is not found in the entry cache, so
+	it requires database access
+
+Fix Description:
+	Fix ldbm_delete, so that it reads id2entry db with parent txn
+
+https://fedorahosted.org/389/ticket/47976
+
+Reviewed by: Ludwig Krispenz, Rich Megginson (Thanks you !!)
+
+Platforms tested: F17
+
+Flag Day: no
+
+Doc impact: no
+
+(cherry picked from commit 55434d308b4e459ba3a169eff94568312dba767c)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_delete.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_delete.c b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+index f31d545..100a71d 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_delete.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+@@ -477,7 +477,7 @@ ldbm_back_delete( Slapi_PBlock *pb )
+ 					 * the parent.  If we fail to lock the entry, just try again.
+ 					 */
+ 					while(1){
+-						parent = id2entry(be, pid ,NULL, &retval);
++						parent = id2entry(be, pid ,&txn, &retval);
+ 						if (parent && (cache_retry = cache_lock_entry(&inst->inst_cache, parent))) {
+ 							/* Failed to obtain parent entry's entry lock */
+ 							if(cache_retry == RETRY_CACHE_LOCK &&
+-- 
+2.4.3
+

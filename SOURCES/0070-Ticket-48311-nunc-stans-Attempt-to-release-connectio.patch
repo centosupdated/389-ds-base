@@ -1,0 +1,79 @@
+From d7609aa1166fb79dd5e1f838f5ab27e0924441a1 Mon Sep 17 00:00:00 2001
+From: William Brown <firstyear@redhat.com>
+Date: Fri, 6 Nov 2015 14:56:44 +1000
+Subject: [PATCH 70/75] Ticket 48311  -nunc-stans: Attempt to release
+ connection that is not acquired https://fedorahosted.org/389/ticket/48311
+
+Bug Description: DS with nunc stans enabled produces lots of messages like
+[13/Oct/2015:11:29:24 -0400] connection - conn=98 fd=161 Attempt to release
+connection that is not acquired
+
+FixDescription: From the original patch:
+ * Do not call connection_acquire_nolock() inside a PR_ASSERT call.
+ * Also changed other PR_ASSERTs to only be called if DEBUG is set
+
+This additionally guarantees the return codes of these functions since we have
+removed the PR_ASSERT that previously wrapped these function calls. If these
+assertions fail, we log to the error log in all cases.
+
+Author: wibrown
+
+Review by: mreynolds, nhosoi (Thanks!)
+
+(cherry picked from commit 49aaf98732d1e16dde3edb81272de8203aded21c)
+(cherry picked from commit b03987689c3a2477630e2a3452e64cc7759ba5f3)
+---
+ ldap/servers/slapd/daemon.c | 23 ++++++++++++++++++++---
+ 1 file changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index 82099bc..bd3bfb2 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -1839,7 +1839,12 @@ ns_handle_closure(struct ns_job_t *job)
+ #ifdef DEBUG
+ 	PR_ASSERT(0 == NS_JOB_IS_THREAD(ns_job_get_type(job)));
+ #else
+-	NS_JOB_IS_THREAD(ns_job_get_type(job));
++    /* This doesn't actually confirm it's in the event loop thread, but it's a start */
++	if (NS_JOB_IS_THREAD(ns_job_get_type(job)) != 0) {
++		LDAPDebug2Args(LDAP_DEBUG_ANY, "ns_handle_closure: Attempt to close outside of event loop thread %" NSPRIu64 " for fd=%d\n",
++			c->c_connid, c->c_sd);
++		return;
++	}
+ #endif
+ 	PR_Lock(c->c_mutex);
+ 	connection_release_nolock_ext(c, 1); /* release ref acquired for event framework */
+@@ -1896,7 +1901,14 @@ ns_connection_post_io_or_closing(Connection *conn)
+ #ifdef DEBUG
+ 		PR_ASSERT(0 == connection_acquire_nolock(conn));
+ #else
+-		connection_acquire_nolock(conn); /* event framework now has a reference */
++		if (connection_acquire_nolock(conn) != 0) { /* event framework now has a reference */
++			/* 
++			 * This has already been logged as an error in ./ldap/servers/slapd/connection.c
++			 * The error occurs when we get a connection in a closing state.
++			 * For now we return, but there is probably a better way to handle the error case.
++			 */
++			return;
++		}
+ #endif
+ 		ns_add_io_timeout_job(conn->c_tp, conn->c_prfd, &tv,
+ 				      NS_JOB_READ|NS_JOB_PRESERVE_FD,
+@@ -1922,7 +1934,12 @@ ns_handle_pr_read_ready(struct ns_job_t *job)
+ #ifdef DEBUG
+ 	PR_ASSERT(0 == NS_JOB_IS_THREAD(ns_job_get_type(job)));
+ #else
+-	NS_JOB_IS_THREAD(ns_job_get_type(job));
++    /* This doesn't actually confirm it's in the event loop thread, but it's a start */
++	if (NS_JOB_IS_THREAD(ns_job_get_type(job)) != 0) {
++		LDAPDebug2Args(LDAP_DEBUG_ANY, "ns_handle_pr_read_ready: Attempt to handle read ready outside of event loop thread %" NSPRIu64 " for fd=%d\n",
++			c->c_connid, c->c_sd);
++		return;
++	}
+ #endif
+ 
+ 	PR_Lock(c->c_mutex);
+-- 
+2.4.3
+

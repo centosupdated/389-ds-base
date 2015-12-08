@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.4.0
-Release:          %{?relprefix}19%{?prerel}%{?dist}
+Release:          %{?relprefix}21%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -191,6 +191,14 @@ Patch64:          0065-Ticket-48266-do-not-free-repl-keep-alive-entry-on-er.patc
 Patch65:          0066-Ticket-48299-pagedresults-when-timed-out-search-resu.patch
 Patch66:          0067-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
 Patch67:          0068-Ticket-48298-ns-slapd-crash-during-ipa-replica-manag.patch
+Patch68:          0069-Ticket-48311-nunc-stans-Attempt-to-release-connectio.patch
+Patch69:          0070-Ticket-48311-nunc-stans-Attempt-to-release-connectio.patch
+Patch70:          0071-Ticket-47976-deadlock-in-mep-delete-post-op.patch
+Patch71:          0072-Ticket-48338-SimplePagedResults-abandon-could-happen.patch
+Patch72:          0073-Ticket-48325-Replica-promotion-leaves-RUV-out-of-ord.patch
+Patch73:          0074-Ticket-48344-acl-regression-trailing-comma-in-macro-.patch
+Patch74:          0075-Ticket-48339-Share-nsslapd-threadnumber-in-the-case-.patch
+Patch75:          0076-Ticket-48338-SimplePagedResults-abandon-could-happen.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -322,6 +330,14 @@ cp %{SOURCE2} README.devel
 %patch65 -p1
 %patch66 -p1
 %patch67 -p1
+%patch68 -p1
+%patch69 -p1
+%patch70 -p1
+%patch71 -p1
+%patch72 -p1
+%patch73 -p1
+%patch74 -p1
+%patch75 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -516,6 +532,19 @@ fi
 %endif
 
 %changelog
+* Wed Nov 18 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-21
+- release 1.3.4.0-21
+- Resolves: bug 1278730 - SimplePagedResults -- abandon could happen between the abandon check and sending results -- Fixing a regression introduced in 1.3.4.0-20 (DS 48338)
+
+* Thu Nov 12 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-20
+- release 1.3.4.0-20
+- Resolves: bug 1278729 - Share nsslapd-threadnumber in the case nunc-stans is enabled (DS 48339)
+- Resolves: bug 1278730 - SimplePagedResults -- abandon could happen between the abandon check and sending results (DS 48338)
+- Resolves: bug 1279572 - Cannot upgrade a consumer to supplier in a multimaster environment (DS 48325)
+- Resolves: bug 1279573 - nunc-stans: Attempt to release connection that is not acquired (DS 48311)
+- Resolves: bug 1280210 - deadlock in mep delete post op (DS 47976)
+- Resolves: bug 1281522 - acl - regression - trailing ', (comma)' in macro matched value is not removed (DS 48344)
+
 * Mon Oct  5 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-19
 - release 1.3.4.0-19
 - Resolves: bug 1228823 - async simple paged results issue (DS 48299, DS 48192)
