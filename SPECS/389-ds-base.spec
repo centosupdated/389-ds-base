@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.4.0
-Release:          %{?relprefix}21%{?prerel}%{?dist}
+Release:          %{?relprefix}26%{?prerel}%{?dist}
 License:          GPLv2 with exceptions
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -199,6 +199,13 @@ Patch72:          0073-Ticket-48325-Replica-promotion-leaves-RUV-out-of-ord.patc
 Patch73:          0074-Ticket-48344-acl-regression-trailing-comma-in-macro-.patch
 Patch74:          0075-Ticket-48339-Share-nsslapd-threadnumber-in-the-case-.patch
 Patch75:          0076-Ticket-48338-SimplePagedResults-abandon-could-happen.patch
+Patch76:          0077-Ticket-48370-The-eq-index-does-not-get-updated-prope.patch
+Patch77:          0078-Ticket-48375-SimplePagedResults-in-the-search-error-.patch
+Patch78:          0079-Ticket-48283-many-attrlist_replace-errors-in-connect.patch
+Patch79:          0080-Revert-Ticket-48338-SimplePagedResults-abandon-could.patch
+Patch80:          0081-Ticket-48406-Avoid-self-deadlock-by-PR_Lock-conn-c_m.patch
+Patch81:          0082-Ticket-48412-worker-threads-do-not-detect-abnormally.patch
+Patch82:          0083-Ticket-48341-deadlock-on-connection-mutex.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -338,6 +345,13 @@ cp %{SOURCE2} README.devel
 %patch73 -p1
 %patch74 -p1
 %patch75 -p1
+%patch76 -p1
+%patch77 -p1
+%patch78 -p1
+%patch79 -p1
+%patch80 -p1
+%patch81 -p1
+%patch82 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -532,6 +546,27 @@ fi
 %endif
 
 %changelog
+* Mon Jan 25 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-26
+- release 1.3.4.0-26
+- Resolves: bug 1299346 - deadlock on connection mutex (DS 48341)
+
+* Thu Jan 21 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-25
+- release 1.3.4.0-25
+- Resolves: bug 1299757 - CVE-2016-0741 389-ds-base: Worker threads do not detect abnormally closed connections causing DoS
+
+* Wed Jan 13 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-24
+- release 1.3.4.0-24
+- Resolves: bug 1298105 - 389-ds hanging after a few minutes of operation (DS 48406)
+
+* Tue Jan  5 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-23
+- release 1.3.4.0-23
+- Resolves: bug 1295684 - many attrlist_replace errors in connection with cleanallruv (DS 48283)
+
+* Fri Dec 11 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-22
+- release 1.3.4.0-22
+- Resolves: bug 1290725 - SimplePagedResults -- in the search error case, simple paged results slot was not released. (DS 48375)
+- Resolves: bug 1290726 - The 'eq' index does not get updated properly when deleting and re-adding attributes in the same modify operation (DS 48370)
+
 * Wed Nov 18 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-21
 - release 1.3.4.0-21
 - Resolves: bug 1278730 - SimplePagedResults -- abandon could happen between the abandon check and sending results -- Fixing a regression introduced in 1.3.4.0-20 (DS 48338)

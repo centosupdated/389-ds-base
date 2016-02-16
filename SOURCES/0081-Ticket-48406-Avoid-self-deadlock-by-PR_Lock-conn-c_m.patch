@@ -1,0 +1,1510 @@
+From ae9df61b523152e01051afa8c115c97fe59310b5 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Mon, 11 Jan 2016 15:53:28 -0800
+Subject: [PATCH 81/81] Ticket #48406 - Avoid self deadlock by
+ PR_Lock(conn->c_mutex)
+
+Description:  Fixing ticket 48338 introduced a self deadlock.
+To avoid the self deadlock, tried to remove PR_Lock(conn->c_mutex)
+which looked harmless, but it introduced a crash by memory corruption.
+
+This patch replaces PR_Lock/Unlock with PR_EnterMonitor/ExitMonitor,
+respectively.
+
+https://fedorahosted.org/389/ticket/48406
+
+Reviewed by rmeggins@redhat.com, lkrispen@redhat.com, and wibrown@redhat.com.
+Thank you, Rich, Ludwig and William!
+
+(cherry picked from commit f25f804a8bce83b3790e7045dfc03230d7ece1af)
+(cherry picked from commit 84da7d05ddc5a963b0d025df08f38a6ccd7d90d2)
+---
+ ldap/servers/slapd/abandon.c         |   4 +-
+ ldap/servers/slapd/bind.c            |   4 +-
+ ldap/servers/slapd/connection.c      |  64 +++++++++++-----------
+ ldap/servers/slapd/conntable.c       |  19 +++----
+ ldap/servers/slapd/daemon.c          |  22 ++++----
+ ldap/servers/slapd/extendop.c        |  10 ++--
+ ldap/servers/slapd/operation.c       |  18 +++----
+ ldap/servers/slapd/opshared.c        |  18 +++----
+ ldap/servers/slapd/pagedresults.c    | 100 +++++++++++++++++------------------
+ ldap/servers/slapd/pblock.c          |  72 ++++++++++++-------------
+ ldap/servers/slapd/psearch.c         |  10 ++--
+ ldap/servers/slapd/saslbind.c        |  26 ++++-----
+ ldap/servers/slapd/slap.h            |   2 +-
+ ldap/servers/slapd/start_tls_extop.c |  10 ++--
+ ldap/servers/slapd/unbind.c          |   4 +-
+ 15 files changed, 192 insertions(+), 191 deletions(-)
+
+diff --git a/ldap/servers/slapd/abandon.c b/ldap/servers/slapd/abandon.c
+index 761b895..9a39f6a 100644
+--- a/ldap/servers/slapd/abandon.c
++++ b/ldap/servers/slapd/abandon.c
+@@ -77,7 +77,7 @@ do_abandon( Slapi_PBlock *pb )
+ 	 * flag and abort the operation at a convenient time.
+ 	 */
+ 
+-	PR_Lock( pb->pb_conn->c_mutex );
++	PR_EnterMonitor(pb->pb_conn->c_mutex);
+ 	for ( o = pb->pb_conn->c_ops; o != NULL; o = o->o_next ) {
+ 		if ( o->o_msgid == id && o != pb->pb_op)
+ 			break;
+@@ -138,7 +138,7 @@ do_abandon( Slapi_PBlock *pb )
+ 			o->o_results.r.r_search.nentries, current_time() - o->o_time );
+ 	}
+ 
+-	PR_Unlock( pb->pb_conn->c_mutex );
++	PR_ExitMonitor(pb->pb_conn->c_mutex);
+ 	/*
+ 	 * Wake up the persistent searches, so they
+ 	 * can notice if they've been abandoned.
+diff --git a/ldap/servers/slapd/bind.c b/ldap/servers/slapd/bind.c
+index 474b508..f81edfb 100644
+--- a/ldap/servers/slapd/bind.c
++++ b/ldap/servers/slapd/bind.c
+@@ -258,7 +258,7 @@ do_bind( Slapi_PBlock *pb )
+         slapi_pblock_get (pb, SLAPI_PWPOLICY, &pw_response_requested);
+     }
+ 
+-    PR_Lock( pb->pb_conn->c_mutex );
++    PR_EnterMonitor(pb->pb_conn->c_mutex);
+ 
+     bind_credentials_clear( pb->pb_conn, PR_FALSE, /* do not lock conn */
+                             PR_FALSE /* do not clear external creds. */ );
+@@ -291,7 +291,7 @@ do_bind( Slapi_PBlock *pb )
+      * bound user can work properly
+      */
+     pb->pb_conn->c_needpw = 0;
+-    PR_Unlock( pb->pb_conn->c_mutex );
++    PR_ExitMonitor(pb->pb_conn->c_mutex);
+ 
+     log_bind_access(pb, dn?dn:"empty", method, version, saslmech, NULL);
+ 
+diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
+index fc3b741..a3d123e 100644
+--- a/ldap/servers/slapd/connection.c
++++ b/ldap/servers/slapd/connection.c
+@@ -147,7 +147,7 @@ connection_done(Connection *conn)
+ 	}
+ 	if (NULL != conn->c_mutex)
+ 	{
+-		PR_DestroyLock(conn->c_mutex);
++		PR_DestroyMonitor(conn->c_mutex);
+ 	}
+ 	if (NULL != conn->c_pdumutex)
+ 	{
+@@ -738,10 +738,10 @@ int connection_is_free (Connection *conn)
+ {
+     int rc;
+ 
+-    PR_Lock(conn->c_mutex);
++    PR_EnterMonitor(conn->c_mutex);
+     rc = conn->c_sd == SLAPD_INVALID_SOCKET && conn->c_refcnt == 0 &&
+          !(conn->c_flags & CONN_FLAG_CLOSING);
+-    PR_Unlock(conn->c_mutex);
++    PR_ExitMonitor(conn->c_mutex);
+ 
+     return rc;
+ }
+@@ -1128,7 +1128,7 @@ int connection_read_operation(Connection *conn, Operation *op, ber_tag_t *tag, i
+ 	PRInt32 syserr = 0;
+ 	size_t buffer_data_avail;
+ 
+-	PR_Lock(conn->c_mutex);
++	PR_EnterMonitor(conn->c_mutex);
+ 	/*
+ 	 * if the socket is still valid, get the ber element
+ 	 * waiting for us on this connection. timeout is handled
+@@ -1317,15 +1317,15 @@ int connection_read_operation(Connection *conn, Operation *op, ber_tag_t *tag, i
+ 	}
+ 	op->o_tag = *tag;
+ done:
+-	PR_Unlock(conn->c_mutex);
++	PR_ExitMonitor(conn->c_mutex);
+ 	return ret;
+ }
+ 
+ void connection_make_readable(Connection *conn)
+ {
+-	PR_Lock( conn->c_mutex );
++	PR_EnterMonitor(conn->c_mutex);
+ 	conn->c_gettingber = 0;
+-	PR_Unlock( conn->c_mutex );
++	PR_ExitMonitor(conn->c_mutex);
+ 	signal_listner();
+ }
+ 
+@@ -1347,7 +1347,7 @@ void connection_check_activity_level(Connection *conn)
+ {
+ 	int current_count = 0;
+ 	int delta_count = 0;
+-	PR_Lock( conn->c_mutex );
++	PR_EnterMonitor(conn->c_mutex);
+ 	/* get the current op count */
+ 	current_count = conn->c_opscompleted;
+ 	/* compare to the previous op count */
+@@ -1358,7 +1358,7 @@ void connection_check_activity_level(Connection *conn)
+ 	conn->c_private->previous_op_count = current_count;
+ 	/* update the last checked time */
+ 	conn->c_private->previous_count_check_time = current_time();
+-	PR_Unlock( conn->c_mutex );
++	PR_ExitMonitor(conn->c_mutex);
+ 	LDAPDebug(LDAP_DEBUG_CONNS,"conn %" NSPRIu64 " activity level = %d\n",conn->c_connid,delta_count,0); 
+ }
+ 
+@@ -1402,7 +1402,7 @@ void connection_enter_leave_turbo(Connection *conn, int current_turbo_flag, int
+ 	int connection_count = 0;
+ 	int our_rank = 0;
+ 	int threshold_rank = 0;
+-	PR_Lock(conn->c_mutex);
++	PR_EnterMonitor(conn->c_mutex);
+ 	/* We can already be in turbo mode, or not */
+ 	current_mode = current_turbo_flag;
+ 	if (pagedresults_in_use_nolock(conn)) {
+@@ -1458,7 +1458,7 @@ void connection_enter_leave_turbo(Connection *conn, int current_turbo_flag, int
+ 		}
+ 	  }
+ 	}
+-	PR_Unlock(conn->c_mutex);
++	PR_ExitMonitor(conn->c_mutex);
+ 	if (current_mode != new_mode) {
+ 		if (current_mode) {
+ 			LDAPDebug(LDAP_DEBUG_CONNS,"conn %" NSPRIu64 " leaving turbo mode\n",conn->c_connid,0,0); 
+@@ -1564,13 +1564,13 @@ connection_threadmain()
+ 			*/
+ 			PR_Sleep(PR_INTERVAL_NO_WAIT);
+ 
+-			PR_Lock(conn->c_mutex);
++			PR_EnterMonitor(conn->c_mutex);
+ 			/* Make our own pb in turbo mode */
+ 			connection_make_new_pb(pb,conn);
+ 			if (connection_call_io_layer_callbacks(conn)) {
+ 				LDAPDebug0Args( LDAP_DEBUG_ANY, "Error: could not add/remove IO layers from connection\n" );
+ 			}
+-			PR_Unlock(conn->c_mutex);
++			PR_ExitMonitor(conn->c_mutex);
+ 			if (! config_check_referral_mode()) {
+ 			  slapi_counter_increment(ops_initiated);
+ 			  slapi_counter_increment(g_get_global_snmp_vars()->ops_tbl.dsInOps); 
+@@ -1685,7 +1685,7 @@ connection_threadmain()
+  */
+ 			} else if (!enable_nunc_stans) { /* more data in conn - just put back on work_q - bypass poll */
+ 				bypasspollcnt++;
+-				PR_Lock(conn->c_mutex);
++				PR_EnterMonitor(conn->c_mutex);
+ 				/* don't do this if it would put us over the max threads per conn */
+ 				if (conn->c_threadnumber < maxthreads) {
+ 					/* for turbo, c_idlesince is set above - for !turbo and
+@@ -1700,7 +1700,7 @@ connection_threadmain()
+ 					/* keep count of how many times maxthreads has blocked an operation */
+ 					conn->c_maxthreadsblocked++;
+ 				}
+-				PR_Unlock(conn->c_mutex);
++				PR_ExitMonitor(conn->c_mutex);
+ 			}
+ 		}
+ 
+@@ -1736,14 +1736,14 @@ connection_threadmain()
+ 
+ done:	
+ 		if (doshutdown) {
+-			PR_Lock(conn->c_mutex);
++			PR_EnterMonitor(conn->c_mutex);
+ 			connection_remove_operation_ext(pb, conn, op);
+ 			connection_make_readable_nolock(conn);
+ 			conn->c_threadnumber--;
+ 			slapi_counter_decrement(conns_in_maxthreads);
+ 			slapi_counter_decrement(g_get_global_snmp_vars()->ops_tbl.dsConnectionsInMaxThreads);
+ 			connection_release_nolock(conn);
+-			PR_Unlock(conn->c_mutex);
++			PR_ExitMonitor(conn->c_mutex);
+ 			signal_listner();
+ 			return;
+ 		}
+@@ -1760,9 +1760,9 @@ done:
+ 		slapi_counter_increment(ops_completed);
+ 		/* If this op isn't a persistent search, remove it */
+ 		if ( pb->pb_op->o_flags & OP_FLAG_PS ) {
+-			    PR_Lock( conn->c_mutex );
++			    PR_EnterMonitor(conn->c_mutex);
+ 			    connection_release_nolock (conn); /* psearch acquires ref to conn - release this one now */
+-			    PR_Unlock( conn->c_mutex );
++			    PR_ExitMonitor(conn->c_mutex);
+ 			    /* ps_add makes a shallow copy of the pb - so we
+ 			     * can't free it or init it here - just memset it to 0
+ 			     * ps_send_results will call connection_remove_operation_ext to free it
+@@ -1770,7 +1770,7 @@ done:
+ 			    memset(pb, 0, sizeof(*pb));
+ 		} else {
+ 			/* delete from connection operation queue & decr refcnt */
+-			PR_Lock( conn->c_mutex );
++			PR_EnterMonitor(conn->c_mutex);
+ 			connection_remove_operation_ext( pb, conn, op );
+ 
+ 			/* If we're in turbo mode, we keep our reference to the connection alive */
+@@ -1811,7 +1811,7 @@ done:
+ 					signal_listner();
+ 				}
+ 			}
+-			PR_Unlock( conn->c_mutex );
++			PR_ExitMonitor(conn->c_mutex);
+ 		}
+ 	} /* while (1) */
+ }
+@@ -2071,16 +2071,16 @@ op_copy_identity(Connection *conn, Operation *op)
+     size_t dnlen;
+     size_t typelen;
+ 
+-	PR_Lock( conn->c_mutex );
+-	dnlen= conn->c_dn ? strlen (conn->c_dn) : 0;
+-	typelen= conn->c_authtype ? strlen (conn->c_authtype) : 0;
++    PR_EnterMonitor(conn->c_mutex);
++    dnlen= conn->c_dn ? strlen (conn->c_dn) : 0;
++    typelen= conn->c_authtype ? strlen (conn->c_authtype) : 0;
+ 
+-	slapi_sdn_done(&op->o_sdn);
+-	slapi_ch_free_string(&(op->o_authtype));
++    slapi_sdn_done(&op->o_sdn);
++    slapi_ch_free_string(&(op->o_authtype));
+     if (dnlen <= 0 && typelen <= 0) {
+         op->o_authtype = NULL;
+     } else {
+-	    slapi_sdn_set_dn_byval(&op->o_sdn,conn->c_dn);
++        slapi_sdn_set_dn_byval(&op->o_sdn,conn->c_dn);
+         op->o_authtype = slapi_ch_strdup(conn->c_authtype);
+         /* set the thread data bind dn index */
+         slapi_td_set_dn(slapi_ch_strdup(conn->c_dn));
+@@ -2103,14 +2103,14 @@ op_copy_identity(Connection *conn, Operation *op)
+         op->o_ssf = conn->c_local_ssf;
+     }
+ 
+-    PR_Unlock( conn->c_mutex );
++    PR_ExitMonitor(conn->c_mutex);
+ }
+ 
+ /* Sets the SSL SSF in the connection struct. */
+ static void
+ connection_set_ssl_ssf(Connection *conn)
+ {
+-	PR_Lock( conn->c_mutex );
++	PR_EnterMonitor(conn->c_mutex);
+ 
+ 	if (conn->c_flags & CONN_FLAG_SSL) {
+ 		SSL_SecurityStatus(conn->c_prfd, NULL, NULL, NULL, &(conn->c_ssl_ssf), NULL, NULL);
+@@ -2118,7 +2118,7 @@ connection_set_ssl_ssf(Connection *conn)
+ 		conn->c_ssl_ssf = 0;
+ 	}
+ 
+-	PR_Unlock( conn->c_mutex );
++	PR_ExitMonitor(conn->c_mutex);
+ }
+ 
+ static int
+@@ -2165,9 +2165,9 @@ log_ber_too_big_error(const Connection *conn, ber_len_t ber_len,
+ void
+ disconnect_server( Connection *conn, PRUint64 opconnid, int opid, PRErrorCode reason, PRInt32 error )
+ {
+-	PR_Lock( conn->c_mutex );
++	PR_EnterMonitor(conn->c_mutex);
+ 	disconnect_server_nomutex( conn, opconnid, opid, reason, error );
+-	PR_Unlock( conn->c_mutex );
++	PR_ExitMonitor(conn->c_mutex);
+ }
+ 
+ static ps_wakeup_all_fn_ptr ps_wakeup_all_fn = NULL;
+diff --git a/ldap/servers/slapd/conntable.c b/ldap/servers/slapd/conntable.c
+index d5b9058..37da9a5 100644
+--- a/ldap/servers/slapd/conntable.c
++++ b/ldap/servers/slapd/conntable.c
+@@ -85,11 +85,11 @@ connection_table_abandon_all_operations(Connection_Table *ct)
+ 	int	i;
+ 	for ( i = 0; i < ct->size; i++ )
+ 	{
+-		if ( ct->c[i].c_mutex != NULL )
++		if ( ct->c[i].c_mutex )
+ 		{
+-			PR_Lock( ct->c[i].c_mutex );
++			PR_EnterMonitor(ct->c[i].c_mutex);
+ 			connection_abandon_operations( &ct->c[i] );
+-			PR_Unlock( ct->c[i].c_mutex );
++			PR_ExitMonitor(ct->c[i].c_mutex);
+ 		}
+ 	}
+ }
+@@ -139,7 +139,7 @@ connection_table_get_connection(Connection_Table *ct, int sd)
+ 		if ( c->c_mutex == NULL )
+ 		{
+ 			PR_Lock( ct->table_mutex );
+-			c->c_mutex = PR_NewLock();
++			c->c_mutex = PR_NewMonitor();
+ 			c->c_pdumutex = PR_NewLock();
+ 			PR_Unlock( ct->table_mutex );
+ 			if ( c->c_mutex == NULL || c->c_pdumutex == NULL )
+@@ -360,7 +360,7 @@ connection_table_as_entry(Connection_Table *ct, Slapi_Entry *e)
+ 		/* Can't take c_mutex if holding table_mutex; temporarily unlock */ 
+ 		PR_Unlock( ct->table_mutex );
+ 
+-		PR_Lock( ct->c[i].c_mutex );
++		PR_EnterMonitor(ct->c[i].c_mutex);
+ 		if ( ct->c[i].c_sd != SLAPD_INVALID_SOCKET )
+ 		{
+ 			char buf2[20];
+@@ -420,7 +420,7 @@ connection_table_as_entry(Connection_Table *ct, Slapi_Entry *e)
+ 			attrlist_merge( &e->e_attrs, "connection", vals );
+ 			slapi_ch_free_string(&newbuf);
+ 		}
+-		PR_Unlock( ct->c[i].c_mutex );
++		PR_ExitMonitor(ct->c[i].c_mutex);
+ 	}
+ 
+ 	PR_snprintf( buf, sizeof(buf), "%d", nconns );
+@@ -458,14 +458,15 @@ void
+ connection_table_dump_activity_to_errors_log(Connection_Table *ct)
+ {
+ 	int i;
++
+ 	for ( i = 0; i < ct->size; i++ )
+ 	{
+ 		Connection *c= &(ct->c[i]);
+-		if ( c->c_mutex != NULL )
++		if ( c->c_mutex )
+ 		{
+ 			/* Find the connection we are referring to */
+ 			int j= c->c_fdi;
+-			PR_Lock( c->c_mutex );
++			PR_EnterMonitor(c->c_mutex);
+ 			if ( (c->c_sd != SLAPD_INVALID_SOCKET) && 
+ 			     (j >= 0) && (c->c_prfd == ct->fd[j].fd) )
+ 			{
+@@ -475,7 +476,7 @@ connection_table_dump_activity_to_errors_log(Connection_Table *ct)
+ 					LDAPDebug( LDAP_DEBUG_CONNS,"activity on %d%s\n", i, r ? "r" : "",0 );
+ 				}
+ 			}
+-			PR_Unlock( c->c_mutex );
++			PR_ExitMonitor(c->c_mutex);
+ 		}
+ 	}
+ }
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index 5d70647..355f0fc 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -1612,7 +1612,7 @@ setup_pr_read_pds(Connection_Table *ct, PRFileDesc **n_tcps, PRFileDesc **s_tcps
+ 		}
+ 		else
+ 		{
+-			PR_Lock( c->c_mutex );
++			PR_EnterMonitor(c->c_mutex);
+ 			if (c->c_flags & CONN_FLAG_CLOSING)
+ 			{
+ 				/* A worker thread has marked that this connection
+@@ -1661,7 +1661,7 @@ setup_pr_read_pds(Connection_Table *ct, PRFileDesc **n_tcps, PRFileDesc **s_tcps
+ 					c->c_fdi = SLAPD_INVALID_SOCKET_INDEX;
+ 				}
+ 			}
+-			PR_Unlock( c->c_mutex );
++			PR_ExitMonitor(c->c_mutex);
+ 		}
+ 		c = next;
+ 	}
+@@ -1680,7 +1680,7 @@ handle_timeout( void )
+ 	time_t curtime = current_time();
+ 
+ 	if (0 == prevtime) {
+-		prevtime = time (&housekeeping_fire_time);		
++		prevtime = time (&housekeeping_fire_time);
+ 	}
+ 
+ 	if ( difftime(curtime, prevtime) >= 
+@@ -1740,7 +1740,7 @@ handle_pr_read_ready(Connection_Table *ct, PRIntn num_poll)
+ 	{
+ 		if ( c->c_mutex != NULL )
+ 		{
+-			PR_Lock( c->c_mutex );
++			PR_EnterMonitor(c->c_mutex);
+ 			if ( connection_is_active_nolock (c) && c->c_gettingber == 0 )
+ 			{
+ 			    PRInt16 out_flags;
+@@ -1797,7 +1797,7 @@ handle_pr_read_ready(Connection_Table *ct, PRIntn num_poll)
+ 								   SLAPD_DISCONNECT_IDLE_TIMEOUT, EAGAIN );
+ 				}
+ 			}
+-			PR_Unlock( c->c_mutex );
++			PR_ExitMonitor(c->c_mutex);
+ 		}
+ 	}
+ }
+@@ -1843,12 +1843,12 @@ ns_handle_closure(struct ns_job_t *job)
+ 		return;
+ 	}
+ #endif
+-	PR_Lock(c->c_mutex);
++	PR_EnterMonitor(c->c_mutex);
+ 	connection_release_nolock_ext(c, 1); /* release ref acquired for event framework */
+ 	PR_ASSERT(c->c_ns_close_jobs == 1); /* should be exactly 1 active close job - this one */
+ 	c->c_ns_close_jobs--; /* this job is processing closure */
+ 	do_yield = ns_handle_closure_nomutex(c);
+-	PR_Unlock(c->c_mutex);
++	PR_ExitMonitor(c->c_mutex);
+ 	ns_job_done(job);
+ 	if (do_yield) {
+ 		/* closure not done - another reference still outstanding */
+@@ -1939,7 +1939,7 @@ ns_handle_pr_read_ready(struct ns_job_t *job)
+ 	}
+ #endif
+ 
+-	PR_Lock(c->c_mutex);
++	PR_EnterMonitor(c->c_mutex);
+ 	LDAPDebug2Args(LDAP_DEBUG_CONNS, "activity on conn %" NSPRIu64 " for fd=%d\n",
+ 		       c->c_connid, c->c_sd);
+ 	/* if we were called due to some i/o event, see what the state of the socket is */
+@@ -1986,7 +1986,7 @@ ns_handle_pr_read_ready(struct ns_job_t *job)
+ 		LDAPDebug2Args(LDAP_DEBUG_CONNS, "queued conn %" NSPRIu64 " for fd=%d\n",
+ 			       c->c_connid, c->c_sd);
+ 	}
+-	PR_Unlock(c->c_mutex);
++	PR_ExitMonitor(c->c_mutex);
+ 	ns_job_done(job);
+ 	return;
+ }
+@@ -2493,7 +2493,7 @@ handle_new_connection(Connection_Table *ct, int tcps, PRFileDesc *pr_acceptfd, i
+ 		PR_Close(pr_acceptfd);
+ 		return -1;
+ 	}
+-	PR_Lock( conn->c_mutex );
++	PR_EnterMonitor(conn->c_mutex);
+ 
+ 	/*
+ 	 * Set the default idletimeout and the handle.  We'll update c_idletimeout
+@@ -2592,7 +2592,7 @@ handle_new_connection(Connection_Table *ct, int tcps, PRFileDesc *pr_acceptfd, i
+ 		connection_table_move_connection_on_to_active_list(the_connection_table,conn);
+ 	}
+ 
+-	PR_Unlock( conn->c_mutex );
++	PR_ExitMonitor(conn->c_mutex);
+ 
+ 	g_increment_current_conn_count();
+ 
+diff --git a/ldap/servers/slapd/extendop.c b/ldap/servers/slapd/extendop.c
+index 94036c6..8d0b8fb 100644
+--- a/ldap/servers/slapd/extendop.c
++++ b/ldap/servers/slapd/extendop.c
+@@ -61,7 +61,7 @@ static void extop_handle_import_start(Slapi_PBlock *pb, char *extoid,
+         send_ldap_result(pb, LDAP_OPERATIONS_ERROR, NULL, NULL, 0, NULL);
+         return;
+     }
+-	suffix = slapi_sdn_get_dn(sdn);
++    suffix = slapi_sdn_get_dn(sdn);
+     /*    be = slapi_be_select(sdn); */
+     be = slapi_mapping_tree_find_backend_for_sdn(sdn);
+     if (be == NULL || be == defbackend_get_backend()) {
+@@ -135,10 +135,10 @@ static void extop_handle_import_start(Slapi_PBlock *pb, char *extoid,
+     /* okay, the import is starting now -- save the backend in the
+      * connection block & mark this connection as belonging to a bulk import
+      */
+-    PR_Lock(pb->pb_conn->c_mutex);
++    PR_EnterMonitor(pb->pb_conn->c_mutex);
+     pb->pb_conn->c_flags |= CONN_FLAG_IMPORT;
+     pb->pb_conn->c_bi_backend = be;
+-    PR_Unlock(pb->pb_conn->c_mutex);
++    PR_ExitMonitor(pb->pb_conn->c_mutex);
+ 
+     slapi_pblock_set(pb, SLAPI_EXT_OP_RET_OID, EXTOP_BULK_IMPORT_START_OID);
+     bv.bv_val = NULL;
+@@ -160,11 +160,11 @@ static void extop_handle_import_done(Slapi_PBlock *pb, char *extoid,
+     struct berval bv;
+     int ret;
+ 
+-    PR_Lock(pb->pb_conn->c_mutex);
++    PR_EnterMonitor(pb->pb_conn->c_mutex);
+     pb->pb_conn->c_flags &= ~CONN_FLAG_IMPORT;
+     be = pb->pb_conn->c_bi_backend;
+     pb->pb_conn->c_bi_backend = NULL;
+-    PR_Unlock(pb->pb_conn->c_mutex);
++    PR_ExitMonitor(pb->pb_conn->c_mutex);
+ 
+     if ((be == NULL) || (be->be_wire_import == NULL)) {
+         /* can this even happen? */
+diff --git a/ldap/servers/slapd/operation.c b/ldap/servers/slapd/operation.c
+index 869298b..6c95552 100644
+--- a/ldap/servers/slapd/operation.c
++++ b/ldap/servers/slapd/operation.c
+@@ -570,7 +570,7 @@ int slapi_connection_acquire(Slapi_Connection *conn)
+ {
+     int rc;
+ 
+-    PR_Lock(conn->c_mutex);
++    PR_EnterMonitor(conn->c_mutex);
+     /* rc = connection_acquire_nolock(conn); */
+     /* connection in the closing state can't be acquired */
+     if (conn->c_flags & CONN_FLAG_CLOSING)
+@@ -586,7 +586,7 @@ int slapi_connection_acquire(Slapi_Connection *conn)
+         conn->c_refcnt++;
+         rc = 0;
+     }
+-    PR_Unlock(conn->c_mutex);
++    PR_ExitMonitor(conn->c_mutex);
+     return(rc);
+ }
+ 
+@@ -596,7 +596,7 @@ slapi_connection_remove_operation( Slapi_PBlock *pb, Slapi_Connection *conn, Sla
+ 	int rc = 0;
+ 	Slapi_Operation **olist= &conn->c_ops;
+ 	Slapi_Operation **tmp;
+-	PR_Lock( conn->c_mutex );
++	PR_EnterMonitor(conn->c_mutex);
+ 	/* connection_remove_operation_ext(pb, conn,op); */
+ 	for ( tmp = olist; *tmp != NULL && *tmp != op; tmp = &(*tmp)->o_next )
+ 		;	/* NULL */
+@@ -614,15 +614,15 @@ slapi_connection_remove_operation( Slapi_PBlock *pb, Slapi_Connection *conn, Sla
+ 	if (release) {
+ 		/* connection_release_nolock(conn); */
+ 		if (conn->c_refcnt <= 0) {
+-        		slapi_log_error(SLAPI_LOG_FATAL, "connection",
+-		                "conn=%" NSPRIu64 " fd=%d Attempt to release connection that is not acquired\n",
+-		                conn->c_connid, conn->c_sd);
+-        		rc = -1;
++			slapi_log_error(SLAPI_LOG_FATAL, "connection",
++			                "conn=%" NSPRIu64 " fd=%d Attempt to release connection that is not acquired\n",
++			                conn->c_connid, conn->c_sd);
++			rc = -1;
+ 		} else {
+-        		conn->c_refcnt--;
++			conn->c_refcnt--;
+ 			rc = 0;
+ 		}
+ 	}
+-	PR_Unlock( conn->c_mutex );
++	PR_ExitMonitor(conn->c_mutex);
+ 	return (rc);
+ }
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index 5cafc3c..e76ca0f 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -675,7 +675,7 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+        * In async paged result case, the search result might be released
+        * by other theads.  We need to double check it in the locked region.
+        */
+-      PR_Lock(pb->pb_conn->c_mutex);
++      PR_EnterMonitor(pb->pb_conn->c_mutex);
+       pr_search_result = pagedresults_get_search_result(pb->pb_conn, operation, 1/*locked*/, pr_idx);
+       if (pr_search_result) {
+         if (pagedresults_is_abandoned_or_notavailable(pb->pb_conn, 1/*locked*/, pr_idx)) {
+@@ -683,7 +683,7 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+           /* Previous operation was abandoned and the simplepaged object is not in use. */
+           send_ldap_result(pb, 0, NULL, "Simple Paged Results Search abandoned", 0, NULL);
+           rc = LDAP_SUCCESS;
+-          PR_Unlock(pb->pb_conn->c_mutex);
++          PR_ExitMonitor(pb->pb_conn->c_mutex);
+           goto free_and_return;
+         } else {
+           slapi_pblock_set( pb, SLAPI_SEARCH_RESULT_SET, pr_search_result );
+@@ -692,7 +692,7 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+           /* search result could be reset in the backend/dse */
+           slapi_pblock_get(pb, SLAPI_SEARCH_RESULT_SET, &sr);
+           pagedresults_set_search_result(pb->pb_conn, operation, sr, 1/*locked*/, pr_idx);
+-          PR_Unlock(pb->pb_conn->c_mutex);
++          PR_ExitMonitor(pb->pb_conn->c_mutex);
+         }
+       } else {
+         pr_stat = PAGEDRESULTS_SEARCH_END;
+@@ -826,10 +826,10 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+         /* PAGED RESULTS */
+         if (op_is_pagedresults(operation)) {
+             /* cleanup the slot */
+-            PR_Lock(pb->pb_conn->c_mutex);
++            PR_EnterMonitor(pb->pb_conn->c_mutex);
+             pagedresults_set_search_result(pb->pb_conn, operation, NULL, 1, pr_idx);
+             rc = pagedresults_set_current_be(pb->pb_conn, NULL, pr_idx, 1);
+-            PR_Unlock(pb->pb_conn->c_mutex);
++            PR_ExitMonitor(pb->pb_conn->c_mutex);
+         }
+         if (1 == flag_no_such_object) {
+             break;
+@@ -871,11 +871,11 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+             slapi_pblock_get(pb, SLAPI_SEARCH_RESULT_SET, &sr);
+             if (PAGEDRESULTS_SEARCH_END == pr_stat) {
+               /* no more entries, but at least another backend */
+-              PR_Lock(pb->pb_conn->c_mutex);
++              PR_EnterMonitor(pb->pb_conn->c_mutex);
+               pagedresults_set_search_result(pb->pb_conn, operation, NULL, 1, pr_idx);
+               be->be_search_results_release(&sr);
+               rc = pagedresults_set_current_be(pb->pb_conn, next_be, pr_idx, 1);
+-              PR_Unlock(pb->pb_conn->c_mutex);
++              PR_ExitMonitor(pb->pb_conn->c_mutex);
+               if (NULL == next_be) {
+                   /* no more entries && no more backends */
+                   curr_search_count = -1;
+@@ -900,9 +900,9 @@ op_shared_search (Slapi_PBlock *pb, int send_result)
+             next_be = NULL; /* to break the loop */
+             if (operation->o_status & SLAPI_OP_STATUS_ABANDONED) {
+                 /* It turned out this search was abandoned. */
+-                PR_Lock(pb->pb_conn->c_mutex);
++                PR_EnterMonitor(pb->pb_conn->c_mutex);
+                 pagedresults_free_one_msgid_nolock( pb->pb_conn, operation->o_msgid);
+-                PR_Unlock(pb->pb_conn->c_mutex);
++                PR_ExitMonitor(pb->pb_conn->c_mutex);
+                 /* paged-results-request was abandoned; making an empty cookie. */
+                 pagedresults_set_response_control(pb, 0, estimate, -1, pr_idx);
+                 send_ldap_result(pb, 0, NULL, "Simple Paged Results Search abandoned", 0, NULL);
+diff --git a/ldap/servers/slapd/pagedresults.c b/ldap/servers/slapd/pagedresults.c
+index 4458cfb..d394dab 100644
+--- a/ldap/servers/slapd/pagedresults.c
++++ b/ldap/servers/slapd/pagedresults.c
+@@ -98,7 +98,7 @@ pagedresults_parse_control_value( Slapi_PBlock *pb,
+         return LDAP_UNWILLING_TO_PERFORM;
+     }
+ 
+-    PR_Lock(conn->c_mutex);
++    PR_EnterMonitor(conn->c_mutex);
+     /* the ber encoding is no longer needed */
+     ber_free(ber, 1);
+     if ( cookie.bv_len <= 0 ) {
+@@ -204,7 +204,7 @@ bail:
+             }
+         }
+     }
+-    PR_Unlock(conn->c_mutex);
++    PR_ExitMonitor(conn->c_mutex);
+ 
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_parse_control_value: idx %d\n", *index);
+@@ -301,7 +301,7 @@ pagedresults_free_one( Connection *conn, Operation *op, int index )
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_free_one: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (conn->c_pagedresults.prl_count <= 0) {
+             LDAPDebug2Args(LDAP_DEBUG_TRACE, "pagedresults_free_one: "
+                            "conn=%d paged requests list count is %d\n",
+@@ -312,7 +312,7 @@ pagedresults_free_one( Connection *conn, Operation *op, int index )
+             conn->c_pagedresults.prl_count--;
+             rc = 0;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+ 
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE, "<-- pagedresults_free_one: %d\n", rc);
+@@ -364,11 +364,11 @@ pagedresults_get_current_be(Connection *conn, int index)
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_get_current_be: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             be = conn->c_pagedresults.prl_list[index].pr_current_be;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_get_current_be: %p\n", be);
+@@ -382,12 +382,12 @@ pagedresults_set_current_be(Connection *conn, Slapi_Backend *be, int index, int
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_set_current_be: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        if (!nolock) PR_Lock(conn->c_mutex);
++        if (!nolock) PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_current_be = be;
+         }
+         rc = 0;
+-        if (!nolock) PR_Unlock(conn->c_mutex);
++        if (!nolock) PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_set_current_be: %d\n", rc);
+@@ -406,13 +406,13 @@ pagedresults_get_search_result(Connection *conn, Operation *op, int locked, int
+                    locked?"locked":"not locked", index);
+     if (conn && (index > -1)) {
+         if (!locked) {
+-            PR_Lock(conn->c_mutex);
++            PR_EnterMonitor(conn->c_mutex);
+         }
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             sr = conn->c_pagedresults.prl_list[index].pr_search_result_set;
+         }
+         if (!locked) {
+-            PR_Unlock(conn->c_mutex);
++            PR_ExitMonitor(conn->c_mutex);
+         }
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+@@ -431,7 +431,7 @@ pagedresults_set_search_result(Connection *conn, Operation *op, void *sr, int lo
+                    "--> pagedresults_set_search_result: idx=%d, sr=%p\n",
+                    index, sr);
+     if (conn && (index > -1)) {
+-        if (!locked) PR_Lock(conn->c_mutex);
++        if (!locked) PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             PagedResults *prp = conn->c_pagedresults.prl_list + index;
+             if (!(prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED) || !sr) {
+@@ -440,7 +440,7 @@ pagedresults_set_search_result(Connection *conn, Operation *op, void *sr, int lo
+             }
+             rc = 0;
+         }
+-        if (!locked) PR_Unlock(conn->c_mutex);
++        if (!locked) PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_set_search_result: %d\n", rc);
+@@ -457,11 +457,11 @@ pagedresults_get_search_result_count(Connection *conn, Operation *op, int index)
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_get_search_result_count: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             count = conn->c_pagedresults.prl_list[index].pr_search_result_count;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_get_search_result_count: %d\n", count);
+@@ -479,11 +479,11 @@ pagedresults_set_search_result_count(Connection *conn, Operation *op,
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_set_search_result_count: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_search_result_count = count;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+         rc = 0;
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+@@ -504,11 +504,11 @@ pagedresults_get_search_result_set_size_estimate(Connection *conn,
+                   "--> pagedresults_get_search_result_set_size_estimate: "
+                   "idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             count = conn->c_pagedresults.prl_list[index].pr_search_result_set_size_estimate;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_get_search_result_set_size_estimate: %d\n",
+@@ -529,11 +529,11 @@ pagedresults_set_search_result_set_size_estimate(Connection *conn,
+                   "--> pagedresults_set_search_result_set_size_estimate: "
+                   "idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_search_result_set_size_estimate = count;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+         rc = 0;
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+@@ -552,11 +552,11 @@ pagedresults_get_with_sort(Connection *conn, Operation *op, int index)
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_get_with_sort: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             flags = conn->c_pagedresults.prl_list[index].pr_flags&CONN_FLAG_PAGEDRESULTS_WITH_SORT;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_get_with_sort: %p\n", flags);
+@@ -574,14 +574,14 @@ pagedresults_set_with_sort(Connection *conn, Operation *op,
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_set_with_sort: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             if (flags & OP_FLAG_SERVER_SIDE_SORTING) {
+                 conn->c_pagedresults.prl_list[index].pr_flags |=
+                                                CONN_FLAG_PAGEDRESULTS_WITH_SORT;
+             }
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+         rc = 0;
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE, "<-- pagedresults_set_with_sort: %d\n", rc);
+@@ -598,11 +598,11 @@ pagedresults_get_unindexed(Connection *conn, Operation *op, int index)
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_get_unindexed: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             flags = conn->c_pagedresults.prl_list[index].pr_flags&CONN_FLAG_PAGEDRESULTS_UNINDEXED;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_get_unindexed: %p\n", flags);
+@@ -619,12 +619,12 @@ pagedresults_set_unindexed(Connection *conn, Operation *op, int index)
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_set_unindexed: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_flags |=
+                                                CONN_FLAG_PAGEDRESULTS_UNINDEXED;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+         rc = 0;
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+@@ -642,11 +642,11 @@ pagedresults_get_sort_result_code(Connection *conn, Operation *op, int index)
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_get_sort_result_code: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             code = conn->c_pagedresults.prl_list[index].pr_sort_result_code;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_get_sort_result_code: %d\n", code);
+@@ -664,11 +664,11 @@ pagedresults_set_sort_result_code(Connection *conn, Operation *op,
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_set_sort_result_code: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_sort_result_code = code;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+         rc = 0;
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+@@ -687,11 +687,11 @@ pagedresults_set_timelimit(Connection *conn, Operation *op,
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_set_timelimit: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_timelimit = timelimit;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+         rc = 0;
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE, "<-- pagedresults_set_timelimit: %d\n", rc);
+@@ -749,7 +749,7 @@ pagedresults_cleanup(Connection *conn, int needlock)
+     }
+ 
+     if (needlock) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+     }
+     for (i = 0; conn->c_pagedresults.prl_list &&
+                 i < conn->c_pagedresults.prl_maxlen; i++) {
+@@ -767,7 +767,7 @@ pagedresults_cleanup(Connection *conn, int needlock)
+     }
+     conn->c_pagedresults.prl_count = 0;
+     if (needlock) {
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE, "<-- pagedresults_cleanup: %d\n", rc);
+     return rc;
+@@ -794,7 +794,7 @@ pagedresults_cleanup_all(Connection *conn, int needlock)
+     }
+ 
+     if (needlock) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+     }
+     for (i = 0; conn->c_pagedresults.prl_list &&
+                 i < conn->c_pagedresults.prl_maxlen; i++) {
+@@ -813,7 +813,7 @@ pagedresults_cleanup_all(Connection *conn, int needlock)
+     conn->c_pagedresults.prl_maxlen = 0;
+     conn->c_pagedresults.prl_count = 0;
+     if (needlock) {
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE, "<-- pagedresults_cleanup_all: %d\n", rc);
+     return rc;
+@@ -832,7 +832,7 @@ pagedresults_check_or_set_processing(Connection *conn, int index)
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_check_or_set_processing\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             ret = (conn->c_pagedresults.prl_list[index].pr_flags &
+                    CONN_FLAG_PAGEDRESULTS_PROCESSING);
+@@ -840,7 +840,7 @@ pagedresults_check_or_set_processing(Connection *conn, int index)
+             conn->c_pagedresults.prl_list[index].pr_flags |=
+                                               CONN_FLAG_PAGEDRESULTS_PROCESSING;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_check_or_set_processing: %d\n", ret);
+@@ -859,7 +859,7 @@ pagedresults_reset_processing(Connection *conn, int index)
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "--> pagedresults_reset_processing: idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             ret = (conn->c_pagedresults.prl_list[index].pr_flags &
+                    CONN_FLAG_PAGEDRESULTS_PROCESSING);
+@@ -867,7 +867,7 @@ pagedresults_reset_processing(Connection *conn, int index)
+             conn->c_pagedresults.prl_list[index].pr_flags &=
+                                              ~CONN_FLAG_PAGEDRESULTS_PROCESSING;
+         }
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_reset_processing: %d\n", ret);
+@@ -981,9 +981,9 @@ pagedresults_lock( Connection *conn, int index )
+     if (!conn || (index < 0) || (index >= conn->c_pagedresults.prl_maxlen)) {
+         return;
+     }
+-    PR_Lock(conn->c_mutex);
++    PR_EnterMonitor(conn->c_mutex);
+     prp = conn->c_pagedresults.prl_list + index;
+-    PR_Unlock(conn->c_mutex);
++    PR_ExitMonitor(conn->c_mutex);
+     if (prp->pr_mutex) {
+         PR_Lock(prp->pr_mutex);
+     }
+@@ -997,9 +997,9 @@ pagedresults_unlock( Connection *conn, int index )
+     if (!conn || (index < 0) || (index >= conn->c_pagedresults.prl_maxlen)) {
+         return;
+     }
+-    PR_Lock(conn->c_mutex);
++    PR_EnterMonitor(conn->c_mutex);
+     prp = conn->c_pagedresults.prl_list + index;
+-    PR_Unlock(conn->c_mutex);
++    PR_ExitMonitor(conn->c_mutex);
+     if (prp->pr_mutex) {
+         PR_Unlock(prp->pr_mutex);
+     }
+@@ -1014,11 +1014,11 @@ pagedresults_is_abandoned_or_notavailable(Connection *conn, int locked, int inde
+         return 1; /* not abandoned, but do not want to proceed paged results op. */
+     }
+     if (!locked) {
+-        PR_Lock(conn->c_mutex);
++        PR_EnterMonitor(conn->c_mutex);
+     }
+     prp = conn->c_pagedresults.prl_list + index;
+     if (!locked) {
+-        PR_Unlock(conn->c_mutex);
++        PR_ExitMonitor(conn->c_mutex);
+     }
+     return prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED;
+ }
+@@ -1042,12 +1042,12 @@ pagedresults_set_search_result_pb(Slapi_PBlock *pb, void *sr, int locked)
+     LDAPDebug2Args(LDAP_DEBUG_TRACE,
+                    "--> pagedresults_set_search_result_pb: idx=%d, sr=%p\n", index, sr);
+     if (conn && (index > -1)) {
+-        if (!locked) PR_Lock(conn->c_mutex);
++        if (!locked) PR_EnterMonitor(conn->c_mutex);
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_search_result_set = sr;
+             rc = 0;
+         }
+-        if (!locked) PR_Unlock(conn->c_mutex);
++        if (!locked) PR_ExitMonitor(conn->c_mutex);
+     }
+     LDAPDebug1Arg(LDAP_DEBUG_TRACE,
+                   "<-- pagedresults_set_search_result_pb: %d\n", rc);
+diff --git a/ldap/servers/slapd/pblock.c b/ldap/servers/slapd/pblock.c
+index bf57a33..d373d99 100644
+--- a/ldap/servers/slapd/pblock.c
++++ b/ldap/servers/slapd/pblock.c
+@@ -117,7 +117,7 @@ if ( PBLOCK ->pb_plugin->plg_type != TYPE) return( -1 )
+ int
+ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ {
+-    char *authtype;
++	char *authtype;
+ 	Slapi_Backend		*be;
+ 
+ 	PR_ASSERT( NULL != pblock );
+@@ -174,10 +174,10 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 		          "Connection is NULL and hence cannot access SLAPI_CONN_DN \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		(*(char **)value) = (NULL == pblock->pb_conn->c_dn ? NULL :
+ 		    slapi_ch_strdup( pblock->pb_conn->c_dn ));
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_AUTHTYPE:/* deprecated */
+ 		if (pblock->pb_conn == NULL) {
+@@ -185,9 +185,9 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 		          "Connection is NULL and hence cannot access SLAPI_CONN_AUTHTYPE \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
+-                authtype = pblock->pb_conn->c_authtype;
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
++		authtype = pblock->pb_conn->c_authtype;
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+                 if (authtype == NULL) {
+                     (*(char **)value) = NULL;
+                 } else if (strcasecmp(authtype, SLAPD_AUTH_NONE) == 0) {
+@@ -212,10 +212,10 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 		          "Connection is NULL and hence cannot access SLAPI_CONN_AUTHMETHOD \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		(*(char **)value) = pblock->pb_conn->c_authtype ?
+                     slapi_ch_strdup(pblock->pb_conn->c_authtype) : NULL;
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_CLIENTNETADDR:
+ 		if (pblock->pb_conn == NULL)
+@@ -223,14 +223,14 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			memset( value, 0, sizeof( PRNetAddr ));
+ 			break;
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		if ( pblock->pb_conn->cin_addr == NULL ) {
+ 			memset( value, 0, sizeof( PRNetAddr ));
+ 		} else {
+ 			(*(PRNetAddr *)value) =
+ 			    *(pblock->pb_conn->cin_addr);
+ 		}
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_SERVERNETADDR:
+ 		if (pblock->pb_conn == NULL)
+@@ -238,14 +238,14 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			memset( value, 0, sizeof( PRNetAddr ));
+ 			break;
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		if ( pblock->pb_conn->cin_destaddr == NULL ) {
+ 			memset( value, 0, sizeof( PRNetAddr ));
+ 		} else {
+ 			(*(PRNetAddr *)value) =
+ 				*(pblock->pb_conn->cin_destaddr);
+ 		}
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_CLIENTIP:
+ 		if (pblock->pb_conn == NULL)
+@@ -253,7 +253,7 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			memset( value, 0, sizeof( struct in_addr ));
+ 			break;
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		if ( pblock->pb_conn->cin_addr == NULL ) {
+ 			memset( value, 0, sizeof( struct in_addr ));
+ 		} else {
+@@ -268,7 +268,7 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 				memset( value, 0, sizeof( struct in_addr ));
+ 			}
+ 		}
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_SERVERIP:
+ 		if (pblock->pb_conn == NULL)
+@@ -276,7 +276,7 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			memset( value, 0, sizeof( struct in_addr ));
+ 			break;
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		if ( pblock->pb_conn->cin_destaddr == NULL ) {
+ 			memset( value, 0, sizeof( PRNetAddr ));
+ 		} else {
+@@ -292,7 +292,7 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			}
+ 
+ 		}
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_IS_REPLICATION_SESSION:
+ 		if (pblock->pb_conn == NULL) {
+@@ -300,9 +300,9 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 		          "Connection is NULL and hence cannot access SLAPI_CONN_IS_REPLICATION_SESSION \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		(*(int *)value) = pblock->pb_conn->c_isreplication_session;
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_IS_SSL_SESSION:
+ 		if (pblock->pb_conn == NULL) {
+@@ -310,9 +310,9 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 		          "Connection is NULL and hence cannot access SLAPI_CONN_IS_SSL_SESSION \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		(*(int *)value) = pblock->pb_conn->c_flags & CONN_FLAG_SSL;
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_SASL_SSF:
+ 		if (pblock->pb_conn == NULL) {
+@@ -320,9 +320,9 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			  "Connection is NULL and hence cannot access SLAPI_CONN_SASL_SSF \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		(*(int *)value) = pblock->pb_conn->c_sasl_ssf;
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_SSL_SSF:
+ 		if (pblock->pb_conn == NULL) {
+@@ -330,9 +330,9 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			  "Connection is NULL and hence cannot access SLAPI_CONN_SSL_SSF \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		(*(int *)value) = pblock->pb_conn->c_ssl_ssf;
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_LOCAL_SSF:
+ 		if (pblock->pb_conn == NULL) {
+@@ -340,9 +340,9 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ 			    "Connection is NULL and hence cannot access SLAPI_CONN_LOCAL_SSF \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		(*(int *)value) = pblock->pb_conn->c_local_ssf;
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_CERT:
+ 		if (pblock->pb_conn == NULL) {
+@@ -1953,7 +1953,7 @@ slapi_pblock_get( Slapi_PBlock *pblock, int arg, void *value )
+ int
+ slapi_pblock_set( Slapi_PBlock *pblock, int arg, void *value )
+ {
+-    char *authtype;
++	char *authtype;
+ 
+ 	PR_ASSERT( NULL != pblock );
+ 
+@@ -2020,10 +2020,10 @@ slapi_pblock_set( Slapi_PBlock *pblock, int arg, void *value )
+ 		          "Connection is NULL and hence cannot access SLAPI_CONN_AUTHMETHOD \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
+-                slapi_ch_free((void**)&pblock->pb_conn->c_authtype);
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
++		slapi_ch_free((void**)&pblock->pb_conn->c_authtype);
+ 		pblock->pb_conn->c_authtype = slapi_ch_strdup((char *) value);
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 	case SLAPI_CONN_IS_REPLICATION_SESSION:
+ 		if (pblock->pb_conn == NULL) {
+@@ -2031,9 +2031,9 @@ slapi_pblock_set( Slapi_PBlock *pblock, int arg, void *value )
+ 		          "Connection is NULL and hence cannot access SLAPI_CONN_IS_REPLICATION_SESSION \n", 0, 0, 0 );
+ 			return (-1);
+ 		}
+-		PR_Lock( pblock->pb_conn->c_mutex );
++		PR_EnterMonitor(pblock->pb_conn->c_mutex);
+ 		pblock->pb_conn->c_isreplication_session = *((int *) value);
+-		PR_Unlock( pblock->pb_conn->c_mutex );
++		PR_ExitMonitor(pblock->pb_conn->c_mutex);
+ 		break;
+ 
+ 	/* stuff related to config file processing */
+@@ -3571,7 +3571,7 @@ bind_credentials_clear( Connection *conn, PRBool lock_conn,
+ 		PRBool clear_externalcreds )
+ {
+     if ( lock_conn ) {
+-        PR_Lock( conn->c_mutex );
++        PR_EnterMonitor(conn->c_mutex);
+     }
+ 
+     if ( conn->c_dn != NULL ) {		/* a non-anonymous bind has occurred */
+@@ -3597,7 +3597,7 @@ bind_credentials_clear( Connection *conn, PRBool lock_conn,
+     }
+ 
+     if ( lock_conn ) {
+-        PR_Unlock( conn->c_mutex );
++        PR_ExitMonitor(conn->c_mutex);
+     }
+ 
+ }
+@@ -3653,10 +3653,10 @@ void
+ bind_credentials_set( Connection *conn, char *authtype, char *normdn,
+ 		char *extauthtype, char *externaldn, CERTCertificate *clientcert, Slapi_Entry * bind_target_entry )
+ {
+-	PR_Lock( conn->c_mutex );
++	PR_EnterMonitor(conn->c_mutex);
+ 	bind_credentials_set_nolock(conn, authtype, normdn,
+ 		extauthtype, externaldn, clientcert, bind_target_entry);
+-	PR_Unlock( conn->c_mutex );
++	PR_ExitMonitor(conn->c_mutex);
+ }
+ 
+ void
+diff --git a/ldap/servers/slapd/psearch.c b/ldap/servers/slapd/psearch.c
+index c9d23cf..00f13be 100644
+--- a/ldap/servers/slapd/psearch.c
++++ b/ldap/servers/slapd/psearch.c
+@@ -277,9 +277,9 @@ ps_send_results( void *arg )
+ 
+     /* need to acquire a reference to this connection so that it will not
+        be released or cleaned up out from under us */
+-    PR_Lock( ps->ps_pblock->pb_conn->c_mutex );
++    PR_EnterMonitor(ps->ps_pblock->pb_conn->c_mutex);
+     conn_acq_flag = connection_acquire_nolock(ps->ps_pblock->pb_conn);    
+-    PR_Unlock( ps->ps_pblock->pb_conn->c_mutex );
++    PR_ExitMonitor(ps->ps_pblock->pb_conn->c_mutex);
+ 
+ 	if (conn_acq_flag) {
+ 		slapi_log_error(SLAPI_LOG_CONNS, "Persistent Search",
+@@ -397,7 +397,7 @@ ps_send_results( void *arg )
+ 
+     conn = ps->ps_pblock->pb_conn; /* save to release later - connection_remove_operation_ext will NULL the pb_conn */
+     /* Clean up the connection structure */
+-    PR_Lock( conn->c_mutex );
++    PR_EnterMonitor(conn->c_mutex);
+ 
+ 	slapi_log_error(SLAPI_LOG_CONNS, "Persistent Search",
+ 					"conn=%" NSPRIu64 " op=%d Releasing the connection and operation\n",
+@@ -407,9 +407,9 @@ ps_send_results( void *arg )
+ 
+     /* Decrement the connection refcnt */
+     if (conn_acq_flag == 0) { /* we acquired it, so release it */
+-	connection_release_nolock (conn);
++        connection_release_nolock (conn);
+     }
+-    PR_Unlock( conn->c_mutex );
++    PR_ExitMonitor(conn->c_mutex);
+     conn = NULL;
+ 
+     PR_DestroyLock ( ps->ps_lock );
+diff --git a/ldap/servers/slapd/saslbind.c b/ldap/servers/slapd/saslbind.c
+index 1e3e94d..7259d78 100644
+--- a/ldap/servers/slapd/saslbind.c
++++ b/ldap/servers/slapd/saslbind.c
+@@ -659,7 +659,7 @@ char **ids_sasl_listmech(Slapi_PBlock *pb)
+     if (sasl_conn == NULL) return ret;
+ 
+     /* sasl library mechanisms are connection dependent */
+-    PR_Lock(pb->pb_conn->c_mutex);
++    PR_EnterMonitor(pb->pb_conn->c_mutex);
+     if (sasl_listmech(sasl_conn, 
+                       NULL,     /* username */
+                       "", ",", "",
+@@ -672,7 +672,7 @@ char **ids_sasl_listmech(Slapi_PBlock *pb)
+         charray_free(others);
+         slapi_ch_free((void**)&dupstr);
+     }
+-    PR_Unlock(pb->pb_conn->c_mutex);
++    PR_ExitMonitor(pb->pb_conn->c_mutex);
+ 
+     LDAPDebug( LDAP_DEBUG_TRACE, "<= ids_sasl_listmech\n", 0, 0, 0 );
+ 
+@@ -755,13 +755,13 @@ void ids_sasl_check_bind(Slapi_PBlock *pb)
+     PR_ASSERT(pb);
+     PR_ASSERT(pb->pb_conn);
+ 
+-    PR_Lock(pb->pb_conn->c_mutex); /* BIG LOCK */
++    PR_EnterMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+     continuing = pb->pb_conn->c_flags & CONN_FLAG_SASL_CONTINUE;
+     pb->pb_conn->c_flags &= ~CONN_FLAG_SASL_CONTINUE; /* reset flag */
+ 
+     sasl_conn = (sasl_conn_t*)pb->pb_conn->c_sasl_conn;
+     if (sasl_conn == NULL) {
+-        PR_Unlock(pb->pb_conn->c_mutex);
++        PR_ExitMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+         send_ldap_result( pb, LDAP_AUTH_METHOD_NOT_SUPPORTED, NULL,
+                           "sasl library unavailable", 0, NULL );
+         return;
+@@ -842,7 +842,7 @@ void ids_sasl_check_bind(Slapi_PBlock *pb)
+         if (sasl_conn == NULL) {
+             send_ldap_result( pb, LDAP_AUTH_METHOD_NOT_SUPPORTED, NULL,
+                           "sasl library unavailable", 0, NULL );
+-            PR_Unlock(pb->pb_conn->c_mutex); /* BIG LOCK */
++            PR_ExitMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+             return;
+         }
+     }
+@@ -858,7 +858,7 @@ sasl_check_result:
+         /* retrieve the authenticated username */
+         if (sasl_getprop(sasl_conn, SASL_USERNAME,
+                          (const void**)&username) != SASL_OK) {
+-            PR_Unlock(pb->pb_conn->c_mutex); /* BIG LOCK */
++            PR_ExitMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+             send_ldap_result(pb, LDAP_OPERATIONS_ERROR, NULL,
+                              "could not obtain sasl username", 0, NULL);
+             break;
+@@ -879,7 +879,7 @@ sasl_check_result:
+             }
+         }
+         if (dn == NULL) {
+-            PR_Unlock(pb->pb_conn->c_mutex); /* BIG LOCK */
++            PR_ExitMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+             send_ldap_result(pb, LDAP_OPERATIONS_ERROR, NULL,
+                              "could not get auth dn from sasl", 0, NULL);
+             break;
+@@ -920,7 +920,7 @@ sasl_check_result:
+                                     slapi_ch_strdup(normdn), 
+                                     NULL, NULL, NULL, bind_target_entry);
+ 
+-        PR_Unlock(pb->pb_conn->c_mutex); /* BIG LOCK */
++        PR_ExitMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+ 
+         if (plugin_call_plugins( pb, SLAPI_PLUGIN_PRE_BIND_FN ) != 0){
+             break;
+@@ -995,9 +995,9 @@ sasl_check_result:
+         /* see if we negotiated a security layer */
+         if (*ssfp > 0) {
+             /* Enable SASL I/O on the connection */
+-            PR_Lock(pb->pb_conn->c_mutex);
++            PR_EnterMonitor(pb->pb_conn->c_mutex);
+             connection_set_io_layer_cb(pb->pb_conn, sasl_io_enable, NULL, NULL);
+-            PR_Unlock(pb->pb_conn->c_mutex);
++            PR_ExitMonitor(pb->pb_conn->c_mutex);
+         }
+ 
+         /* send successful result */
+@@ -1010,7 +1010,7 @@ sasl_check_result:
+ 
+     case SASL_CONTINUE:         /* another step needed */
+         pb->pb_conn->c_flags |= CONN_FLAG_SASL_CONTINUE;
+-        PR_Unlock(pb->pb_conn->c_mutex); /* BIG LOCK */
++        PR_ExitMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+ 
+         if (plugin_call_plugins( pb, SLAPI_PLUGIN_PRE_BIND_FN ) != 0){
+             break;
+@@ -1032,7 +1032,7 @@ sasl_check_result:
+ 
+     case SASL_NOMECH:
+ 
+-        PR_Unlock(pb->pb_conn->c_mutex); /* BIG LOCK */
++        PR_ExitMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+         send_ldap_result(pb, LDAP_AUTH_METHOD_NOT_SUPPORTED, NULL,
+                          "sasl mechanism not supported", 0, NULL);
+         break;
+@@ -1040,7 +1040,7 @@ sasl_check_result:
+     default:                    /* other error */
+         errstr = sasl_errdetail(sasl_conn);
+ 
+-        PR_Unlock(pb->pb_conn->c_mutex); /* BIG LOCK */
++        PR_ExitMonitor(pb->pb_conn->c_mutex); /* BIG LOCK */
+         send_ldap_result(pb, LDAP_INVALID_CREDENTIALS, NULL,
+                          (char*)errstr, 0, NULL);
+         break;
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index 823568d..2641f76 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -1411,7 +1411,7 @@ typedef struct conn {
+ 	PRInt32			c_opscompleted;	/* # ops completed		  */
+ 	PRInt32			c_threadnumber; /* # threads used in this conn    */
+ 	int				c_refcnt;	/* # ops refering to this conn    */
+-	PRLock			*c_mutex;	/* protect each conn structure    */
++	PRMonitor		*c_mutex;	/* protect each conn structure; need to be re-entrant */ 
+ 	PRLock			*c_pdumutex;	/* only write one pdu at a time   */
+ 	time_t			c_idlesince;	/* last time of activity on conn  */
+ 	int			c_idletimeout;	/* local copy of idletimeout */
+diff --git a/ldap/servers/slapd/start_tls_extop.c b/ldap/servers/slapd/start_tls_extop.c
+index 69b8607..af8d8f7 100644
+--- a/ldap/servers/slapd/start_tls_extop.c
++++ b/ldap/servers/slapd/start_tls_extop.c
+@@ -172,7 +172,7 @@ start_tls( Slapi_PBlock *pb )
+ 	/* At least we know that the request was indeed an Start TLS one. */
+ 
+ 	conn = pb->pb_conn;
+-	PR_Lock( conn->c_mutex );
++	PR_EnterMonitor(conn->c_mutex);
+ 	/* cannot call slapi_send_ldap_result with mutex locked - will deadlock if ber_flush returns error */
+ 	if ( conn->c_prfd == (PRFileDesc *) NULL ) {
+ 		slapi_log_error( SLAPI_LOG_PLUGIN, "start_tls",
+@@ -246,10 +246,10 @@ start_tls( Slapi_PBlock *pb )
+ 	 * we send a success response back to the client. */
+ 	ldapmsg = "Start TLS request accepted.Server willing to negotiate SSL.";
+ unlock_and_return:
+-	PR_Unlock( conn->c_mutex );
++	PR_ExitMonitor(conn->c_mutex);
+ 	slapi_send_ldap_result( pb, ldaprc, NULL, ldapmsg, 0, NULL );
+ 
+-	return( SLAPI_PLUGIN_EXTENDED_SENT_RESULT );	
++	return( SLAPI_PLUGIN_EXTENDED_SENT_RESULT );
+ 
+ }/* start_tls */
+ 
+@@ -312,7 +312,7 @@ start_tls_graceful_closure( Connection *c, Slapi_PBlock * pb, int is_initiator )
+ 	   */
+ 	}
+ 
+-	PR_Lock( c->c_mutex );
++	PR_EnterMonitor(c->c_mutex);
+ 
+ 	/* "Unimport" the socket from SSL, i.e. get rid of the upper layer of the 
+ 	 * file descriptor stack, which represents SSL. 
+@@ -342,7 +342,7 @@ start_tls_graceful_closure( Connection *c, Slapi_PBlock * pb, int is_initiator )
+ 
+ 	bind_credentials_clear( c, PR_FALSE, PR_TRUE );
+ 
+-	PR_Unlock( c->c_mutex );
++	PR_ExitMonitor(c->c_mutex);
+ 
+ 	return ( SLAPI_PLUGIN_EXTENDED_SENT_RESULT );
+ }    
+diff --git a/ldap/servers/slapd/unbind.c b/ldap/servers/slapd/unbind.c
+index 9b6a70f..c0dec9d 100644
+--- a/ldap/servers/slapd/unbind.c
++++ b/ldap/servers/slapd/unbind.c
+@@ -73,9 +73,9 @@ do_unbind( Slapi_PBlock *pb )
+ 	}
+ 
+ 	/* target spec is used to decide which plugins are applicable for the operation */
+-	PR_Lock( pb->pb_conn->c_mutex );
++	PR_EnterMonitor(pb->pb_conn->c_mutex);
+ 	operation_set_target_spec_str (operation, pb->pb_conn->c_dn);
+-	PR_Unlock( pb->pb_conn->c_mutex );
++	PR_ExitMonitor(pb->pb_conn->c_mutex);
+ 
+ 	/* ONREPL - plugins should be called and passed bind dn and, possibly, other data */
+ 
+-- 
+2.4.3
+

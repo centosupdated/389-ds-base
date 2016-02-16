@@ -1,0 +1,38 @@
+From 666fdac51b94450391e8fec8d16db34db09502ae Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Wed, 13 Jan 2016 13:15:53 +0100
+Subject: [PATCH] Ticket: 48341 - deadlock on connection mutex
+
+If  thread is blocked in connection_read_operation() it holds the connection mutex
+and the main thread iterating through the connection table is also blocked.
+
+But if the main thread would get the mutex it would just detect that the connection has still the
+C_gettingber flag set and immediately release the lock.
+
+The check if c_gettingber == 0 can be done without holding the mutex and so the deadlock
+can be avoided
+
+Reviewed by Rich, Thanks
+
+(cherry picked from commit a1635fc45f681ed9066f6beed9be7e1672490f9f)
+---
+ ldap/servers/slapd/daemon.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index 355f0fc..d25c44d 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -1740,6 +1740,9 @@ handle_pr_read_ready(Connection_Table *ct, PRIntn num_poll)
+ 	{
+ 		if ( c->c_mutex != NULL )
+ 		{
++			/* this check can be done without acquiring the mutex */
++			if (c->c_gettingber) continue;
++
+ 			PR_EnterMonitor(c->c_mutex);
+ 			if ( connection_is_active_nolock (c) && c->c_gettingber == 0 )
+ 			{
+-- 
+2.4.3
+
