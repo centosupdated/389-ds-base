@@ -34,8 +34,8 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.4.0
-Release:          %{?relprefix}26%{?prerel}%{?dist}
-License:          GPLv2 with exceptions
+Release:          %{?relprefix}29%{?prerel}%{?dist}
+License:          GPLv3+
 URL:              http://port389.org/
 Group:            System Environment/Daemons
 BuildRoot:        %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -206,6 +206,11 @@ Patch79:          0080-Revert-Ticket-48338-SimplePagedResults-abandon-could.patc
 Patch80:          0081-Ticket-48406-Avoid-self-deadlock-by-PR_Lock-conn-c_m.patch
 Patch81:          0082-Ticket-48412-worker-threads-do-not-detect-abnormally.patch
 Patch82:          0083-Ticket-48341-deadlock-on-connection-mutex.patch
+Patch83:          0084-Ticket-48536-Crash-in-slapi_get_object_extension.patch
+Patch84:          0085-Ticket-48536-Crash-in-slapi_get_object_extension.patch
+Patch85:          0086-Ticket-48445-keep-alive-entries-can-break-replicatio.patch
+Patch86:          0087-Ticket-48420-change-severity-of-some-messages-relate.patch
+Patch87:          0088-Ticket-48757-License-tag-does-not-match-actual-licen.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -352,6 +357,11 @@ cp %{SOURCE2} README.devel
 %patch80 -p1
 %patch81 -p1
 %patch82 -p1
+%patch83 -p1
+%patch84 -p1
+%patch85 -p1
+%patch86 -p1
+%patch87 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -546,6 +556,19 @@ fi
 %endif
 
 %changelog
+* Thu Mar 10 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-29
+- release 1.3.4.0-29
+- Resolves: bug 1316552 - License tag does not match actual license of code (DS 48757)
+
+* Tue Mar  8 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-28
+- release 1.3.4.0-28
+- Resolves: bug 1315181 - change severity of some messages related to "keep alive" entries (DS 48420)
+
+* Fri Feb 19 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-27
+- release 1.3.4.0-27
+- Resolves: bug 1309963 - keep alive entries can break replication (DS 48445)
+- Resolves: bug 1309964 - Crash in slapi_get_object_extension (DS 48536)
+
 * Mon Jan 25 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-26
 - release 1.3.4.0-26
 - Resolves: bug 1299346 - deadlock on connection mutex (DS 48341)

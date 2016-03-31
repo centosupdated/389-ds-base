@@ -1,0 +1,49 @@
+From 202bac76ade2dcff8318f545fbccdecaec3bdde8 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Tue, 1 Mar 2016 11:14:54 +0100
+Subject: [PATCH] Ticket 48420: change severity of some messages related to
+ "keep alive" entries
+
+Bug Description:
+	"keep alive" entries are used to prevent fractional replication
+	to evaluate several times the same skipped updates. (see https://fedorahosted.org/389/ticket/48266)
+
+	This entry is created on the fly when two many evaluated
+	updates have been skipped. This is a quite common situation
+	and the creation of such entry is not a FATAL error
+
+Fix Description:
+	Change the log level to replication level
+
+https://fedorahosted.org/389/ticket/48420
+
+Reviewed by: Ludwig Krispenz (thanks Ludwig)
+
+Platforms tested: F17
+
+Flag Day: no
+
+Doc impact: no
+
+(cherry picked from commit 6788445974404398bc02da8fa105b06514e8a450)
+(cherry picked from commit 17bb0688b9249693da0bda239fb7c3b35aa8e1c9)
+---
+ ldap/servers/plugins/replication/repl5_replica.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica.c b/ldap/servers/plugins/replication/repl5_replica.c
+index 31c5f0f..c7cf25f 100644
+--- a/ldap/servers/plugins/replication/repl5_replica.c
++++ b/ldap/servers/plugins/replication/repl5_replica.c
+@@ -492,7 +492,7 @@ replica_subentry_check(Slapi_DN *repl_root, ReplicaId rid)
+                     "Need to create replication keep alive entry <cn=%s %d,%s>\n", KEEP_ALIVE_ENTRY, rid, slapi_sdn_get_dn(repl_root));
+             rc = replica_subentry_create(repl_root, rid);
+         } else {
+-            slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name,
++            slapi_log_error(SLAPI_LOG_REPL, repl_plugin_name,
+                     "replication keep alive entry <cn=%s %d,%s> already exists\n", KEEP_ALIVE_ENTRY, rid, slapi_sdn_get_dn(repl_root));
+             rc = 0;
+         }
+-- 
+2.4.3
+

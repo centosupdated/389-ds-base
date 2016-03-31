@@ -1,0 +1,72 @@
+From c92cbe6a93a7933abc59b2fe4bf96a32aff2c6d8 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Tue, 9 Feb 2016 16:12:07 -0800
+Subject: [PATCH 84/86] Ticket #48536 - Crash in slapi_get_object_extension
+
+Description: The crashed was caused by the combination of psearch and
+updating one of these group values: groupOfNames, groupOfUniqueNames,
+groupOfCertificates, groupOfURL.
+
+In the psearch, it creates aclpb in the acl plug-in and sets the original
+pblock address in the aclpb. Then, psearch creates a copy of the pblock and
+sets it in the psearch structure.  Now, the pblock address in aclpb and the
+pblock address in the psearch structure do not match. The original pblock
+itself is freed and the pblock area which address is stored in aclpb is not
+guaranteed what is in it.
+
+If nothing occurs, the freed pblock in aclpb is not accessed. But once one
+of the group values is updated, the acl plug-in signature is updated and it
+triggers to get aclpb from the pblock.
+
+The acl_get_aclpb call accesses the freed pblock (e.g., NULL op) and it
+crashes the server.
+
+This patch checks the current pblock address and the pblock address in aclpb.
+If they don't match, the address in aclpb is reassigned to the current pblock
+address.
+
+https://fedorahosted.org/389/ticket/48536
+
+Reviewed by mreynolds@redhat.com (Thank you, Mark!!)
+
+(cherry picked from commit 091a5f5daf3fa378f029e293c5358ae9be9f548e)
+(cherry picked from commit 8a83a93977f13db36e42798a5eed041c1b3868a9)
+---
+ ldap/servers/plugins/acl/acl.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/ldap/servers/plugins/acl/acl.c b/ldap/servers/plugins/acl/acl.c
+index 678a999..d56bed6 100644
+--- a/ldap/servers/plugins/acl/acl.c
++++ b/ldap/servers/plugins/acl/acl.c
+@@ -317,6 +317,13 @@ acl_access_allowed(
+ 		goto cleanup_and_ret;
+ 	}
+ 
++	if (pb != aclpb->aclpb_pblock) {
++		slapi_log_error(SLAPI_LOG_FATAL, plugin_name,
++		                "acl_access_allowed: Resetting aclpb_pblock 0x%x to pblock addr 0x%x\n",
++		                aclpb->aclpb_pblock, pb);
++		aclpb->aclpb_pblock = pb;
++	}
++
+ 	if ( !aclpb->aclpb_curr_entry_sdn ) {
+ 		slapi_log_error	( SLAPI_LOG_FATAL, plugin_name,	 "NULL aclpb_curr_entry_sdn \n" );
+ 		ret_val	= LDAP_OPERATIONS_ERROR;
+@@ -932,6 +939,13 @@ acl_read_access_allowed_on_entry (
+ 							tnf_string,end,"aclpb error");
+ 		return LDAP_OPERATIONS_ERROR;
+ 	}
++	 
++	if (pb != aclpb->aclpb_pblock) {
++		slapi_log_error(SLAPI_LOG_ACL, plugin_name,
++		                "acl_read_access_allowed_on_entry: Resetting aclpb_pblock 0x%x to pblock addr 0x%x\n",
++		                aclpb->aclpb_pblock, pb);
++		aclpb->aclpb_pblock = pb;
++	}
+ 
+ 	/*
+ 	 * Am I	a anonymous dude ? then	we can use our anonympous profile
+-- 
+2.4.3
+
