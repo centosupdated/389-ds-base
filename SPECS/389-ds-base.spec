@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.4.0
-Release:          %{?relprefix}29%{?prerel}%{?dist}
+Release:          %{?relprefix}30%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -211,6 +211,7 @@ Patch84:          0085-Ticket-48536-Crash-in-slapi_get_object_extension.patch
 Patch85:          0086-Ticket-48445-keep-alive-entries-can-break-replicatio.patch
 Patch86:          0087-Ticket-48420-change-severity-of-some-messages-relate.patch
 Patch87:          0088-Ticket-48757-License-tag-does-not-match-actual-licen.patch
+Patch88:          0089-Ticket-47888-DES-to-AES-password-conversion-fails-if.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -362,6 +363,7 @@ cp %{SOURCE2} README.devel
 %patch85 -p1
 %patch86 -p1
 %patch87 -p1
+%patch88 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -556,6 +558,10 @@ fi
 %endif
 
 %changelog
+* Wed Mar 30 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-30
+- release 1.3.4.0-30
+- Resolves: bug 1321891 - DES to AES password conversion fails if a backend is empty (DS 48777)
+
 * Thu Mar 10 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-29
 - release 1.3.4.0-29
 - Resolves: bug 1316552 - License tag does not match actual license of code (DS 48757)
