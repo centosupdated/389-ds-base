@@ -1,0 +1,103 @@
+From ce824731f4839f7812109b8c04ce704a56eeca4b Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 10 Feb 2016 11:36:32 -0800
+Subject: [PATCH 90/93] Ticket #48492 - heap corruption at schema replication.
+
+Description: 389-ds-base-1.3.2 and newer uses openldap schema parser,
+which is more strict with the definition.  For instance, the older
+389-ds-base could have a schema such as SINTAX OID in single quotes,
+which is not acceptable on the newer version.  There was a bug to
+handle the error case that caused a crash.
+
+This patch adds
+1) the null reference check to attr_syntax_free (attrsyntax.c),
+2) a null init to the output arg in parse_at_str and parse_oc_str
+   (schema.c) and
+3) an error logging to schema_berval_to_atlist & schema_berval_to_oclist
+   (schema.c) for troubleshooting.
+
+https://fedorahosted.org/389/ticket/48492
+
+Reviewed by wibrown@redhat.com and mreynolds@redhat.com (Thank you, William and Mark!)
+
+(cherry picked from commit b5bfa2a0386e168ce2196a077169382ae53a94b4)
+(cherry picked from commit 9bd53c297683e691fef174bf1aed6842f475fb9f)
+---
+ ldap/servers/slapd/attrsyntax.c |  3 +++
+ ldap/servers/slapd/schema.c     | 16 +++++++++++++++-
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/attrsyntax.c b/ldap/servers/slapd/attrsyntax.c
+index 4cdcf86..8b2a77a 100644
+--- a/ldap/servers/slapd/attrsyntax.c
++++ b/ldap/servers/slapd/attrsyntax.c
+@@ -189,6 +189,9 @@ attr_syntax_check_oids()
+ void
+ attr_syntax_free( struct asyntaxinfo *a )
+ {
++	if (!a) {
++		return;
++	}
+ 	cool_charray_free( a->asi_aliases );
+ 	slapi_ch_free_string(&a->asi_name );
+ 	slapi_ch_free_string(&a->asi_desc );
+diff --git a/ldap/servers/slapd/schema.c b/ldap/servers/slapd/schema.c
+index 65cbad5..dd56599 100644
+--- a/ldap/servers/slapd/schema.c
++++ b/ldap/servers/slapd/schema.c
+@@ -263,6 +263,9 @@ static PRCallOnceType schema_dse_mandatory_init_callonce = { 0, 0, 0 };
+ static int parse_at_str(const char *input, struct asyntaxinfo **asipp, char *errorbuf, size_t errorbufsize,
+         PRUint32 schema_flags, int is_user_defined, int schema_ds4x_compat, int is_remote)
+ {
++    if (asipp) {
++        *asipp = NULL;
++    }
+ #ifdef USE_OPENLDAP
+     return parse_attr_str(input, asipp, errorbuf, errorbufsize, schema_flags, is_user_defined,schema_ds4x_compat,is_remote);
+ #else
+@@ -274,6 +277,9 @@ static int parse_oc_str(const char *input, struct objclass **oc, char *errorbuf,
+ 		size_t errorbufsize, PRUint32 schema_flags, int is_user_defined,
+ 		int schema_ds4x_compat, struct objclass* private_schema )
+ {
++    if (oc) {
++        *oc = NULL;
++    }
+ #ifdef USE_OPENLDAP
+     return parse_objclass_str (input, oc, errorbuf, errorbufsize, schema_flags, is_user_defined, schema_ds4x_compat, private_schema );
+ #else
+@@ -7146,11 +7152,15 @@ schema_berval_to_oclist(struct berval **oc_berval)
+         oc_list = NULL;
+         oc_tail = NULL;
+         if (oc_berval != NULL) {
++                errorbuf[0] = '\0';
+                 for (i = 0; oc_berval[i] != NULL; i++) {
+                         /* parse the objectclass value */
+                         if (LDAP_SUCCESS != (rc = parse_oc_str(oc_berval[i]->bv_val, &oc,
+                                 errorbuf, sizeof (errorbuf), DSE_SCHEMA_NO_CHECK | DSE_SCHEMA_USE_PRIV_SCHEMA, 0,
+                                 schema_ds4x_compat, oc_list))) {
++                                slapi_log_error(SLAPI_LOG_FATAL, "schema",
++                                                "parse_oc_str returned error: %s\n",
++                                                errorbuf[0]?errorbuf:"unknown");
+                                 oc_free(&oc);
+                                 rc = 1;
+                                 break;
+@@ -7184,11 +7194,15 @@ schema_berval_to_atlist(struct berval **at_berval)
+     schema_ds4x_compat = config_get_ds4_compatible_schema();
+ 
+     if (at_berval != NULL) {
++        errorbuf[0] = '\0';
+         for (i = 0; at_berval[i] != NULL; i++) {
+             /* parse the objectclass value */
+             rc = parse_at_str(at_berval[i]->bv_val, &at, errorbuf, sizeof (errorbuf),
+                     DSE_SCHEMA_NO_CHECK | DSE_SCHEMA_USE_PRIV_SCHEMA, 0, schema_ds4x_compat, 0);
+-            if(rc){
++            if (rc) {
++                slapi_log_error(SLAPI_LOG_FATAL, "schema",
++                                "parse_oc_str returned error: %s\n",
++                                errorbuf[0]?errorbuf:"unknown");
+                 attr_syntax_free(at);
+                 break;
+             }
+-- 
+2.4.11
+

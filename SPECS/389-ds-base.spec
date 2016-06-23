@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.4.0
-Release:          %{?relprefix}30%{?prerel}%{?dist}
+Release:          %{?relprefix}32%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -212,6 +212,11 @@ Patch85:          0086-Ticket-48445-keep-alive-entries-can-break-replicatio.patc
 Patch86:          0087-Ticket-48420-change-severity-of-some-messages-relate.patch
 Patch87:          0088-Ticket-48757-License-tag-does-not-match-actual-licen.patch
 Patch88:          0089-Ticket-47888-DES-to-AES-password-conversion-fails-if.patch
+Patch89:          0090-Ticket-48492-heap-corruption-at-schema-replication.patch
+Patch90:          0091-Ticket-48492-heap-corruption-at-schema-replication.patch
+Patch91:          0092-Ticket-48808-Paged-results-search-returns-the-blank-.patch
+Patch92:          0093-Ticket-48808-Add-test-case.patch
+Patch93:          0094-Ticket-48862-At-startup-DES-to-AES-password-conversi.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -364,6 +369,11 @@ cp %{SOURCE2} README.devel
 %patch86 -p1
 %patch87 -p1
 %patch88 -p1
+%patch89 -p1
+%patch90 -p1
+%patch91 -p1
+%patch92 -p1
+%patch93 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -554,10 +564,19 @@ fi
 %{_libdir}/%{pkgname}/libslapd.so.*
 %{_libdir}/%{pkgname}/libns-dshttpd.so*
 %if %{use_nunc_stans}
-%{_libdir}/%{pkgname}/libnunc-stans.so*
+%{_libdir}/%{pkgname}/libnunc-stans.so.*
 %endif
 
 %changelog
+* Thu Jun  9 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-32
+- release 1.3.4.0-32
+- Resolves: bug 1344293 - At startup DES to AES password conversion causes timeout in start script (DS 48862)
+
+* Thu May 12 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-31
+- release 1.3.4.0-31
+- Resolves: bug 1335423 - heap corruption at schema replication. (DS 48492)
+- Resolves: bug 1335107 - Paged results search returns the blank list of entries (DS 48808)
+
 * Wed Mar 30 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-30
 - release 1.3.4.0-30
 - Resolves: bug 1321891 - DES to AES password conversion fails if a backend is empty (DS 48777)
