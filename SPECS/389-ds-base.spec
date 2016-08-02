@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.4.0
-Release:          %{?relprefix}32%{?prerel}%{?dist}
+Release:          %{?relprefix}33%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              http://port389.org/
 Group:            System Environment/Daemons
@@ -217,6 +217,11 @@ Patch90:          0091-Ticket-48492-heap-corruption-at-schema-replication.patch
 Patch91:          0092-Ticket-48808-Paged-results-search-returns-the-blank-.patch
 Patch92:          0093-Ticket-48808-Add-test-case.patch
 Patch93:          0094-Ticket-48862-At-startup-DES-to-AES-password-conversi.patch
+Patch94:          0095-Ticket-48766-Replication-changelog-can-incorrectly-s.patch
+Patch95:          0096-Ticket-47788-Supplier-can-skip-a-failing-update-alth.patch
+Patch96:          0097-Ticket-47788-Only-check-postop-result-if-its-a-repli.patch
+Patch97:          0098-Ticket-48636-Improve-replication-convergence.patch
+Patch98:          0099-Ticket-48636-Fix-config-validation-check.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -374,6 +379,11 @@ cp %{SOURCE2} README.devel
 %patch91 -p1
 %patch92 -p1
 %patch93 -p1
+%patch94 -p1
+%patch95 -p1
+%patch96 -p1
+%patch97 -p1
+%patch98 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -568,6 +578,12 @@ fi
 %endif
 
 %changelog
+* Thu Jun 30 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-33
+- release 1.3.4.0-33
+- Resolves: bug 1351323 - Improve MMR replication convergence (DS 48636)
+- Resolves: bug 1351447 - Supplier can skip a failing update, although it should retry. (DS 47788)
+- Resolves: bug 1350707 - Replication changelog can incorrectly skip over updates (DS 48766)
+
 * Thu Jun  9 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-32
 - release 1.3.4.0-32
 - Resolves: bug 1344293 - At startup DES to AES password conversion causes timeout in start script (DS 48862)
