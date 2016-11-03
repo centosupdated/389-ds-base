@@ -1,0 +1,50 @@
+From 9cffd76c95e679042861881182ab8567915b4ad8 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 27 Jul 2016 14:37:13 -0700
+Subject: [PATCH 21/29] Ticket #48940 - DS logs have warning:ancestorid not
+ indexed
+
+Description: When reindexing, the subtree to be reindexed is empty,
+a cryptic warning message is logged in the error log:
+  warning: ancestorid not indexed on 10; possibly, the entry id ##
+  has no descendants yet.
+This message is benign and not to be logged as DEBUG_ANY/FATAL.
+
+The message is logged when the log level is set to BACKLDBM = 0x080000
+  # vlvindex -Z test -n userRoot -T testIndex -d 524288
+as follows:
+  Info: Entry id ### has no descendants according to ancestorid. Index
+  file created by this reindex will be empty.
+
+https://fedorahosted.org/389/ticket/48940
+
+Reviewed by wibrown@redhat.com (Thank you, William!!)
+
+(cherry picked from commit 17dc978c84e6099e4abe884a535067147b618c37)
+---
+ ldap/servers/slapd/back-ldbm/ldif2ldbm.c | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldif2ldbm.c b/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
+index 52338c2..5898361 100644
+--- a/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
++++ b/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
+@@ -903,11 +903,10 @@ static IDList *ldbm_fetch_subtrees(backend *be, char **include, int *err)
+         slapi_sdn_done(&sdn);
+         if (idl == NULL) {
+             if (DB_NOTFOUND == *err) {
+-                LDAPDebug(LDAP_DEBUG_ANY,
+-                    "warning: %s not indexed on %lu; "
+-                    "possibly, the entry id %lu has no descendants yet.\n",
+-                    entryrdn_get_noancestorid()?"entryrdn":"ancestorid",
+-                    id, id);
++                LDAPDebug2Args(LDAP_DEBUG_BACKLDBM, 
++                    "Info: Entry id %lu has no descendants according to %s. "
++                    "Index file created by this reindex will be empty.\n",
++                    id, entryrdn_get_noancestorid()?"entryrdn":"ancestorid");
+                 *err = 0; /* not a problem */
+             } else {
+                 LDAPDebug(LDAP_DEBUG_ANY,
+-- 
+2.4.11
+

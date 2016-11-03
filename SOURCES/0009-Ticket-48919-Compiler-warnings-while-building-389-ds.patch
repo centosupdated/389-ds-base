@@ -1,0 +1,480 @@
+From 3fbe8ab77452998fd646bf26ee8162aab0ae8659 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 13 Jul 2016 18:59:01 -0700
+Subject: [PATCH 09/15] Ticket #48919 - Compiler warnings while building
+ 389-ds-base on RHEL7
+
+Description: Cleaned up warnings from gcc and clang.
+
+https://fedorahosted.org/389/ticket/48919
+
+Reviewed by wibrown@redhat.com (Thank you, William!!)
+
+(cherry picked from commit 18c6029f64c48b330a101cbadceb8293d39bf5e2)
+---
+ ldap/servers/plugins/acl/acllas.c                  |  1 -
+ ldap/servers/slapd/agtmmap.c                       | 10 +++++++++-
+ ldap/servers/slapd/back-ldbm/idl_new.c             |  4 ++--
+ .../servers/slapd/back-ldbm/ldbm_instance_config.c |  5 +++++
+ ldap/servers/slapd/back-ldbm/ldif2ldbm.c           | 15 ++++++++++-----
+ ldap/servers/slapd/detach.c                        | 11 +++++++----
+ ldap/servers/slapd/localhost.c                     | 10 +++++++---
+ ldap/servers/slapd/protect_db.c                    | 22 +++++++++++++++-------
+ ldap/servers/slapd/protect_db.h                    |  3 +++
+ ldap/servers/slapd/saslbind.c                      |  3 +++
+ ldap/servers/slapd/tools/ldclt/ldapfct.c           |  5 ++++-
+ ldap/servers/slapd/tools/ldif.c                    |  5 ++++-
+ ldap/servers/slapd/tools/mmldif.c                  | 20 ++++++++++++--------
+ ldap/servers/slapd/util.c                          |  9 ++++++---
+ ldap/servers/snmp/main.c                           | 15 ++++++++++++---
+ lib/base/file.cpp                                  |  1 -
+ lib/base/fsmutex.cpp                               | 10 +++++++---
+ 17 files changed, 106 insertions(+), 43 deletions(-)
+
+diff --git a/ldap/servers/plugins/acl/acllas.c b/ldap/servers/plugins/acl/acllas.c
+index ff9b450..47ac0b8 100644
+--- a/ldap/servers/plugins/acl/acllas.c
++++ b/ldap/servers/plugins/acl/acllas.c
+@@ -190,7 +190,6 @@ extern int ldapu_member_certificate_match (void* cert, const char* desc);
+ /****************************************************************************/
+ /* Defines, Constants, ande Declarations                                    */
+ /****************************************************************************/
+-static char* const   	type_objectClass = "objectclass";
+ static char* const 	filter_groups = "(|(objectclass=groupOfNames) (objectclass=groupOfUniqueNames)(objectclass=groupOfCertificates)(objectclass=groupOfURLs))";
+ static char* const	type_member = "member";
+ static char* const	type_uniquemember = "uniquemember";
+diff --git a/ldap/servers/slapd/agtmmap.c b/ldap/servers/slapd/agtmmap.c
+index 6f72d57..629bc1b 100644
+--- a/ldap/servers/slapd/agtmmap.c
++++ b/ldap/servers/slapd/agtmmap.c
+@@ -160,7 +160,15 @@ agt_mopen_stats (char * statsfile, int mode, int *hdl)
+                {
+                    /* Without this we will get segv when we try to read/write later */
+                    buf = calloc (1, sz);
+-                   (void)write (fd, buf, sz);
++                   if (write(fd, buf, sz) < 0) {
++                       err = errno;
++#if (0)
++                       fprintf (stderr, "write failed errno=%d from %s(line: %d)\n", err, __FILE__, __LINE__);
++#endif
++                       rc = err;
++                       free (buf);
++                       goto bail;
++                   }
+                    free (buf);
+                }
+ 
+diff --git a/ldap/servers/slapd/back-ldbm/idl_new.c b/ldap/servers/slapd/back-ldbm/idl_new.c
+index 63df49f..a8d76d8 100644
+--- a/ldap/servers/slapd/back-ldbm/idl_new.c
++++ b/ldap/servers/slapd/back-ldbm/idl_new.c
+@@ -403,8 +403,8 @@ idl_new_range_fetch(
+     time_t curtime;
+     void *saved_key = NULL;
+     int coreop = operator & SLAPI_OP_RANGE;
+-    ID key;
+-    ID suffix;
++    ID key = 0xff; /* random- to suppress compiler warning */
++    ID suffix = 0; /* random- to suppress compiler warning */
+     idl_range_id_pair *leftover = NULL;
+     size_t leftoverlen = 32;
+     int leftovercnt = 0;
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c b/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
+index 9302410..698be66 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
+@@ -1155,6 +1155,11 @@ ldbm_instance_post_delete_instance_entry_callback(Slapi_PBlock *pb, Slapi_Entry*
+                             rc = PR_Delete(dbp);
+                         }
+                         PR_ASSERT(rc == 0);
++                        if (rc != 0) {
++                            LDAPDebug1Arg(LDAP_DEBUG_ANY,
++                                "ldbm_instance_post_delete_instance_entry_callback:"
++                                " failed to delete %s\n", dbp);
++                        }
+                         PR_smprintf_free(dbp);
+                     }
+                     PR_CloseDir(dirhandle);                
+diff --git a/ldap/servers/slapd/back-ldbm/ldif2ldbm.c b/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
+index 0b2eab2..52338c2 100644
+--- a/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
++++ b/ldap/servers/slapd/back-ldbm/ldif2ldbm.c
+@@ -1009,7 +1009,6 @@ export_one_entry(struct ldbminfo *li,
+         }
+         slapi_ch_free_string(&pw);
+     }
+-    rc = 0;
+     data.data = slapi_entry2str_with_options(expargs->ep->ep_entry,
+                                              &len, expargs->options);
+     data.size = len + 1;
+@@ -1018,10 +1017,14 @@ export_one_entry(struct ldbminfo *li,
+         char idstr[32];
+         
+         sprintf(idstr, "# entry-id: %lu\n", (u_long)expargs->ep->ep_id);
+-        write(expargs->fd, idstr, strlen(idstr));
++        rc = write(expargs->fd, idstr, strlen(idstr));
++        PR_ASSERT(rc > 0);
+     }
+-    write(expargs->fd, data.data, len);
+-    write(expargs->fd, "\n", 1);
++    rc = write(expargs->fd, data.data, len);
++    PR_ASSERT(rc > 0);
++    rc = write(expargs->fd, "\n", 1);
++    PR_ASSERT(rc > 0);
++    rc = 0;
+     if ((*expargs->cnt) % 1000 == 0) {
+         int percent;
+ 
+@@ -1350,7 +1353,9 @@ ldbm_back_ldbm2ldif( Slapi_PBlock *pb )
+                  */
+ 
+         sprintf(vstr, "version: %d\n\n", myversion);
+-        write(fd, vstr, strlen(vstr));
++        rc = write(fd, vstr, strlen(vstr));
++        PR_ASSERT(rc > 0);
++		rc = 0;
+     }
+ 
+     eargs.decrypt = decrypt;
+diff --git a/ldap/servers/slapd/detach.c b/ldap/servers/slapd/detach.c
+index b5af952..b055a5c 100644
+--- a/ldap/servers/slapd/detach.c
++++ b/ldap/servers/slapd/detach.c
+@@ -48,7 +48,7 @@ int
+ detach( int slapd_exemode, int importexport_encrypt,
+         int s_port, daemon_ports_t *ports_info )
+ {
+-	int		i, sd;
++	int i, sd, rc;
+ 	char *workingdir = 0;
+ 	char *errorlog = 0;
+ 	char *ptr = 0;
+@@ -84,13 +84,15 @@ detach( int slapd_exemode, int importexport_encrypt,
+ 		if ( NULL == workingdir ) {
+ 			errorlog = config_get_errorlog();
+ 			if ( NULL == errorlog ) {
+-				(void) chdir( "/" );
++				rc = chdir( "/" );
++				PR_ASSERT(rc == 0);
+ 			} else {
+ 				if ((ptr = strrchr(errorlog, '/')) ||
+ 					(ptr = strrchr(errorlog, '\\'))) {
+ 					*ptr = 0;
+ 				}
+-				(void) chdir( errorlog );
++				rc = chdir( errorlog );
++				PR_ASSERT(rc == 0);
+ 				config_set_workingdir(CONFIG_WORKINGDIR_ATTRIBUTE, errorlog, NULL, 1);
+ 				slapi_ch_free_string(&errorlog);
+ 			}
+@@ -99,7 +101,8 @@ detach( int slapd_exemode, int importexport_encrypt,
+ 			if (config_set_workingdir(CONFIG_WORKINGDIR_ATTRIBUTE, workingdir, NULL, 0) == LDAP_OPERATIONS_ERROR) {
+ 				return 1;
+ 			}
+-			(void) chdir( workingdir );
++			rc = chdir( workingdir );
++			PR_ASSERT(rc == 0);
+ 			slapi_ch_free_string(&workingdir);
+ 		}
+ 
+diff --git a/ldap/servers/slapd/localhost.c b/ldap/servers/slapd/localhost.c
+index 2c40493..7b4e903 100644
+--- a/ldap/servers/slapd/localhost.c
++++ b/ldap/servers/slapd/localhost.c
+@@ -118,9 +118,13 @@ find_localhost_DNS()
+ #ifndef NO_DOMAINNAME
+     if (domain == NULL) {
+         /* No domain found. Try getdomainname. */
+-        getdomainname (line, sizeof(line));
+-        LDAPDebug (LDAP_DEBUG_CONFIG, "getdomainname(%s)\n", line, 0, 0);
+-        if (line[0] != 0) {
++        line[0] = '\0';
++        if (getdomainname(line, sizeof(line)) < 0) { /* failure */
++            slapi_log_error(SLAPI_LOG_FATAL, "localhost_DNS", "getdomainname failed\n");
++        } else {
++            slapi_log_error(SLAPI_LOG_CONFIG, "localhost_DNS", "getdomainname(%s)\n", line);
++        }
++        if (line[0] != '\0') {
+             domain = &line[0];
+         }
+     }
+diff --git a/ldap/servers/slapd/protect_db.c b/ldap/servers/slapd/protect_db.c
+index b22daa1..4579852 100644
+--- a/ldap/servers/slapd/protect_db.c
++++ b/ldap/servers/slapd/protect_db.c
+@@ -42,7 +42,7 @@ grab_lockfile()
+ {
+     pid_t pid, owning_pid;
+     char lockfile[MAXPATHLEN];
+-    int fd, x;
++    int fd, x, rc;
+     int removed_lockfile = 0;
+     struct timeval t;
+     slapdFrontendConfig_t *slapdFrontendConfig = getFrontendConfig();
+@@ -60,8 +60,12 @@ grab_lockfile()
+     /* Try to grab it */
+     if ((fd = open(lockfile, O_RDWR | O_CREAT | O_EXCL, 0644)) != -1) {
+         /* We got the lock, write our pid to the file */
+-        write(fd, (void *) &pid, sizeof(pid_t));
+-    close(fd);
++        rc = write(fd, (void *) &pid, sizeof(pid_t));
++        close(fd);
++        if (rc < 0) {
++            fprintf(stderr, ERROR_WRITING_LOCKFILE, lockfile);
++            return rc;
++        }
+         return 0;
+     }
+      
+@@ -74,13 +78,17 @@ grab_lockfile()
+ 
+     while(1) {
+         /* Try to grab the lockfile NUM_TRIES times waiting WAIT_TIME milliseconds after each try */
+-    t.tv_sec = 0;
+-    t.tv_usec = WAIT_TIME * 1000;
++        t.tv_sec = 0;
++        t.tv_usec = WAIT_TIME * 1000;
+         for(x = 0; x < NUM_TRIES; x++) {
+             if ((fd = open(lockfile, O_RDWR | O_CREAT | O_EXCL, 0644)) != -1) {
+                 /* Got the lock */
+-                write(fd, (void *) &pid, sizeof(pid_t));
+-        close(fd);
++                rc = write(fd, (void *) &pid, sizeof(pid_t));
++                close(fd);
++                if (rc < 0) {
++                    fprintf(stderr, ERROR_WRITING_LOCKFILE, lockfile);
++                    return rc;
++                }
+                 return 0;
+             }
+             select(0, NULL, NULL, NULL, &t);
+diff --git a/ldap/servers/slapd/protect_db.h b/ldap/servers/slapd/protect_db.h
+index 0f729a2..66adfb3 100644
+--- a/ldap/servers/slapd/protect_db.h
++++ b/ldap/servers/slapd/protect_db.h
+@@ -26,6 +26,9 @@ void remove_slapd_process();
+ #define ERROR_ACCESSING_LOCKFILE "Error - Problem accessing the lockfile %s\n" 
+   /* name of lockfile */
+ 
++#define ERROR_WRITING_LOCKFILE "Error - Problem writing the lockfile %s\n" 
++  /* name of lockfile */
++
+ #define LOCKFILE_DEAD_OWNER "Error - The lockfile, %s, is held by process %d,\nwhich no longer seems to be running.  If this is\nthe case, please remove the lockfile\n"
+   /* name of lockfile, pid of owning process */
+ 
+diff --git a/ldap/servers/slapd/saslbind.c b/ldap/servers/slapd/saslbind.c
+index eb68209..37175f4 100644
+--- a/ldap/servers/slapd/saslbind.c
++++ b/ldap/servers/slapd/saslbind.c
+@@ -547,6 +547,9 @@ int ids_sasl_init(void)
+     LDAPDebug( LDAP_DEBUG_TRACE, "=> ids_sasl_init\n", 0, 0, 0 );
+ 
+     PR_ASSERT(inited == 0);
++    if (inited != 0) {
++        LDAPDebug0Args(LDAP_DEBUG_ANY, "ids_sasl_init is called more than once.\n");
++    }
+     inited = 1;
+ 
+     serverfqdn = get_localhost_DNS();
+diff --git a/ldap/servers/slapd/tools/ldclt/ldapfct.c b/ldap/servers/slapd/tools/ldclt/ldapfct.c
+index e13983d..f084cb4 100644
+--- a/ldap/servers/slapd/tools/ldclt/ldapfct.c
++++ b/ldap/servers/slapd/tools/ldclt/ldapfct.c
+@@ -2552,7 +2552,10 @@ int	 ldclt_write_genldif_nb;
+ void
+ ldclt_flush_genldif (void)
+ {
+-  write (mctx.genldifFile, ldclt_write_genldif_buf, ldclt_write_genldif_nb);
++  if (write (mctx.genldifFile, ldclt_write_genldif_buf, ldclt_write_genldif_nb) < 0) {
++    printf("ldclt[%d]: ldclt_flush_genldif: Failed to write (%s) error=%d\n",
++           mctx.pid, ldclt_write_genldif_buf, errno);
++  }
+   ldclt_write_genldif_pt = ldclt_write_genldif_buf;
+   ldclt_write_genldif_nb = 0;
+ }
+diff --git a/ldap/servers/slapd/tools/ldif.c b/ldap/servers/slapd/tools/ldif.c
+index 1050fbd..5973c6b 100644
+--- a/ldap/servers/slapd/tools/ldif.c
++++ b/ldap/servers/slapd/tools/ldif.c
+@@ -132,7 +132,10 @@ int main( int argc, char **argv )
+ 					free( buf );
+ 					return( 1 );
+ 				}
+-				(void)fgets(buf+curlen, maxlen/2 + 1, stdin);
++				if (NULL == fgets(buf+curlen, maxlen/2 + 1, stdin)) {
++					/* no more input to read. */
++					break;
++				}
+ 			}
+ 			/* we have a full line, chop potential newline and turn into ldif */
+ 			if( buf[curlen-1] == '\n' )
+diff --git a/ldap/servers/slapd/tools/mmldif.c b/ldap/servers/slapd/tools/mmldif.c
+index 1f846d0..ddfaf6c 100644
+--- a/ldap/servers/slapd/tools/mmldif.c
++++ b/ldap/servers/slapd/tools/mmldif.c
+@@ -766,8 +766,7 @@ readrec(edfFILE * edf1, attrib1_t ** attrib)
+             while (*vptr == ' ') vptr++; /* skip optional spaces */
+             b64 = initDec64((unsigned char *)att->value, 0x20000);
+             if (Dec64(b64, (unsigned char *) vptr)) {
+-                LDAPDebug(LDAP_DEBUG_TRACE, "%s\n invalid input line\n", 
+-			  line, 0, 0);
++                LDAPDebug(LDAP_DEBUG_TRACE, "%s\n invalid input line\n", line, 0, 0);
+                 continue;       /* invalid line, but we'll just skip it */
+             }
+             toolong = FALSE;
+@@ -775,7 +774,11 @@ readrec(edfFILE * edf1, attrib1_t ** attrib)
+                 lookahead = fgetc(edf1->fp);
+                 if (lookahead != ' ')
+                     break;
+-                (void)fgets(line, sizeof(line), edf1->fp);
++                line[0] = '\0';
++                if (NULL == fgets(line, sizeof(line), edf1->fp)) {
++                    LDAPDebug0Args(LDAP_DEBUG_TRACE, "readrec: failed to read line\n");
++                    break;
++                }
+                 len = strlen(line);
+                 for (lptr = line+len-1; len; len--, lptr--) {
+                     if ((*lptr != '\n') && (*lptr != '\r'))
+@@ -785,16 +788,14 @@ readrec(edfFILE * edf1, attrib1_t ** attrib)
+                 rc = Dec64(b64, (unsigned char *)line);
+                 if (rc == -1)
+                 {
+-                    LDAPDebug(LDAP_DEBUG_TRACE, 
+-			      "%s\n invalid input line\n", line, 0, 0);
++                    LDAPDebug(LDAP_DEBUG_TRACE, "%s\n invalid input line\n", line, 0, 0);
+                     continue;   /* invalid line, but we'll just skip it */
+                 }
+ 
+                 if (rc) {
+                     if (!toolong) {
+                         toolong = TRUE;
+-                        LDAPDebug(LDAP_DEBUG_TRACE, 
+-				  "%s\n line too long\n", line, 0, 0);
++                        LDAPDebug(LDAP_DEBUG_TRACE, "%s\n line too long\n", line, 0, 0);
+                     }
+                     continue;
+                 }
+@@ -813,7 +814,10 @@ readrec(edfFILE * edf1, attrib1_t ** attrib)
+                 lookahead = fgetc(edf1->fp);
+                 if (lookahead != ' ')
+                     break;
+-                (void)fgets(line, sizeof(line), edf1->fp);
++                if (NULL == fgets(line, sizeof(line), edf1->fp)) {
++                    LDAPDebug0Args(LDAP_DEBUG_TRACE, "readrec: failed to read line\n");
++                    break;
++                }
+                 len = strlen(line);
+                 for (lptr = line+len-1; len; len--, lptr--) {
+                     if ((*lptr != '\n') && (*lptr != '\r'))
+diff --git a/ldap/servers/slapd/util.c b/ldap/servers/slapd/util.c
+index a5327d1..1ebdf2e 100644
+--- a/ldap/servers/slapd/util.c
++++ b/ldap/servers/slapd/util.c
+@@ -1592,7 +1592,9 @@ int util_info_sys_pages(size_t *pagesize, size_t *pages, size_t *procpages, size
+             return 1;
+         }
+         while (! feof(f)) {
+-            fgets(s, 79, f);
++            if (!fgets(s, 79, f)) {
++                break; /* error or eof */
++            }
+             if (feof(f)) {
+                 break;
+             }
+@@ -1614,8 +1616,9 @@ int util_info_sys_pages(size_t *pagesize, size_t *pages, size_t *procpages, size
+             return 1;
+         }
+         while (! feof(fm)) {
+-            fgets(s, 79, fm);
+-            /* Is this really needed? */
++            if (!fgets(s, 79, fm)) {
++                break; /* error or eof */
++            }
+             if (feof(fm)) {
+                 break;
+             }
+diff --git a/ldap/servers/snmp/main.c b/ldap/servers/snmp/main.c
+index 3f96627..ea5050b 100644
+--- a/ldap/servers/snmp/main.c
++++ b/ldap/servers/snmp/main.c
+@@ -44,7 +44,7 @@ main (int argc, char *argv[]) {
+     netsnmp_log_handler *log_hdl = NULL;
+     int                 c, log_level = LOG_WARNING;
+     struct stat         logdir_s;
+-    pid_t               child_pid;
++    pid_t               child_pid = 0;
+     FILE                *pid_fp;
+ 
+     /* Load options */
+@@ -74,7 +74,11 @@ main (int argc, char *argv[]) {
+ 
+     /* check if we're already running as another process */
+     if ((pid_fp = fopen(pidfile, "r")) != NULL) {
+-        fscanf(pid_fp, "%d", &child_pid);
++        int rc = fscanf(pid_fp, "%d", &child_pid);
++        if ((rc == 0) || (rc == EOF)) {
++            printf("ldap-agent: Failed to get pid from %s\n", pidfile);
++            exit(1);
++        }
+         fclose(pid_fp);
+         if (kill(child_pid, SIGUSR1) == 0) {
+             printf("ldap-agent: Already running as pid %d!\n", child_pid);
+@@ -145,6 +149,7 @@ main (int argc, char *argv[]) {
+     /* run as a daemon */
+     if (netsnmp_daemonize(0, 0)) {
+         int i;
++        int rc;
+ 
+         /* sleep to allow pidfile to be created by child */
+         for (i=0; i < 3; i++) {
+@@ -159,7 +164,11 @@ main (int argc, char *argv[]) {
+             exit(1);
+         }
+ 
+-        fscanf(pid_fp, "%d", &child_pid);
++        rc = fscanf(pid_fp, "%d", &child_pid);
++        if ((rc == 0) || (rc == EOF)) {
++            printf("ldap-agent: Failed to get pid from %s\n", pidfile);
++            exit(1);
++        }
+         fclose(pid_fp);
+         printf("ldap-agent: Started as pid %d\n", child_pid);
+         exit(0);
+diff --git a/lib/base/file.cpp b/lib/base/file.cpp
+index 8c9274a..ad4333e 100644
+--- a/lib/base/file.cpp
++++ b/lib/base/file.cpp
+@@ -38,7 +38,6 @@ extern "C" char *nscperror_lookup(int err);
+ /* PRFileDesc * SYS_ERROR_FD = NULL; */
+ 
+ const int errbuf_size = 256;
+-const unsigned int LOCKFILERANGE=0x7FFFFFFF;
+ PRLock *_atomic_write_lock = NULL;
+ 
+ /* --------------------------------- stat --------------------------------- */
+diff --git a/lib/base/fsmutex.cpp b/lib/base/fsmutex.cpp
+index e8f2aff..a0e30fd 100644
+--- a/lib/base/fsmutex.cpp
++++ b/lib/base/fsmutex.cpp
+@@ -85,11 +85,15 @@ fsmutex_init(char *name, int number, int flags)
+ NSAPI_PUBLIC void 
+ fsmutex_setowner(FSMUTEX fsm, uid_t uid, gid_t gid)
+ {
+-    if(!geteuid())
+-        (void) chown( ((fsmutex_s *)fsm)->id, uid, gid);
++    if(!geteuid()) {
++        int rc = chown( ((fsmutex_s *)fsm)->id, uid, gid);
++        PR_ASSERT(rc == 0);
++        if (rc != 0 ) {
++            return; /* just to suppress compiler warning... */
++        }
++    }
+ }
+ 
+-
+ /* -------------------------- fsmutex_terminate --------------------------- */
+ 
+ static void 
+-- 
+2.4.11
+

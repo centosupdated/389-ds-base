@@ -1,0 +1,50 @@
+From 1de87b6fa85221c874bc4449d81655302540ec22 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Mon, 11 Jul 2016 19:09:24 -0700
+Subject: [PATCH 05/15] Ticket #48144 - Add /usr/sbin/status-dirsrv script to
+ get the status of the directory server instance.
+
+Description:
+Analysis by vashirov@redhat.com:
+  https://bugzilla.redhat.com/show_bug.cgi?id=1209128#c11
+  The error comes from bash built-in `return`. bash version prior to
+  4.3 didn't support negative numbers as argument for `return`.
+  See for reference: http://wiki.bash-hackers.org/scripting/bashchanges
+
+As suggested in the comment, instead of -1, 255 should be returned in
+this error case:
+  > 255 is returned if the instance does not exist.
+
+https://fedorahosted.org/389/ticket/48144
+
+Viktor's proposal is reviewed by nhosoi@redhat.com.
+
+(cherry picked from commit a8b07cd2671c82421830ae94584b370436ef3434)
+---
+ ldap/admin/src/scripts/status-dirsrv.in | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/admin/src/scripts/status-dirsrv.in b/ldap/admin/src/scripts/status-dirsrv.in
+index 0f01eaa..9042899 100755
+--- a/ldap/admin/src/scripts/status-dirsrv.in
++++ b/ldap/admin/src/scripts/status-dirsrv.in
+@@ -11,14 +11,14 @@ status_instance() {
+     SERV_ID=$1
+     shift
+ 
+-    initfile=`get_init_file $initconfig_dir $SERV_ID` || { echo Instance $SERV_ID not found. ; return -1 ; }
++    initfile=`get_init_file $initconfig_dir $SERV_ID` || { echo Instance $SERV_ID not found. ; return 255 ; }
+ 
+     # source env. for this instance
+     if [ -f $initfile ] ; then
+         . $initfile
+     else
+         echo Instance $SERV_ID not found.
+-        return -1
++        return 255
+     fi
+ 
+     prefix="$DS_ROOT"
+-- 
+2.4.11
+

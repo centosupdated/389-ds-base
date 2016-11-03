@@ -1,0 +1,38 @@
+From 8f761940cb93fc8e64ed9022c3a6f21e90c281aa Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 27 Jul 2016 12:40:25 -0700
+Subject: [PATCH 20/29] Ticket #48934 - remove-ds.pl deletes an instance even
+ if wrong prefix was specified
+
+Description: remove-ds.pl skipped to check "slapd" part of "slapd-instance".
+This patch adds the check and if it is not "slapd", it quits with the error
+message.  For example:
+Error: Invalid instance name "bogus-test"
+
+https://fedorahosted.org/389/ticket/48934
+
+Reviewed by mreynolds@redhat.com (Thanks, Mark!!)
+
+(cherry picked from commit 2b341922a42f305122fbd6eb97e96e0612f8e5d2)
+---
+ ldap/admin/src/scripts/remove-ds.pl.in | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/ldap/admin/src/scripts/remove-ds.pl.in b/ldap/admin/src/scripts/remove-ds.pl.in
+index b35ae32..252f3f9 100755
+--- a/ldap/admin/src/scripts/remove-ds.pl.in
++++ b/ldap/admin/src/scripts/remove-ds.pl.in
+@@ -52,6 +52,10 @@ unless ($inst) {
+     print STDERR "Full instance name must be specified (e.g. - slapd-example)\n";
+     exit 1;
+ }
++unless ($slapd eq "slapd") {
++    print STDERR "Error: Invalid instance name \"$instname\"\n";
++    exit 1;
++}
+ 
+ my @errs = removeDSInstance($inst, $force, $all, $initconfig_dir);
+ if (@errs) {
+-- 
+2.4.11
+

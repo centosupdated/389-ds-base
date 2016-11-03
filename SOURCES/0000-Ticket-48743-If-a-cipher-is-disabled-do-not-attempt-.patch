@@ -1,0 +1,36 @@
+From e39b61ea17ae2cecbadee304678f6506d228c504 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 7 Jul 2016 14:53:48 -0400
+Subject: [PATCH 0/3] Ticket 48743 - If a cipher is disabled do not attempt to
+ look it up
+
+Description:  Even if a SSL cipher is disabled the server still attempts
+              to locate the cipher in the security library.  If the disabled
+              cipher is unknown it logs a warning at server startup, but
+              if it's disabled there is no reason to check if it exists.
+
+https://fedorahosted.org/389/ticket/48743
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 6b61e05e04661312871c0b1c6121901d786d54c3)
+---
+ ldap/servers/slapd/ssl.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/ssl.c b/ldap/servers/slapd/ssl.c
+index 12a0360..b176460 100644
+--- a/ldap/servers/slapd/ssl.c
++++ b/ldap/servers/slapd/ssl.c
+@@ -749,7 +749,7 @@ _conf_setciphers(char *ciphers, int flags)
+             if (lookup) { /* lookup with old cipher name and get NSS cipherSuiteName */
+                 for (i = 0; _lookup_cipher[i].alias; i++) {
+                     if (!PL_strcasecmp(ciphers, _lookup_cipher[i].alias)) {
+-                        if (!_lookup_cipher[i].name[0]) {
++                        if (enabled && !_lookup_cipher[i].name[0]) {
+                             slapd_SSL_warn("Cipher suite %s is not available in NSS %d.%d.  Ignoring %s",
+                                            ciphers, NSS_VMAJOR, NSS_VMINOR, ciphers);
+                             continue;
+-- 
+2.4.11
+

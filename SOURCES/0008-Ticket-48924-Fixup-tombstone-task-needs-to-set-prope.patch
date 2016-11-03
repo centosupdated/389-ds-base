@@ -1,0 +1,63 @@
+From 4c154182cd680f458b016abf60760328d0979b63 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 13 Jul 2016 15:51:56 -0400
+Subject: [PATCH 08/15] Ticket 48924 - Fixup tombstone task needs to set proper
+ flag when updating tombstones
+
+Bug Description:  The fixup tombstone task is not updating tombstones due to
+                  TOMBSTONE_INCLUDE not being set when looking up the entry to
+                  modify.
+
+Fix Description:  If fixing up tombstones called find_entry2modify_only_ext with
+                  the TOMBSTONE_INCLUDED flag.
+
+https://fedorahosted.org/389/ticket/48924
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 8cfb650170bbb4f6ce328b827dc294437ee38c4b)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_modify.c | 18 ++++++++++++++----
+ 1 file changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modify.c b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+index 37225cd..9b3062c 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modify.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+@@ -465,9 +465,14 @@ ldbm_back_modify( Slapi_PBlock *pb )
+ 	 */
+ 	if ( MANAGE_ENTRY_BEFORE_DBLOCK(li)) {
+ 		/* find and lock the entry we are about to modify */
+-		if ( (e = find_entry2modify( pb, be, addr, &txn )) == NULL ) {
++		if (fixup_tombstone) {
++			e = find_entry2modify_only_ext( pb, be, addr, TOMBSTONE_INCLUDED, &txn );
++		} else {
++			e = find_entry2modify( pb, be, addr, &txn );
++		}
++		if (e == NULL) {
+ 			ldap_result_code= -1;
+-			goto error_return;	  /* error result sent by find_entry2modify() */
++			goto error_return; /* error result sent by find_entry2modify() */
+ 		}
+ 	}
+ 
+@@ -545,9 +550,14 @@ ldbm_back_modify( Slapi_PBlock *pb )
+ 		if (0 == retry_count) { /* just once */
+ 			if ( !MANAGE_ENTRY_BEFORE_DBLOCK(li)) {
+ 				/* find and lock the entry we are about to modify */
+-				if ( (e = find_entry2modify( pb, be, addr, &txn )) == NULL ) {
++				if (fixup_tombstone) {
++					e = find_entry2modify_only_ext( pb, be, addr, TOMBSTONE_INCLUDED, &txn );
++				} else {
++					e = find_entry2modify( pb, be, addr, &txn );
++				}
++				if (e == NULL) {
+ 					ldap_result_code= -1;
+-					goto error_return;	  /* error result sent by find_entry2modify() */
++					goto error_return; /* error result sent by find_entry2modify() */
+ 				}
+ 			}
+ 		
+-- 
+2.4.11
+

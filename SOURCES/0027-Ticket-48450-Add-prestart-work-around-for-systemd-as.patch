@@ -1,0 +1,111 @@
+From 8afc979b47994c8bebae22868b86761590231e09 Mon Sep 17 00:00:00 2001
+From: William Brown <firstyear@redhat.com>
+Date: Fri, 29 Jul 2016 14:36:19 +1000
+Subject: [PATCH 27/29] Ticket 48450 - Add prestart work around for systemd ask
+ password
+
+Bug Description:  Due to a lack of response to fix the systemd ask password
+permissions, we must resolve this ourselves. Without this, we cannot utilise
+the ask password feature at all.
+
+Fix Description:  We add an execstartpre script, that parses dse.ldif for
+the running server user. If found, we add the acl to ask-password directory
+which will allow the server to start. We do this so that if each instance
+has a unique user, they can all use ask pass correctly.
+
+https://fedorahosted.org/389/ticket/48450
+
+Author: wibrown
+
+Review by: nhosoi (Thanks)
+
+(cherry picked from commit e6b48924adb753f47683f25fab6e2b8e5d3cf84c)
+---
+ Makefile.am                               |  3 ++-
+ wrappers/ds_systemd_ask_password_acl.in   | 34 +++++++++++++++++++++++++++++++
+ wrappers/systemd.template.asan.service.in |  1 +
+ wrappers/systemd.template.service.in      |  1 +
+ 4 files changed, 38 insertions(+), 1 deletion(-)
+ create mode 100644 wrappers/ds_systemd_ask_password_acl.in
+
+diff --git a/Makefile.am b/Makefile.am
+index ed3d462..3e1bf47 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -620,7 +620,8 @@ sbin_SCRIPTS = ldap/admin/src/scripts/setup-ds.pl \
+ 	ldap/admin/src/scripts/dbmon.sh \
+ 	ldap/admin/src/scripts/ds_selinux_enabled \
+ 	ldap/admin/src/scripts/ds_selinux_port_query \
+-    wrappers/ldap-agent
++	wrappers/ds_systemd_ask_password_acl \
++	wrappers/ldap-agent
+ 
+ bin_SCRIPTS = ldap/servers/slapd/tools/rsearch/scripts/dbgen.pl \
+ 	wrappers/dbscan \
+diff --git a/wrappers/ds_systemd_ask_password_acl.in b/wrappers/ds_systemd_ask_password_acl.in
+new file mode 100644
+index 0000000..59bffc5
+--- /dev/null
++++ b/wrappers/ds_systemd_ask_password_acl.in
+@@ -0,0 +1,34 @@
++#!/bin/sh
++# BEGIN COPYRIGHT BLOCK
++# Copyright (C) 2016 Red Hat, Inc.
++#
++# All rights reserved.
++#
++# License: GPL (version 3 or any later version).
++# See LICENSE for details.
++# END COPYRIGHT BLOCK
++
++# Systemd has not fixed the issue at https://bugzilla.redhat.com/show_bug.cgi?id=1322167
++# As a result, we need a way to fix the permissions as we start.
++# We have to reset these each time, as this folder is on a tmpfs.
++# If we don't do this, we can't prompt for the password!
++# If you want this script to go away, fix the bugzilla so we don't need it!
++
++# Make sure we have the path to the dse.ldif
++if [ -z $1 ]
++then
++    echo "usage: ${0} /etc/dirsrv/slapd-<instance>/dse.ldif"
++    exit 1
++fi
++
++# Grep the user out
++
++DS_USER=`grep 'nsslapd-localuser: ' $1 | awk '{print $2}'`
++
++# Now apply the acl
++
++if [ -d /var/run/systemd/ask-password ]
++then
++    setfacl -m u:${DS_USER}:rwx /var/run/systemd/ask-password
++fi
++
+diff --git a/wrappers/systemd.template.asan.service.in b/wrappers/systemd.template.asan.service.in
+index dd361b4..5de91de 100644
+--- a/wrappers/systemd.template.asan.service.in
++++ b/wrappers/systemd.template.asan.service.in
+@@ -25,6 +25,7 @@ PIDFile=@localstatedir@/run/@package_name@/slapd-%i.pid
+ # We can't symbolize here, as llvm symbolize crashes when it goes near systemd.
+ Environment='ASAN_OPTIONS="detect_leaks=1 symbolize=0 log_path=@localstatedir@/run/@package_name@/ns-slapd-%i.asan detect_deadlocks=1"'
+ LimitCORE=infinity
++ExecStartPre=@sbindir@/ds_systemd_ask_password_acl @instconfigdir@/slapd-%i/dse.ldif
+ ExecStart=@sbindir@/ns-slapd -D @instconfigdir@/slapd-%i -i @localstatedir@/run/@package_name@/slapd-%i.pid
+ # if you need to set other directives e.g. LimitNOFILE=8192
+ # set them in this file
+diff --git a/wrappers/systemd.template.service.in b/wrappers/systemd.template.service.in
+index a045036..6f096b7 100644
+--- a/wrappers/systemd.template.service.in
++++ b/wrappers/systemd.template.service.in
+@@ -22,6 +22,7 @@ Type=notify
+ EnvironmentFile=@initconfigdir@/@package_name@
+ EnvironmentFile=@initconfigdir@/@package_name@-%i
+ PIDFile=@localstatedir@/run/@package_name@/slapd-%i.pid
++ExecStartPre=@sbindir@/ds_systemd_ask_password_acl @instconfigdir@/slapd-%i/dse.ldif
+ ExecStart=@sbindir@/ns-slapd -D @instconfigdir@/slapd-%i -i @localstatedir@/run/@package_name@/slapd-%i.pid
+ # if you need to set other directives e.g. LimitNOFILE=8192
+ # set them in this file
+-- 
+2.4.11
+

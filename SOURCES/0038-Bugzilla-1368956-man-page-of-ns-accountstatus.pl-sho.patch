@@ -1,0 +1,54 @@
+From 0927945fa67133654ec8d8178ffcfe0c20103454 Mon Sep 17 00:00:00 2001
+From: kamlesh <kchaudha@redhat.com>
+Date: Mon, 22 Aug 2016 14:20:27 +0530
+Subject: [PATCH 38/45] Bugzilla: 1368956 man page of ns-accountstatus.pl shows
+ redundant entries for -p port option
+
+    Bug Description:
+         Description of problem:
+         man page of ns-accountstatus.pl contain redundant entries for -p option
+
+         -p port
+              Port number of the Directory Server.
+
+         -p port
+              Port number of the Directory Server.
+
+         -p port
+              Port number of the Directory Server.
+
+    Fix Description:
+         Delete the redundant entrys
+
+    Platforms tested: RHEL7.3
+
+    Flag Day: no
+
+    Doc impact: yes
+
+Signed-off-by: kamlesh <kchaudha@redhat.com>
+(cherry picked from commit 370a70c431d5f235d4371e4cb080215ac4500b6c)
+---
+ man/man8/ns-accountstatus.pl.8 | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/man/man8/ns-accountstatus.pl.8 b/man/man8/ns-accountstatus.pl.8
+index be3a8e9..9ffc4d3 100644
+--- a/man/man8/ns-accountstatus.pl.8
++++ b/man/man8/ns-accountstatus.pl.8
+@@ -57,12 +57,6 @@ Host name of the Directory Server.
+ .B \fB\-p\fR \fIport\fR
+ Port number of the Directory Server.
+ .TP
+-.B \fB\-p\fR \fIport\fR
+-Port number of the Directory Server.
+-.TP
+-.B \fB\-p\fR \fIport\fR
+-Port number of the Directory Server.
+-.TP
+ .B \fB\-b\fR \fIbasedn\fR
+ The suffix DN from which to search from.
+ .TP
+-- 
+2.4.11
+

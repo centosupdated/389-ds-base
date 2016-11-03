@@ -1,0 +1,44 @@
+From 05b04751367b628819d6f0a5a533d1af4eb423ba Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 11 Jul 2016 10:30:04 -0400
+Subject: [PATCH 06/15] Ticket 48767 - flow control in replication also blocks
+ receiving results
+
+Bug Description: In ticket 47942 a flow control was introduced to reduce
+                 the load of a replication consumer.  It adds some pauses
+                 in the asynch sending of updates.  Unfortunately while it
+                 pauses it holds the reader lock, so that the result reader
+                 thread is also paused.
+
+Fix Description: If we need to pause the sending of updates then also release
+                 the Result Data lock so the reader thread is not blocked.
+
+https://fedorahosted.org/389/ticket/48767
+
+Reviewed by: nhosi(Thanks!)
+
+(cherry picked from commit ba636587e77423c7773df60894344dea0377c36f)
+---
+ ldap/servers/plugins/replication/repl5_inc_protocol.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_inc_protocol.c b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+index d6fb898..27bac5d 100644
+--- a/ldap/servers/plugins/replication/repl5_inc_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+@@ -479,9 +479,11 @@ repl5_inc_flow_control_results(Repl_Agmt *agmt, result_data *rd)
+     if ((rd->last_message_id_received <= rd->last_message_id_sent) &&
+         ((rd->last_message_id_sent - rd->last_message_id_received) >= agmt_get_flowcontrolwindow(agmt))) {
+         rd->flowcontrol_detection++;
++        PR_Unlock(rd->lock);
+         DS_Sleep(PR_MillisecondsToInterval(agmt_get_flowcontrolpause(agmt)));
++    } else {
++        PR_Unlock(rd->lock);
+     }
+-    PR_Unlock(rd->lock);
+ }
+ 
+ static int
+-- 
+2.4.11
+

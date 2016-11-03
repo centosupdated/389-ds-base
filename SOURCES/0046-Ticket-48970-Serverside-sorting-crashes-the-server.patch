@@ -1,0 +1,192 @@
+From d8399105d3b9ca281522624fdd471360b8ea59f6 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 30 Aug 2016 10:32:45 -0400
+Subject: [PATCH 46/47] Ticket 48970 - Serverside sorting crashes the server
+
+Bug Description:  When using a matching rule and server side sorting
+                  the server does a double-free on the matching rule
+                  keys which crashes the server.
+
+Fix Description:  Set the pblock pointer to NULL after the keys are
+                  freed.  This prevents the double free.
+
+                  Also fixed some complier warnings/indentation.
+
+Valgrind: passed
+
+https://fedorahosted.org/389/ticket/48970
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 43997fa8782ca93e20595ae10e303d85e5b765f4)
+---
+ ldap/servers/plugins/collation/collate.c  | 14 ++++----
+ ldap/servers/plugins/collation/orfilter.c | 55 ++++++++++++++++++-------------
+ ldap/servers/slapd/back-ldbm/sort.c       | 12 +++----
+ 3 files changed, 43 insertions(+), 38 deletions(-)
+
+diff --git a/ldap/servers/plugins/collation/collate.c b/ldap/servers/plugins/collation/collate.c
+index 0480280..483a132 100644
+--- a/ldap/servers/plugins/collation/collate.c
++++ b/ldap/servers/plugins/collation/collate.c
+@@ -347,23 +347,23 @@ collation_index (indexer_t* ix, struct berval** bvec, struct berval** prefixes)
+     return keys;
+ }
+ 
++/* The destructor function for a collation-based indexer. */
+ static void
+ collation_indexer_destroy (indexer_t* ix)
+-    /* The destructor function for a collation-based indexer. */
+ {
+     collation_indexer_t* etc = (collation_indexer_t*) ix->ix_etc;
+     if (etc->converter) {
+-	ucnv_close(etc->converter);
+-	etc->converter = NULL;
++        ucnv_close(etc->converter);
++        etc->converter = NULL;
+     }
+ 
+     if (etc->collator) {
+-	ucol_close(etc->collator);
+-	etc->collator = NULL;
++        ucol_close(etc->collator);
++        etc->collator = NULL;
+     }
+     if (etc->ix_keys != NULL) {
+-	ber_bvecfree (etc->ix_keys);
+-	etc->ix_keys = NULL;
++        ber_bvecfree (etc->ix_keys);
++        etc->ix_keys = NULL;
+     }
+     slapi_ch_free((void**)&ix->ix_etc);
+     ix->ix_etc = NULL; /* just for hygiene */
+diff --git a/ldap/servers/plugins/collation/orfilter.c b/ldap/servers/plugins/collation/orfilter.c
+index 8dc4246..084fdf6 100644
+--- a/ldap/servers/plugins/collation/orfilter.c
++++ b/ldap/servers/plugins/collation/orfilter.c
+@@ -34,7 +34,7 @@ static void
+ indexer_free (indexer_t* ix)
+ {
+     if (ix->ix_destroy != NULL) {
+-	ix->ix_destroy (ix);
++        ix->ix_destroy (ix);
+     }
+     slapi_ch_free((void**)&ix);
+ }
+@@ -221,23 +221,28 @@ op_filter_match (or_filter_t* or, struct berval** vals)
+     auto indexer_t* ix = or->or_indexer;
+     auto struct berval** v = ix->ix_index (ix, vals, NULL);
+     if (v != NULL) for (; *v; ++v) {
+-	auto struct berval** k = or->or_match_keys;
+-	if (k != NULL) for (; *k; ++k) {
+-	    switch (or->or_op) {
+-	      case SLAPI_OP_LESS:
+-		if (slapi_berval_cmp (*v, *k) <  0) return 0; break;
+-	      case SLAPI_OP_LESS_OR_EQUAL:
+-		if (slapi_berval_cmp (*v, *k) <= 0) return 0; break;
+-	      case SLAPI_OP_EQUAL:
+-		if (SLAPI_BERVAL_EQ  (*v, *k))      return 0; break;
+-	      case SLAPI_OP_GREATER_OR_EQUAL:
+-		if (slapi_berval_cmp (*v, *k) >= 0) return 0; break;
+-	      case SLAPI_OP_GREATER:
+-		if (slapi_berval_cmp (*v, *k) >  0) return 0; break;
+-	      default:
+-		break;
+-	    }
+-	}
++        auto struct berval** k = or->or_match_keys;
++        if (k != NULL) for (; *k; ++k) {
++            switch (or->or_op) {
++                case SLAPI_OP_LESS:
++                    if (slapi_berval_cmp (*v, *k) <  0) return 0;
++                    break;
++                case SLAPI_OP_LESS_OR_EQUAL:
++                    if (slapi_berval_cmp (*v, *k) <= 0) return 0;
++                    break;
++                case SLAPI_OP_EQUAL:
++                    if (SLAPI_BERVAL_EQ  (*v, *k)) return 0;
++                    break;
++                case SLAPI_OP_GREATER_OR_EQUAL:
++                    if (slapi_berval_cmp (*v, *k) >= 0) return 0;
++                    break;
++                case SLAPI_OP_GREATER:
++                    if (slapi_berval_cmp (*v, *k) >  0) return 0;
++                    break;
++                default:
++                    break;
++            }
++        }
+     }
+     return -1;
+ }
+@@ -570,7 +575,9 @@ op_indexer_destroy (Slapi_PBlock* pb)
+     auto indexer_t* ix = op_indexer_get (pb);
+     LDAPDebug (LDAP_DEBUG_FILTER, "op_indexer_destroy(%p)\n", (void*)ix, 0, 0);
+     if (ix != NULL) {
+-	indexer_free (ix);
++        indexer_free (ix);
++        /* The keys were freed, but we need to reset the pblock pointer */
++        slapi_pblock_set(pb, SLAPI_PLUGIN_MR_KEYS, NULL);
+     }
+     return 0;
+ }
+@@ -623,10 +630,10 @@ typedef struct ss_indexer_t {
+ static void
+ ss_indexer_free (ss_indexer_t* ss)
+ {
+-	slapi_ch_free((void**)&ss->ss_oid);
++    slapi_ch_free_string(&ss->ss_oid);
+     if (ss->ss_indexer != NULL) {
+-	indexer_free (ss->ss_indexer);
+-	ss->ss_indexer = NULL;
++        indexer_free (ss->ss_indexer);
++        ss->ss_indexer = NULL;
+     }
+     slapi_ch_free((void**)&ss);
+ }
+@@ -647,7 +654,9 @@ ss_indexer_destroy (Slapi_PBlock* pb)
+     auto ss_indexer_t* ss = ss_indexer_get (pb);
+     LDAPDebug (LDAP_DEBUG_FILTER, "ss_indexer_destroy(%p)\n", (void*)ss, 0, 0);
+     if (ss) {
+-	ss_indexer_free (ss);
++        ss_indexer_free(ss);
++        /* The keys were freed, but we need to reset the pblock pointer */
++        slapi_pblock_set(pb, SLAPI_PLUGIN_MR_KEYS, NULL);
+     }
+ }
+ 
+diff --git a/ldap/servers/slapd/back-ldbm/sort.c b/ldap/servers/slapd/back-ldbm/sort.c
+index 69fe659..46f2dbd 100644
+--- a/ldap/servers/slapd/back-ldbm/sort.c
++++ b/ldap/servers/slapd/back-ldbm/sort.c
+@@ -32,15 +32,11 @@ static int print_out_sort_spec(char* buffer,sort_spec *s,int *size);
+ 
+ static void sort_spec_thing_free(sort_spec_thing *s)
+ {
+-	if (NULL != s->type) {
+-		slapi_ch_free((void **)&s->type);
+-	}
+-	if (NULL != s->matchrule) {
+-		slapi_ch_free( (void**)&s->matchrule);
+-	}
++	slapi_ch_free_string(&s->type);
++	slapi_ch_free_string(&s->matchrule);
+ 	if (NULL != s->mr_pb) {
+ 		destroy_matchrule_indexer(s->mr_pb);
+-	    slapi_pblock_destroy (s->mr_pb);
++		slapi_pblock_destroy (s->mr_pb);
+ 	}
+ 	attr_done(&s->sattr);
+ 	slapi_ch_free( (void**)&s);
+@@ -116,7 +112,7 @@ void sort_log_access(Slapi_PBlock *pb,sort_spec_thing *s,IDList *candidates)
+ 	/* Now output it */
+ 	ldbm_log_access_message(pb,buffer);
+ 	if (buffer != stack_buffer) {
+-		slapi_ch_free( (void**)&buffer);
++		slapi_ch_free_string(&buffer);
+ 	}
+ }
+ 
+-- 
+2.4.11
+

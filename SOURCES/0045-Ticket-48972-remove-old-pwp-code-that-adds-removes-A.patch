@@ -1,0 +1,227 @@
+From 1c4faa3c235c42abde1d7fe93cb43429772b65a6 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 26 Aug 2016 18:51:42 -0400
+Subject: [PATCH 45/45] Ticket 48972 - remove old pwp code that adds/removes
+ ACIs
+
+Bug Description:  Old legacy code is still present in the DS that used
+                  to enforce the password policy "user may change password"
+                  using ACIs.  This old code would re-add the ACI for
+                  selfwrite on userpassword at server startup.
+
+Fix Description:  The current password policy does not depend on these access
+                  access control rules to enforce if a user can change their
+                  password or not.
+
+https://fedorahosted.org/389/ticket/48972
+
+Reviewed by: nhosoi(Thanks!)
+
+(cherry picked from commit 32881be120f14b952de67a0d533ad94ba0956093)
+---
+ ldap/servers/slapd/add.c        | 15 --------
+ ldap/servers/slapd/libglobs.c   | 14 -------
+ ldap/servers/slapd/proto-slap.h |  3 --
+ ldap/servers/slapd/pw.c         | 81 -----------------------------------------
+ ldap/servers/slapd/pw_mgmt.c    |  9 +----
+ 5 files changed, 1 insertion(+), 121 deletions(-)
+
+diff --git a/ldap/servers/slapd/add.c b/ldap/servers/slapd/add.c
+index 629017e..708d3e7 100644
+--- a/ldap/servers/slapd/add.c
++++ b/ldap/servers/slapd/add.c
+@@ -643,21 +643,6 @@ static void op_shared_add (Slapi_PBlock *pb)
+     }
+ 
+ 	slapi_pblock_set(pb, SLAPI_BACKEND, be);
+-	/* we set local password policy ACI for non-replicated operations only */
+-	if (!repl_op &&
+-		!operation_is_flag_set(operation, OP_FLAG_REPL_FIXUP) &&
+-		!operation_is_flag_set(operation, OP_FLAG_LEGACY_REPLICATION_DN) &&
+-		!slapi_be_is_flag_set(be,SLAPI_BE_FLAG_REMOTE_DATA) &&
+-		!slapi_be_private(be) &&
+-		slapi_be_issuffix (be, slapi_entry_get_sdn_const(e)))
+-	{
+-		/* this is a suffix. update the pw aci */
+-		slapdFrontendConfig_t *slapdFrontendConfig;
+-		slapdFrontendConfig = getFrontendConfig();
+-		pw_add_allowchange_aci(e, !slapdFrontendConfig->pw_policy.pw_change &&
+-							   !slapdFrontendConfig->pw_policy.pw_must_change);
+-	}
+-
+ 
+ 	if (!repl_op)
+ 	{
+diff --git a/ldap/servers/slapd/libglobs.c b/ldap/servers/slapd/libglobs.c
+index a630c6c..faf521b 100644
+--- a/ldap/servers/slapd/libglobs.c
++++ b/ldap/servers/slapd/libglobs.c
+@@ -2601,13 +2601,6 @@ config_set_pw_change( const char *attrname, char *value, char *errorbuf, int app
+ 							  errorbuf,
+ 							  apply);
+   
+-  if (retVal == LDAP_SUCCESS) {
+-	  /* LP: Update ACI to reflect the value ! */
+-	  if (apply)
+-		  pw_mod_allowchange_aci(!slapdFrontendConfig->pw_policy.pw_change &&
+-								 !slapdFrontendConfig->pw_policy.pw_must_change);
+-  }
+-  
+   return retVal;
+ }
+ 
+@@ -2638,13 +2631,6 @@ config_set_pw_must_change( const char *attrname, char *value, char *errorbuf, in
+ 							  errorbuf,
+ 							  apply);
+   
+-  if (retVal == LDAP_SUCCESS) {
+-	  /* LP: Update ACI to reflect the value ! */
+-	  if (apply)
+-		  pw_mod_allowchange_aci(!slapdFrontendConfig->pw_policy.pw_change &&
+-								 !slapdFrontendConfig->pw_policy.pw_must_change);
+-  }
+-  
+   return retVal;
+ }
+ 
+diff --git a/ldap/servers/slapd/proto-slap.h b/ldap/servers/slapd/proto-slap.h
+index 1f37010..712642f 100644
+--- a/ldap/servers/slapd/proto-slap.h
++++ b/ldap/servers/slapd/proto-slap.h
+@@ -951,9 +951,6 @@ void get_old_pw( Slapi_PBlock *pb, const Slapi_DN *sdn, char **old_pw);
+ int check_account_lock( Slapi_PBlock *pb, Slapi_Entry * bind_target_entry, int pwresponse_req, int account_inactivation_only /*no wire/no pw policy*/);
+ int check_pw_minage( Slapi_PBlock *pb, const Slapi_DN *sdn, struct berval **vals) ;
+ void add_password_attrs( Slapi_PBlock *pb, Operation *op, Slapi_Entry *e );
+-void mod_allowchange_aci(char *val);
+-void pw_mod_allowchange_aci(int pw_prohibit_change);
+-void pw_add_allowchange_aci(Slapi_Entry *e, int pw_prohibit_change);
+ 
+ int add_shadow_ext_password_attrs(Slapi_PBlock *pb, Slapi_Entry **e);
+ 
+diff --git a/ldap/servers/slapd/pw.c b/ldap/servers/slapd/pw.c
+index 7469b9e..3f2cdb0 100644
+--- a/ldap/servers/slapd/pw.c
++++ b/ldap/servers/slapd/pw.c
+@@ -1337,69 +1337,6 @@ slapi_add_pwd_control ( Slapi_PBlock *pb, char *arg, long time) {
+ }
+ 
+ void
+-pw_mod_allowchange_aci(int pw_prohibit_change)
+-{
+-	const Slapi_DN *base;
+-	char		*values_mod[2];
+-	LDAPMod		mod;
+-	LDAPMod		*mods[2];
+-	Slapi_Backend *be;
+-	char *cookie = NULL;
+-
+-	mods[0] = &mod;
+-	mods[1] = NULL;
+-	mod.mod_type = "aci";
+-	mod.mod_values = values_mod;
+-
+-	if (pw_prohibit_change) {
+-		mod.mod_op = LDAP_MOD_ADD;
+-	}
+-	else
+-	{
+-		/* Allow change password by default  */
+-		/* remove the aci if it is there.  it is ok to fail */
+-		mod.mod_op = LDAP_MOD_DELETE;
+-	}
+-
+-	be = slapi_get_first_backend (&cookie);
+-	/* Foreach backend... */
+-    while (be)
+-    {
+-		/* Don't add aci on a chaining backend holding remote entries */
+-        if((!be->be_private) && (!slapi_be_is_flag_set(be,SLAPI_BE_FLAG_REMOTE_DATA)))
+-        {
+-			/* There's only One suffix per DB now. No need to loop */
+-			base = slapi_be_getsuffix(be, 0);
+-			if (base != NULL)
+-			{
+-				Slapi_PBlock pb;
+-				int rc;
+-				
+-				pblock_init (&pb);
+-				values_mod[0] = DENY_PW_CHANGE_ACI;
+-				values_mod[1] = NULL;
+-				slapi_modify_internal_set_pb_ext(&pb, base, mods, NULL, NULL,
+-				                                 pw_get_componentID(), 0);
+-				slapi_modify_internal_pb(&pb);
+-				slapi_pblock_get(&pb, SLAPI_PLUGIN_INTOP_RESULT, &rc);
+-				if (rc == LDAP_SUCCESS){
+-					/* 
+-					** Since we modified the acl 
+-					** successfully, let's update the 
+-					** in-memory acl list
+-					*/
+-					slapi_pblock_set(&pb, SLAPI_TARGET_SDN, (void *)base);
+-					plugin_call_acl_mods_update (&pb, LDAP_REQ_MODIFY );
+-				}
+-				pblock_done(&pb);
+-			}
+-        }
+-		be = slapi_get_next_backend (cookie);
+-    }
+-	slapi_ch_free((void **) &cookie);
+-}
+-
+-void
+ add_password_attrs( Slapi_PBlock *pb, Operation *op, Slapi_Entry *e )
+ {
+ 	struct berval   bv;
+@@ -1583,24 +1520,6 @@ check_trivial_words (Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Value **vals, char
+ 	return ( 0 );
+ }
+ 
+-
+-void
+-pw_add_allowchange_aci(Slapi_Entry *e, int pw_prohibit_change) {
+-	char		*aci_pw = NULL;
+-	const char *aciattr = "aci";
+-
+-	aci_pw = slapi_ch_strdup(DENY_PW_CHANGE_ACI);
+-
+-	if (pw_prohibit_change) {
+-		/* Add ACI */
+-		slapi_entry_add_string(e, aciattr, aci_pw);
+-	} else {
+-		/* Remove ACI */
+-		slapi_entry_delete_string(e, aciattr, aci_pw);
+-	}
+-	slapi_ch_free((void **) &aci_pw);
+-}
+-
+ int
+ pw_is_pwp_admin(Slapi_PBlock *pb, passwdPolicy *pwp){
+ 	Slapi_DN *bind_sdn = NULL;
+diff --git a/ldap/servers/slapd/pw_mgmt.c b/ldap/servers/slapd/pw_mgmt.c
+index 5470556..7252c08 100644
+--- a/ldap/servers/slapd/pw_mgmt.c
++++ b/ldap/servers/slapd/pw_mgmt.c
+@@ -256,13 +256,8 @@ skip:
+ void
+ pw_init ( void )
+ {
+-	slapdFrontendConfig_t *slapdFrontendConfig;
+-
+ 	pw_set_componentID(generate_componentid(NULL, COMPONENT_PWPOLICY));
+-	
+-	slapdFrontendConfig = getFrontendConfig();
+-	pw_mod_allowchange_aci (!slapdFrontendConfig->pw_policy.pw_change && 
+-                            !slapdFrontendConfig->pw_policy.pw_must_change);
++
+ #if defined(USE_OLD_UNHASHED)
+ 	slapi_add_internal_attr_syntax( PSEUDO_ATTR_UNHASHEDUSERPASSWORD,
+ 	                                PSEUDO_ATTR_UNHASHEDUSERPASSWORD_OID,
+@@ -273,5 +268,3 @@ pw_init ( void )
+ 	                                SLAPI_ATTR_FLAG_NOEXPOSE);
+ #endif
+ }
+-
+-
+-- 
+2.4.11
+

@@ -13,13 +13,13 @@
 %global use_Socket6 0
 # nunc-stans only builds on x86_64 for now
 %ifarch x86_64
-# To build without nunc-stans, set 0 to use_nunc_stans.
+# To build without nunc-stans, set use_nunc_stans to 0.
 %global use_nunc_stans 1
 %else
 %global use_nunc_stans 0
 %endif 
 
-%global nunc_stans_ver 0.1.5
+%global nunc_stans_ver 0.1.8
 
 # fedora 15 and later uses tmpfiles.d
 # otherwise, comment this out
@@ -33,10 +33,10 @@
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          1.3.4.0
-Release:          %{?relprefix}33%{?prerel}%{?dist}
+Version:          1.3.5.10
+Release:          %{?relprefix}11%{?prerel}%{?dist}
 License:          GPLv3+
-URL:              http://port389.org/
+URL:              https://port389.org/
 Group:            System Environment/Daemons
 BuildRoot:        %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 Obsoletes:        %{name}-selinux
@@ -46,7 +46,7 @@ Provides:         ldif2ldbm
 
 BuildRequires:    nspr-devel
 BuildRequires:    nss-devel
-BuildRequires:    svrcore-devel
+BuildRequires:    svrcore-devel >= 4.1.2
 %if %{use_openldap}
 BuildRequires:    openldap-devel
 %else
@@ -74,9 +74,12 @@ BuildRequires:    tcp_wrappers
 # the following is for the pam passthru auth plug-in
 BuildRequires:    pam-devel
 BuildRequires:    systemd-units
+BuildRequires:    systemd-devel
 
 # this is needed for using semanage from our setup scripts
 Requires:         policycoreutils-python
+Requires:         /usr/sbin/semanage
+Requires:         libsemanage-python 
 
 # the following are needed for some of our scripts
 %if %{use_openldap}
@@ -114,114 +117,72 @@ Requires(postun): systemd-units
 # for setup-ds.pl to support ipv6 
 %if %{use_Socket6}
 Requires:         perl-Socket6
-%else Requires:         perl-Socket
+%else 
+Requires:         perl-Socket
 %endif
 Requires:         perl-NetAddr-IP
+Requires:         systemd-libs
+Requires:         svrcore >= 4.1.2
 
-Source0:          http://port389.org/sources/%{name}-%{version}%{?prerel}.tar.bz2
+# upgrade path from monolithic %{name} (including -libs & -devel) to %{name} + %{name}-snmp
+Obsoletes:        %{name} <= 1.3.5.4
+
+Source0:          https://port389.org/binaries/%{name}-%{version}%{?prerel}.tar.bz2
 # 389-ds-git.sh should be used to generate the source tarball from git
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
 Source3:          https://git.fedorahosted.org/cgit/nunc-stans.git/snapshot/nunc-stans-%{nunc_stans_ver}.tar.bz2
-Patch0:           0001-Ticket-48203-Fix-coverity-issues-06-22-2015.patch
-Patch1:           0002-Ticket-48195-Slow-replication-when-deleting-large-qu.patch
-Patch2:           0003-Ticket-48212-Dynamic-nsMatchingRule-changes-had-no-e.patch
-Patch3:           0004-Ticket-48212-CI-test-added-test-cases-for-ticket-482.patch
-Patch4:           0005-Ticket-48214-ldapsearch-on-nsslapd-maxbersize-return.patch
-Patch5:           0006-Ticket-48214-CI-test-added-test-cases-for-ticket-482.patch
-Patch6:           0007-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
-Patch7:           0008-Ticket-48119-setup-ds.pl-does-not-log-invalid-file-p.patch
-Patch8:           0009-Ticket-48203-Fix-coverity-issues-07-07-2015.patch
-Patch9:           0010-Ticket-48208-CleanAllRUV-should-completely-purge-cha.patch
-Patch10:          0011-Ticket-47799-Any-negative-LDAP-error-code-number-rep.patch
-Patch11:          0012-Ticket-48013-Inconsistent-behaviour-of-DS-when-LDAP-.patch
-Patch12:          0013-Ticket-48217-cleanAllRUV-hangs-shutdown-if-not-all-o.patch
-Patch13:          0014-Ticket-48216-crash-in-ns-slapd-when-deleting-winSync.patch
-Patch14:          0015-Ticket-48119-Silent-install-needs-to-properly-exit-w.patch
-Patch15:          0016-Ticket-47878-Remove-warning-suppression-in-1.3.4.patch
-Patch16:          0017-Ticket-48223-Winsync-fails-when-AD-users-have-multip.patch
-Patch17:          0018-Ticket-47910-logconv.pl-validate-start-and-end-time-.patch
-Patch18:          0019-Ticket-48224-logconv.pl-should-handle-.tar.xz-.txz-..patch
-Patch19:          0020-Ticket-48194-CI-test-fixing-test-cases-for-ticket-48.patch
-Patch20:          0021-Ticket-48203-Fix-coverity-issues-07-14-2015.patch
-Patch21:          0022-Ticket-48224-redux-logconv.pl-should-handle-.tar.xz-.patch
-Patch22:          0023-Ticket-48224-redux-logconv.pl-should-handle-.tar.xz-.patch
-Patch23:          0024-Ticket-48226-In-MMR-double-free-coould-occur-under-s.patch
-Patch24:          0025-Ticket-48226-CI-test-added-test-cases-for-ticket-482.patch
-Patch25:          0026-Ticket-48179-Starting-a-replica-agreement-can-lead-t.patch
-Patch26:          0027-Ticket-47910-logconv.pl-check-that-the-end-time-is-g.patch
-Patch27:          0028-Ticket-48224-redux-2-logconv.pl-should-handle-.tar.x.patch
-Patch28:          0029-Ticket-48206-Crash-during-retro-changelog-trimming.patch
-Patch29:          0030-Ticket-48010-winsync-range-retrieval-gets-only-5000-.patch
-Patch30:          0031-Ticket-48232-winsync-lastlogon-attribute-not-syncing.patch
-Patch31:          0032-Ticket-48231-logconv-autobind-handling-regression-ca.patch
-Patch32:          0033-Ticket-47810-memberOf-plugin-not-properly-rejecting-.patch
-Patch33:          0034-Ticket-48215-verify_db.pl-doesn-t-verify-DB-specifie.patch
-Patch34:          0035-Ticket-48215-update-dbverify-usage.patch
-Patch35:          0036-Ticket-48215-update-dbverify-usage-in-main.c.patch
-Patch36:          0037-Ticket-48228-wrong-password-check-if-passwordInHisto.patch
-Patch37:          0038-Ticket-48228-CI-test-added-test-cases-for-ticket-482.patch
-Patch38:          0039-Ticket-47931-memberOf-retrocl-deadlocks.patch
-Patch39:          0040-Ticket-47931-Fix-coverity-issues.patch
-Patch40:          0041-Ticket-47686-removing-chaining-database-links-trigge.patch
-Patch41:          0042-Ticket-47511-bashisms-in-389-ds-base-admin-scripts.patch
-Patch42:          0043-Ticket-48245-Man-pages-and-help-for-remove-ds.pl-doe.patch
-Patch43:          0044-Ticket-48249-sync_repl-uuid-may-be-invalid.patch
-Patch44:          0045-Ticket-48250-Slapd-crashes-reported-from-latest-buil.patch
-Patch45:          0046-Ticket-48233-Server-crashes-in-ACL_LasFindFlush-duri.patch
-Patch46:          0047-Ticket-48243-replica-upgrade-failed-in-starting-dirs.patch
-Patch47:          0048-Ticket-47831-remove-debug-logging-from-retro-cl.patch
-Patch48:          0049-Ticket-48254-CLI-db2index-fails-with-usage-errors.patch
-Patch49:          0050-Ticket-48254-Shell-CLI-fails-with-usage-errors-if-an.patch
-Patch50:          0051-Ticket-47757-Unable-to-dereference-unqiemember-attri.patch
-Patch51:          0052-Ticket-48228-wrong-password-check-if-passwordInHisto.patch
-Patch52:          0053-Ticket-48265-Complex-filter-in-a-search-request-doen.patch
-Patch53:          0054-Ticket-47981-COS-cache-doesn-t-properly-mark-vattr-c.patch
-Patch54:          0055-Ticket-48276-initialize-free_flags-in-reslimit_updat.patch
-Patch55:          0056-Ticket-48226-In-MMR-double-free-coould-occur-under-s.patch
-Patch56:          0057-Ticket-48266-Fractional-replication-evaluates-severa.patch
-Patch57:          0058-Ticket-48266-coverity-issue.patch
-Patch58:          0059-Ticket-48217-cleanallruv-fix-regression-with-server-.patch
-Patch59:          0060-Ticket-48188-segfault-in-ns-slapd-due-to-accessing-S.patch
-Patch60:          0061-Ticket-48188-segfault-in-ns-slapd-due-to-accessing-S.patch
-Patch61:          0062-Ticket-48266-coverity-unused-variable-init_retry.patch
-Patch62:          0063-Ticket-48266-Online-init-crashes-consumer.patch
-Patch63:          0064-Ticket-48284-free-entry-when-internal-add-fails.patch
-Patch64:          0065-Ticket-48266-do-not-free-repl-keep-alive-entry-on-er.patch
-Patch65:          0066-Ticket-48299-pagedresults-when-timed-out-search-resu.patch
-Patch66:          0067-Ticket-48192-Individual-abandoned-simple-paged-resul.patch
-Patch67:          0068-Ticket-48298-ns-slapd-crash-during-ipa-replica-manag.patch
-Patch68:          0069-Ticket-48311-nunc-stans-Attempt-to-release-connectio.patch
-Patch69:          0070-Ticket-48311-nunc-stans-Attempt-to-release-connectio.patch
-Patch70:          0071-Ticket-47976-deadlock-in-mep-delete-post-op.patch
-Patch71:          0072-Ticket-48338-SimplePagedResults-abandon-could-happen.patch
-Patch72:          0073-Ticket-48325-Replica-promotion-leaves-RUV-out-of-ord.patch
-Patch73:          0074-Ticket-48344-acl-regression-trailing-comma-in-macro-.patch
-Patch74:          0075-Ticket-48339-Share-nsslapd-threadnumber-in-the-case-.patch
-Patch75:          0076-Ticket-48338-SimplePagedResults-abandon-could-happen.patch
-Patch76:          0077-Ticket-48370-The-eq-index-does-not-get-updated-prope.patch
-Patch77:          0078-Ticket-48375-SimplePagedResults-in-the-search-error-.patch
-Patch78:          0079-Ticket-48283-many-attrlist_replace-errors-in-connect.patch
-Patch79:          0080-Revert-Ticket-48338-SimplePagedResults-abandon-could.patch
-Patch80:          0081-Ticket-48406-Avoid-self-deadlock-by-PR_Lock-conn-c_m.patch
-Patch81:          0082-Ticket-48412-worker-threads-do-not-detect-abnormally.patch
-Patch82:          0083-Ticket-48341-deadlock-on-connection-mutex.patch
-Patch83:          0084-Ticket-48536-Crash-in-slapi_get_object_extension.patch
-Patch84:          0085-Ticket-48536-Crash-in-slapi_get_object_extension.patch
-Patch85:          0086-Ticket-48445-keep-alive-entries-can-break-replicatio.patch
-Patch86:          0087-Ticket-48420-change-severity-of-some-messages-relate.patch
-Patch87:          0088-Ticket-48757-License-tag-does-not-match-actual-licen.patch
-Patch88:          0089-Ticket-47888-DES-to-AES-password-conversion-fails-if.patch
-Patch89:          0090-Ticket-48492-heap-corruption-at-schema-replication.patch
-Patch90:          0091-Ticket-48492-heap-corruption-at-schema-replication.patch
-Patch91:          0092-Ticket-48808-Paged-results-search-returns-the-blank-.patch
-Patch92:          0093-Ticket-48808-Add-test-case.patch
-Patch93:          0094-Ticket-48862-At-startup-DES-to-AES-password-conversi.patch
-Patch94:          0095-Ticket-48766-Replication-changelog-can-incorrectly-s.patch
-Patch95:          0096-Ticket-47788-Supplier-can-skip-a-failing-update-alth.patch
-Patch96:          0097-Ticket-47788-Only-check-postop-result-if-its-a-repli.patch
-Patch97:          0098-Ticket-48636-Improve-replication-convergence.patch
-Patch98:          0099-Ticket-48636-Fix-config-validation-check.patch
+Patch0:           0000-Ticket-48743-If-a-cipher-is-disabled-do-not-attempt-.patch
+Patch1:           0001-Ticket-48755-moving-an-entry-could-make-the-online-i.patch
+Patch2:           0002-Ticket-48914-db2bak.pl-task-enters-infinitive-loop-w.patch
+Patch3:           0003-Ticket-48918-Upgrade-to-389-ds-base-1.3.5.5-doesn-t-.patch
+Patch4:           0004-Ticket-48916-DNA-Threshold-set-to-0-causes-SIGFPE.patch
+Patch5:           0005-Ticket-48144-Add-usr-sbin-status-dirsrv-script-to-ge.patch
+Patch6:           0006-Ticket-48767-flow-control-in-replication-also-blocks.patch
+Patch7:           0007-Ticket-48922-Fix-crash-when-deleting-backend-while-i.patch
+Patch8:           0008-Ticket-48924-Fixup-tombstone-task-needs-to-set-prope.patch
+Patch9:           0009-Ticket-48919-Compiler-warnings-while-building-389-ds.patch
+Patch10:          0010-Bug-1347760-CVE-2016-4992-389-ds-base-Information-di.patch
+Patch11:          0011-Bug-1347760-CVE-2016-4992-389-ds-base-Information-di.patch
+Patch12:          0012-Bug-1347760-CI-test-test-case-for-bug-1347760.patch
+Patch13:          0013-Ticket-48925-slapd-crash-with-SIGILL-Dsktune-should-.patch
+Patch14:          0014-Ticket-48925-slapd-crash-with-SIGILL-Dsktune-should-.patch
+Patch15:          0015-Ticket-48919-Compiler-warnings-while-building-389-ds.patch
+Patch16:          0016-Ticket-48919-Compiler-warnings-while-building-389-ds.patch
+Patch17:          0017-Ticket-48928-log-of-page-result-cookie-should-log-em.patch
+Patch18:          0018-Ticket-48939-nsslapd-workingdir-is-empty-when-ns-sla.patch
+Patch19:          0019-Ticket-48939-nsslapd-workingdir-is-empty-when-ns-sla.patch
+Patch20:          0020-Ticket-48934-remove-ds.pl-deletes-an-instance-even-i.patch
+Patch21:          0021-Ticket-48940-DS-logs-have-warning-ancestorid-not-ind.patch
+Patch22:          0022-Ticket-48882-server-can-hang-in-connection-list-proc.patch
+Patch23:          0023-Ticket-bz1358565-clear-and-unsalted-password-types-a.patch
+Patch24:          0024-Ticket-48943-When-fine-grained-policy-is-applied-a-s.patch
+Patch25:          0025-Ticket-48943-Add-CI-Test-for-the-password-test-suite.patch
+Patch26:          0026-Ticket-48936-Duplicate-collation-entries.patch
+Patch27:          0027-Ticket-48450-Add-prestart-work-around-for-systemd-as.patch
+Patch28:          0028-Bug-1347760-CVE-2016-4992-389-ds-base-Information-di.patch
+Patch29:          0029-Bug-1347760-CVE-2016-4992-389-ds-base-Information-di.patch
+Patch30:          0030-Ticket-bz1358565-clear-and-unsalted-password-types-a.patch
+Patch31:          0031-Ticket-48450-Autotools-components-for-ds_systemd_ask.patch
+Patch32:          0032-Ticket-bz1358565-clear-and-unsalted-password-types-a.patch
+Patch33:          0033-Ticket-48950-Change-example-in-etc-sysconfig-dirsrv-.patch
+Patch34:          0034-Ticket-48954-replication-fails-because-anchorcsn-can.patch
+Patch35:          0035-Ticket-48956-ns-accountstatus.pl-showing-activated-u.patch
+Patch36:          0036-Ticket-48958-Audit-fail-log-doesn-t-work-if-audit-lo.patch
+Patch37:          0037-Ticket-48960-Crash-in-import_wait_for_space_in_fifo.patch
+Patch38:          0038-Bugzilla-1368956-man-page-of-ns-accountstatus.pl-sho.patch
+Patch39:          0039-Ticket-48964-cleanAllRUV-changelog-purging-incorrect.patch
+Patch40:          0040-Ticket-48969-nsslapd-auditfaillog-always-has-an-expl.patch
+Patch41:          0041-Ticket-48967-passwordMinAge-attribute-doesn-t-limit-.patch
+Patch42:          0042-Ticket-48967-Add-CI-test-and-refactor-test-suite.patch
+Patch43:          0043-Ticket-48950-Add-systemd-warning-to-the-LD_PRELOAD-e.patch
+Patch44:          0044-Ticket-48957-set-proper-update-status-to-replication.patch
+Patch45:          0045-Ticket-48972-remove-old-pwp-code-that-adds-removes-A.patch
+Patch46:          0046-Ticket-48970-Serverside-sorting-crashes-the-server.patch
+Patch47:          0047-Ticket-48975-Disabling-CLEAR-password-storage-scheme.patch
+Patch48:          0048-Ticket-48957-Update-repl-monitor-to-handle-new-statu.patch
+Patch49:          0049-Ticket-48969-nsslapd-auditfaillog-always-has-an-expl.patch
+Patch50:          0050-Bug-1321124-use-a-consumer-maxcsn-only-as-anchor-if-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -232,7 +193,7 @@ Summary:          Core libraries for 389 Directory Server
 Group:            System Environment/Daemons
 BuildRequires:    nspr-devel
 BuildRequires:    nss-devel
-BuildRequires:    svrcore-devel
+BuildRequires:    svrcore-devel >= 4.1.2
 %if %{use_openldap}
 BuildRequires:    openldap-devel
 %else
@@ -251,6 +212,7 @@ BuildRequires:    libtalloc-devel
 BuildRequires:    libevent-devel
 BuildRequires:    libtevent-devel
 %endif
+BuildRequires:    systemd-devel
 
 %description      libs
 Core libraries for the 389 Directory Server base package.  These libraries
@@ -264,7 +226,7 @@ Requires:         %{name}-libs = %{version}-%{release}
 Requires:         pkgconfig
 Requires:         nspr-devel
 Requires:         nss-devel
-Requires:         svrcore-devel
+Requires:         svrcore-devel >= 4.1.2
 %if %{use_openldap}
 Requires:         openldap-devel
 %else
@@ -275,9 +237,30 @@ Requires:         libtalloc
 Requires:         libevent
 Requires:         libtevent
 %endif
+Requires:         systemd-libs
 
 %description      devel
 Development Libraries and headers for the 389 Directory Server base package.
+
+%package          snmp
+Summary:          SNMP Agent for 389 Directory Server
+Group:            System Environment/Daemons
+Requires:         %{name} = %{version}-%{release}
+
+# upgrade path from monolithic %{name} (including -libs & -devel) to %{name} + %{name}-snmp
+Obsoletes:        %{name} <= 1.3.5.4
+
+%description      snmp
+SNMP Agent for the 389 Directory Server base package.
+
+%package          tests
+Summary:          The lib389 Continuous Integration Tests
+Group:            Development/Libraries
+Requires:         python-lib389
+BuildArch:        noarch
+
+%description      tests
+The lib389 CI tests that can be run against the Directory Server.
 
 %prep
 %setup -q -n %{name}-%{version}%{?prerel}
@@ -336,61 +319,13 @@ cp %{SOURCE2} README.devel
 %patch48 -p1
 %patch49 -p1
 %patch50 -p1
-%patch51 -p1
-%patch52 -p1
-%patch53 -p1
-%patch54 -p1
-%patch55 -p1
-%patch56 -p1
-%patch57 -p1
-%patch58 -p1
-%patch59 -p1
-%patch60 -p1
-%patch61 -p1
-%patch62 -p1
-%patch63 -p1
-%patch64 -p1
-%patch65 -p1
-%patch66 -p1
-%patch67 -p1
-%patch68 -p1
-%patch69 -p1
-%patch70 -p1
-%patch71 -p1
-%patch72 -p1
-%patch73 -p1
-%patch74 -p1
-%patch75 -p1
-%patch76 -p1
-%patch77 -p1
-%patch78 -p1
-%patch79 -p1
-%patch80 -p1
-%patch81 -p1
-%patch82 -p1
-%patch83 -p1
-%patch84 -p1
-%patch85 -p1
-%patch86 -p1
-%patch87 -p1
-%patch88 -p1
-%patch89 -p1
-%patch90 -p1
-%patch91 -p1
-%patch92 -p1
-%patch93 -p1
-%patch94 -p1
-%patch95 -p1
-%patch96 -p1
-%patch97 -p1
-%patch98 -p1
 
 %build
 %if %{use_nunc_stans}
 pushd ../nunc-stans-%{nunc_stans_ver}
 %configure --with-fhs --libdir=%{_libdir}/%{pkgname}
 make %{?_smp_mflags}
-mkdir lib
+mkdir -p lib
 cp .libs/libnunc-stans.so.0.0.0 lib/libnunc-stans.so
 mkdir -p include/nunc-stans
 cp nunc-stans.h include/nunc-stans/nunc-stans.h
@@ -404,12 +339,14 @@ OPENLDAP_FLAG="--with-openldap"
 # hack hack hack https://bugzilla.redhat.com/show_bug.cgi?id=833529
 NSSARGS="--with-svrcore-inc=%{_includedir} --with-svrcore-lib=%{_libdir} --with-nss-lib=%{_libdir} --with-nss-inc=%{_includedir}/nss3"
 %if %{use_nunc_stans}
-NUNC_STANS_FLAGS="--enable-nunc-stans --with-nunc-stans=../nunc-stans-%{nunc_stans_ver}" 
+NUNC_STANS_FLAGS="--enable-nunc-stans --with-nunc-stans=../nunc-stans-%{nunc_stans_ver}"
 %endif
 %configure --enable-autobind --with-selinux $OPENLDAP_FLAG $TMPFILES_FLAG \
            --with-systemdsystemunitdir=%{_unitdir} \
            --with-systemdsystemconfdir=%{_sysconfdir}/systemd/system \
-           --with-systemdgroupname=%{groupname} $NSSARGS $NUNC_STANS_FLAGS
+           --with-perldir=/usr/bin \
+           --with-systemdgroupname=%{groupname} $NSSARGS $NUNC_STANS_FLAGS \
+           --with-systemd
 
 # Generate symbolic info for debuggers
 export XCFLAGS=$RPM_OPT_FLAGS
@@ -422,14 +359,14 @@ make %{?_smp_mflags}
 
 
 %install
-rm -rf $RPM_BUILD_ROOT 
-
 %if %{use_nunc_stans}
 pushd ../nunc-stans-%{nunc_stans_ver}
 make DESTDIR="$RPM_BUILD_ROOT" install
 rm -rf $RPM_BUILD_ROOT%{_includedir} $RPM_BUILD_ROOT%{_datadir} \
     $RPM_BUILD_ROOT%{_libdir}/%{pkgname}/pkgconfig
 popd
+%else
+rm -rf $RPM_BUILD_ROOT
 %endif
 
 make DESTDIR="$RPM_BUILD_ROOT" install
@@ -441,14 +378,20 @@ mkdir -p $RPM_BUILD_ROOT/var/lock/%{pkgname}
 # for systemd
 mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/systemd/system/%{groupname}.wants
 
-#remove libtool and static libs
-rm -f $RPM_BUILD_ROOT%{_libdir}/%{pkgname}/*.a
-rm -f $RPM_BUILD_ROOT%{_libdir}/%{pkgname}/*.la
-rm -f $RPM_BUILD_ROOT%{_libdir}/%{pkgname}/plugins/*.a
-rm -f $RPM_BUILD_ROOT%{_libdir}/%{pkgname}/plugins/*.la
+#remove libtool archives and static libs
+find %{buildroot} -type f -name "*.la" -delete
+find %{buildroot} -type f -name "*.a" -delete
 
-# make sure perl scripts have a proper shebang 
+# make sure perl scripts have a proper shebang
 sed -i -e 's|#{{PERL-EXEC}}|#!/usr/bin/perl|' $RPM_BUILD_ROOT%{_datadir}/%{pkgname}/script-templates/template-*.pl
+
+# Why are we not making this a proper python package?
+pushd ../%{name}-%{version}%{?prerel}
+cp -r dirsrvtests $RPM_BUILD_ROOT/%{_sysconfdir}/%{pkgname}
+find $RPM_BUILD_ROOT/%{_sysconfdir}/%{pkgname}/dirsrvtests -type f -name '*.pyc' -delete
+find $RPM_BUILD_ROOT/%{_sysconfdir}/%{pkgname}/dirsrvtests -type f -name '*.pyo' -delete
+find $RPM_BUILD_ROOT/%{_sysconfdir}/%{pkgname}/dirsrvtests -type d -name '__pycache__' -delete
+popd
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -456,13 +399,10 @@ rm -rf $RPM_BUILD_ROOT
 %post
 output=/dev/null
 output2=/dev/null
-%systemd_post %{pkgname}-snmp.service
 # reload to pick up any changes to systemd files
 /bin/systemctl daemon-reload >$output 2>&1 || :
 # reload to pick up any shared lib changes
 /sbin/ldconfig
-# restart the snmp subagent if needed
-/bin/systemctl try-restart %{pkgname}-snmp.service > $output 2>&1 || :
 # find all instances
 instances="" # instances that require a restart after upgrade
 ninst=0 # number of instances found in total
@@ -470,14 +410,31 @@ if [ -n "$DEBUGPOSTTRANS" ] ; then
    output=$DEBUGPOSTTRANS
    output2=${DEBUGPOSTTRANS}.upgrade
 fi
-echo looking for instances in %{_sysconfdir}/%{pkgname} > $output 2>&1 || :
-instbase="%{_sysconfdir}/%{pkgname}"
-for dir in $instbase/slapd-* ; do
-    echo dir = $dir >> $output 2>&1 || :
-    if [ ! -d "$dir" ] ; then continue ; fi
-    case "$dir" in *.removed) continue ;; esac
-    basename=`basename $dir`
-    inst="%{pkgname}@`echo $basename | sed -e 's/slapd-//g'`"
+
+has_dirsrv=`/usr/bin/egrep -i "^dirsrv\>" /etc/passwd` || :
+if [ "$has_dirsrv" = "" ]; then
+  dirsrv_uid=389
+  while [ "`getent passwd | awk -F: '{print $3}' | grep $dirsrv_uid`" != "" ]; do
+    dirsrv_uid=`expr $dirsrv_uid + 1`
+  done
+  echo "User dirsrv does not exist, create it with uid %dirsrv_uid." >> $output 2>&1 || :
+  /usr/sbin/useradd -c "389-ds-base" -u $dirsrv_uid \
+    -s /sbin/nologin -r -d /usr/share/dirsrv dirsrv 2> /dev/null || :
+fi
+has_dirsrv=`/usr/bin/egrep -i "^dirsrv\>" /etc/group` || :
+if [ "$has_dirsrv" = "" ]; then
+  dirsrv_gid=389
+  while [ "`getent group | grep $dirsrv_gid`" != "" ]; do
+    dirsrv_gid=`expr $dirsrv_gid + 1`
+  done
+  echo "Group dirsrv does not exist, create it with uid %dirsrv_gid." >> $output 2>&1 || :
+  /usr/sbin/groupadd -g $dirsrv_gid -r dirsrv 2> /dev/null || :
+fi
+
+echo looking for services in %{_sysconfdir}/systemd/system/%{groupname}.wants/* >> $output 2>&1 || :
+for service in %{_sysconfdir}/systemd/system/%{groupname}.wants/* ; do
+    if [ ! -f "$service" ] ; then continue ; fi # in case nothing matches
+    inst=`echo $service | sed -e 's,%{_sysconfdir}/systemd/system/%{groupname}.wants/,,'`
     echo found instance $inst - getting status  >> $output 2>&1 || :
     if /bin/systemctl -q is-active $inst ; then
        echo instance $inst is running >> $output 2>&1 || :
@@ -517,8 +474,6 @@ exit 0
 
 %preun
 if [ $1 -eq 0 ]; then # Final removal
-    # Package removal, not upgrade
-    %systemd_preun %{pkgname}-snmp.service %{groupname}
     # remove instance specific service files/links
     rm -rf %{_sysconfdir}/systemd/system/%{groupname}.wants/* > /dev/null 2>&1 || :
 fi
@@ -528,6 +483,15 @@ fi
 if [ $1 = 0 ]; then # Final removal
     rm -rf /var/run/%{pkgname}
 fi
+
+%post snmp
+%systemd_post %{pkgname}-snmp.service
+
+%preun snmp
+%systemd_preun %{pkgname}-snmp.service %{groupname}
+
+%postun snmp
+%systemd_postun_with_restart %{pkgname}-snmp.service
 
 %files
 %defattr(-,root,root,-)
@@ -539,7 +503,6 @@ fi
 %dir %{_sysconfdir}/systemd/system/%{groupname}.wants
 %config(noreplace)%{_sysconfdir}/%{pkgname}/config/slapd-collations.conf
 %config(noreplace)%{_sysconfdir}/%{pkgname}/config/certmap.conf
-%config(noreplace)%{_sysconfdir}/%{pkgname}/config/ldap-agent.conf
 %config(noreplace)%{_sysconfdir}/%{pkgname}/config/template-initconfig
 %config(noreplace)%{_sysconfdir}/sysconfig/%{pkgname}
 %config(noreplace)%{_sysconfdir}/sysconfig/%{pkgname}.systemd
@@ -556,12 +519,15 @@ fi
 %ghost %dir %{_localstatedir}/lock/%{pkgname}
 %{_mandir}/man1/*
 %{_mandir}/man8/*
+%exclude %{_sbindir}/ldap-agent*
+%exclude %{_mandir}/man1/ldap-agent.1.gz
 
 %files devel
 %defattr(-,root,root,-)
 %doc LICENSE LICENSE.GPLv3+ LICENSE.openssl README.devel
 %{_includedir}/%{pkgname}
 %{_libdir}/%{pkgname}/libslapd.so
+%{_libdir}/%{pkgname}/libns-dshttpd.so
 %if %{use_nunc_stans}
 %{_libdir}/%{pkgname}/libnunc-stans.so
 %endif
@@ -572,77 +538,232 @@ fi
 %doc LICENSE LICENSE.GPLv3+ LICENSE.openssl README.devel
 %dir %{_libdir}/%{pkgname}
 %{_libdir}/%{pkgname}/libslapd.so.*
-%{_libdir}/%{pkgname}/libns-dshttpd.so*
+%{_libdir}/%{pkgname}/libns-dshttpd.so.*
 %if %{use_nunc_stans}
 %{_libdir}/%{pkgname}/libnunc-stans.so.*
 %endif
 
+%files snmp
+%defattr(-,root,root,-)
+%doc LICENSE LICENSE.GPLv3+ LICENSE.openssl README.devel
+%config(noreplace)%{_sysconfdir}/%{pkgname}/config/ldap-agent.conf
+%{_sbindir}/ldap-agent*
+%{_mandir}/man1/ldap-agent.1.gz
+
+%files tests
+%defattr(-,root,root,-)
+%doc LICENSE LICENSE.GPLv3+
+%{_sysconfdir}/%{pkgname}/dirsrvtests
+
 %changelog
-* Thu Jun 30 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-33
-- release 1.3.4.0-33
-- Resolves: bug 1351323 - Improve MMR replication convergence (DS 48636)
-- Resolves: bug 1351447 - Supplier can skip a failing update, although it should retry. (DS 47788)
-- Resolves: bug 1350707 - Replication changelog can incorrectly skip over updates (DS 48766)
+* Tue Sep 13 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-11
+- Release 1.3.5.10-11
+- Resolves: bug 1321124 - Replication changelog can incorrectly skip over updates
 
-* Thu Jun  9 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-32
-- release 1.3.4.0-32
-- Resolves: bug 1344293 - At startup DES to AES password conversion causes timeout in start script (DS 48862)
+* Thu Sep  1 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-10
+- Release 1.3.5.10-10
+- Resolves: bug 1370300 - set proper update status to replication agreement in case of failure (DS 48957)
+- Resolves: bug 1209094 - Allow logging of rejected changes (DS 48969)
 
-* Thu May 12 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-31
-- release 1.3.4.0-31
-- Resolves: bug 1335423 - heap corruption at schema replication. (DS 48492)
-- Resolves: bug 1335107 - Paged results search returns the blank list of entries (DS 48808)
+* Tue Aug 30 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-9
+- Release 1.3.5.10-9
+- Resolves: bug 1364190 - Change example in /etc/sysconfig/dirsrv to use tcmalloc (DS 48950)
+- Resolves: bug 1366828 - audit on failure doesn't work if attribute nsslapd-auditlog-logging-enabled is NOT enabled (DS 48958)
+- Resolves: bug 1368520 - Crash in import_wait_for_space_in_fifo() (DS 48960)
+- Resolves: bug 1368956 - man page of ns-accountstatus.pl shows redundant entries for -p port option
+- Resolves: bug 1369537 - passwordMinAge attribute doesn't limit the minimum age of the password (DS 48967)
+- Resolves: bug 1369570 - cleanallruv changelog cleaning incorrectly impacts all backends (DS 48964)
+- Resolves: bug 1369425 - ACI behaves erratically (DS 48972)
+- Resolves: bug 1370300 - set proper update status to replication agreement in case of failure (DS 48957)
+- Resolves: bug 1209094 - Allow logging of rejected changes (DS 48969)
+- Resolves: bug 1371283 - Server Side Sorting crashes the server. (DS 48970)
+- Resolves: bug 1371284 - Disabling CLEAR password storage scheme will crash server when setting a password (DS 48975)
 
-* Wed Mar 30 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-30
-- release 1.3.4.0-30
-- Resolves: bug 1321891 - DES to AES password conversion fails if a backend is empty (DS 48777)
+* Thu Aug 18 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-8
+- Release 1.3.5.10-8
+- Resolves: bug 1321124 - Replication changelog can incorrectly skip over updates (DS 48954)
+- Resolves: bug 1364190 - Change example in /etc/sysconfig/dirsrv to use tcmalloc (DS 48950)
+- Resolves: bug 1366561 - ns-accountstatus.pl giving error even "No such object (32)" (DS 48956)
 
-* Thu Mar 10 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-29
-- release 1.3.4.0-29
-- Resolves: bug 1316552 - License tag does not match actual license of code (DS 48757)
+* Mon Aug  8 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-7
+- Release 1.3.5.10-7
+- Resolves: bug 1316580 - dirsrv service doesn't ask for pin when pin.txt is missing (DS 48450)
+- Resolves: bug 1360976 - fixing a compiler warning
 
-* Tue Mar  8 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-28
-- release 1.3.4.0-28
-- Resolves: bug 1315181 - change severity of some messages related to "keep alive" entries (DS 48420)
+* Thu Aug  4 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-6
+- Release 1.3.5.10-6
+- Resolves: bug 1326077 - Page result search should return empty cookie if there is no returned entry (DS 48928)
+- Resolves: bug 1360447 - nsslapd-workingdir is empty when ns-slapd is started by systemd (DS 48939)
+- Resolves: bug 1360327 - remove-ds.pl deletes an instance even if wrong prefix was specified (DS 48934)
+- Resolves: bug 1349815 - DS logs have warning:ancestorid not indexed for all CS subsystems (DS 48940)
+- Resolves: bug 1329061 - 389-ds-base-1.3.4.0-29.el7_2 "hang" (DS 48882)
+- Resolves: bug 1360976 - EMBARGOED CVE-2016-5405 389-ds-base: Password verification vulnerable to timing attack
+- Resolves: bug 1361134 - When fine-grained policy is applied, a sub-tree has a priority over a user while changing password (DS 48943) 
+- Resolves: bug 1361321 - Duplicate collation entries (DS 48936)
+- Resolves: bug 1316580 - dirsrv service doesn't ask for pin when pin.txt is missing (DS 48450)
+- Resolves: bug 1350799 - CVE-2016-4992 389-ds-base: Information disclosure via repeat
 
-* Fri Feb 19 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-27
-- release 1.3.4.0-27
-- Resolves: bug 1309963 - keep alive entries can break replication (DS 48445)
-- Resolves: bug 1309964 - Crash in slapi_get_object_extension (DS 48536)
+* Thu Jul 14 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-5
+- Release 1.3.5.10-5
+- Resolves: bug 1333184 - (389-ds-base-1.3.5) Fixing coverity issues. (DS 48919)
 
-* Mon Jan 25 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-26
-- release 1.3.4.0-26
-- Resolves: bug 1299346 - deadlock on connection mutex (DS 48341)
+* Thu Jul 14 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-4
+- Release 1.3.5.10-4
+- Resolves: bug 1209128 - [RFE] Add a utility to get the status of Directory Server instances (DS 48144)
+- Resolves: bug 1333184 - (389-ds-base-1.3.5) Fixing coverity issues. (DS 48919)
+- Resolves: bug 1350799 - CVE-2016-4992 389-ds-base: Information disclosure via repeat
+- Resolves: bug 1354660 - flow control in replication also blocks receiving results (DS 48767)
+- Resolves: bug 1356261 - Fixup tombstone task needs to set proper flag when updating (DS 48924)
+- Resolves: bug 1355760 - ns-slapd crashes during the deletion of backend (DS 48922)
+- Resolves: bug 1353629 - DS shuts down automatically if dnaThreshold is set to 0 in a MMR setup (DS 48916)
+- Resolves: bug 1355879 - nunc-stans: ns-slapd crashes during startup with SIGILL on AMD Opteron 280 (DS 48925)
 
-* Thu Jan 21 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-25
-- release 1.3.4.0-25
-- Resolves: bug 1299757 - CVE-2016-0741 389-ds-base: Worker threads do not detect abnormally closed connections causing DoS
+* Mon Jul 11 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-3
+- Release 1.3.5.10-3
+- Resolves: bug 1354374 - Fixing the tarball version in the sources file.
 
-* Wed Jan 13 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-24
-- release 1.3.4.0-24
-- Resolves: bug 1298105 - 389-ds hanging after a few minutes of operation (DS 48406)
+* Mon Jul 11 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-2
+- Release 1.3.5.10-2
+- Resolves: bug 1353714 - If a cipher is disabled do not attempt to look it up (DS 48743)
+- Resolves: bug 1353592 - Setup-ds.pl --update fails - regression (DS 48755)
+- Resolves: bug 1353544 - db2bak.pl task enters infinitive loop when bak fs is almost full (DS 48914)
+- Resolves: bug 1354374 - Upgrade to 389-ds-base >= 1.3.5.5 doesn't install 389-ds-base-snmp (DS 48918)
 
-* Tue Jan  5 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-23
-- release 1.3.4.0-23
-- Resolves: bug 1295684 - many attrlist_replace errors in connection with cleanallruv (DS 48283)
+* Wed Jun 29 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-1
+- Release 1.3.5.10-1
+- Resolves: bug 1333184 - (389-ds-base-1.3.5) Fixing coverity issues. (DS 48905)
 
-* Fri Dec 11 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-22
-- release 1.3.4.0-22
-- Resolves: bug 1290725 - SimplePagedResults -- in the search error case, simple paged results slot was not released. (DS 48375)
-- Resolves: bug 1290726 - The 'eq' index does not get updated properly when deleting and re-adding attributes in the same modify operation (DS 48370)
+* Wed Jun 29 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.9-1
+- Release 1.3.5.9-1
+- Resolves: bug 1349571 - Improve MMR replication convergence (DS 48636)
+- Resolves: bug 1304682 - "stale" automember rule (associated to a removed group) causes discrepancies in the database (DS 48637)
+- Resolves: bug 1314956 - moving an entry cause next on-line init to skip entry has no parent, ending at line 0 of file "(bulk import)" (DS 48755)
+- Resolves: bug 1316731 - syncrepl search returning error 329; plugin sending a bad error code (DS 48904)
+- Resolves: bug 1346741 - ns-slapd crashes during the shutdown after adding attribute with a matching rule  (DS 48891)
+- Resolves: bug 1349577 - Values of dbcachetries/dbcachehits in cn=monitor could overflow. (DS 48899)
+- Resolves: bug 1272682 - nunc-stans: ns-slapd killed by SIGABRT (DS 48898)
+- Resolves: bug 1346043 - repl-monitor displays colors incorrectly for the time lag > 60 min (DS 47538)
+- Resolves: bug 1350632 - ns-slapd shutdown crashes if pwdstorageschema name is from stack. (DS 48902)
 
-* Wed Nov 18 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-21
-- release 1.3.4.0-21
-- Resolves: bug 1278730 - SimplePagedResults -- abandon could happen between the abandon check and sending results -- Fixing a regression introduced in 1.3.4.0-20 (DS 48338)
+* Tue Jun 21 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.8-1
+- Release 1.3.5.8-1
+- Resolves: bug 1290101 - proxyauth support does not work when bound as directory  manager (DS 48366)
 
-* Thu Nov 12 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-20
-- release 1.3.4.0-20
-- Resolves: bug 1278729 - Share nsslapd-threadnumber in the case nunc-stans is enabled (DS 48339)
-- Resolves: bug 1278730 - SimplePagedResults -- abandon could happen between the abandon check and sending results (DS 48338)
-- Resolves: bug 1279572 - Cannot upgrade a consumer to supplier in a multimaster environment (DS 48325)
-- Resolves: bug 1279573 - nunc-stans: Attempt to release connection that is not acquired (DS 48311)
-- Resolves: bug 1280210 - deadlock in mep delete post op (DS 47976)
-- Resolves: bug 1281522 - acl - regression - trailing ', (comma)' in macro matched value is not removed (DS 48344)
+* Tue Jun 21 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.7-1
+- Release 1.3.5.7-1
+- Resolves: bug 1196282 - substring index with nssubstrbegin: 1 is not being used with filters like (attr=x*) (DS 48109)
+- Resolves: bug 1303794 - Import readNSState.py from RichM's repo (DS 48449)
+- Resolves: bug 1290101 - proxyauth support does not work when bound as directory  manager (DS 48366)
+- Resolves: bug 1338872 - Wrong result code display in audit-failure log (DS 48892)
+- Resolves: bug 1346043 - repl-monitor displays colors incorrectly for the time lag > 60 min (DS 47538)
+- Resolves: bug 1346741 - ns-slapd crashes during the shutdown after adding attribute with a matching rule  (DS 48891)
+- Resolves: bug 1347407 - By default aci can be read by anonymous (DS 48354)
+- Resolves: bug 1347412 - cn=SNMP,cn=config entry can be read by anonymous (DS 48893)
+
+* Tue Jun 14 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.6-1
+- Release 1.3.5.6-1
+- Resolves: bug 1273549 - [RFE] Improve timestamp resolution in logs (DS 47982)
+- Resolves: bug 1321124 - Replication changelog can incorrectly skip over updates (DS 48766, DS 48636)
+- Resolves: bug 1233926 - "matching rules" in ACI's "bind rules not fully evaluated (DS 48234)
+- Resolves: bug 1346165 - 389-ds-base-1.3.5.5-1.el7.x86_64 requires policycoreutils-py 
+
+* Mon Jun 13 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.5-1
+- Release 1.3.5.5-1
+- Resolves: bug 1018944 - [RFE] Enhance password change tracking (DS 48833)
+- Resolves: bug 1344414 - [RFE] adding pre/post extop ability (DS 48880)
+- Resolves: bug 1303794 - Import readNSState.py from RichM's repo (DS 48449)
+- Resolves: bug 1257568 - /usr/lib64/dirsrv/libnunc-stans.so is owned by both -libs and -devel (DS 48404)
+- Resolves: bug 1314956 - moving an entry cause next on-line init to skip entry has no parent, ending at line 0 of file "(bulk import)" (DS 48755)
+- Resolves: bug 1342609 - At startup DES to AES password conversion causes timeout in start script (DS 48862)
+- Resolves: bug 1316328 - search returns no entry when OR filter component contains non readable attribute (DS 48275)
+- Resolves: bug 1280456 - setup-ds should detect if port is already defined (DS 48336)
+- Resolves: bug 1312557 - dirsrv service fails to start when nsslapd-listenhost is configured (DS 48747)
+- Resolves: bug 1326077 - Page result search should return empty cookie if there is no returned entry (DS 48752)
+- Resolves: bug 1340307 - Running db2index with no options breaks replication (DS 48854)
+- Resolves: bug 1337195 - Regression introduced in matching rules by DS 48746 (DS 48844)
+- Resolves: bug 1335492 - Modifier's name is not recorded in the audit log with modrdn and moddn operations (DS 48834)
+- Resolves: bug 1316741 - ldctl should support -H with ldap uris (DS 48754)
+
+* Wed May 18 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.4-1
+- release 1.3.5.4-1
+- Resolves: bug 1334455 - db2ldif is not taking into account multiple suffixes or backends (DS 48828)
+- Resolves: bug 1241563 - The "repl-monitor" web page does not display "year" in date. (DS 48220)
+- Resolves: bug 1335618 - Server ram sanity checks work in isolation (DS 48617)
+- Resolves: bug 1333184 - (389-ds-base-1.3.5) Fixing coverity issues. (DS 48837)
+
+* Sat May  7 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.3-1
+- release 1.3.5.3-1
+- Resolves: bug 1209128 - [RFE] Add a utility to get the status of Directory Server instances (DS 48144)
+- Resolves: bug 1332533 - ns-accountstatus.pl gives error message on execution along with results. (DS 48815)
+- Resolves: bug 1332709 - password history is not updated when an admin resets the password (DS 48813)
+- Resolves: bug 1333184 - (389-ds-base-1.3.5) Fixing coverity issues. (DS 48822)
+- Resolves: bug 1333515 - Enable DS to offer weaker DH params in NSS  (DS 48798)
+
+* Tue May  3 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.2-1
+- release 1.3.5.2-1
+- Resolves: bug 1270020 - Rebase 389-ds-base to 1.3.5 in RHEL-7.3 
+- Resolves: bug 1288229 - many attrlist_replace errors in connection with cleanallruv (DS 48283)
+- Resolves: bug 1315893 - License tag does not match actual license of code (DS 48757)
+- Resolves: bug 1320715 - DES to AES password conversion fails if a backend is empty (DS 48777)
+- Resolves: bug 190862  - [RFE] Default password syntax settings don't work with fine-grained policies (DS 142)
+- Resolves: bug 1018944 - [RFE] Enhance password change tracking (DS 548)
+- Resolves: bug 1143066 - The dirsrv user/group should be created in rpm %pre, and ideally with fixed uid/gid (DS 48285)
+- Resolves: bug 1153758 - [RFE] Support SASL/GSSAPI when ns-slapd is behind a load-balancer (DS 48332)
+- Resolves: bug 1160902 - search, matching rules and filter error "unsupported type 0xA9" (DS 48016)
+- Resolves: bug 1186512 - High memory fragmentation observed in ns-slapd; OOM-Killer invoked (DS 48377, 48129)
+- Resolves: bug 1196282 - substring index with nssubstrbegin: 1 is not being used with filters like (attr=x*) (DS 48109)
+- Resolves: bug 1209094 - [RFE] Allow logging of rejected changes (DS 48145, 48280)
+- Resolves: bug 1209128 - [RFE] Add a utility to get the status of Directory Server instances (DS 48144)
+- Resolves: bug 1210842 - [RFE] Add PIDFile option to systemd service file (DS 47951)
+- Resolves: bug 1223510 - [RFE] it could be nice to have nsslapd-maxbersize default to bigger than 2Mb (DS 48326)
+- Resolves: bug 1229799 - ldclt-bin killed by SIGSEGV (DS 48289)
+- Resolves: bug 1249908 - No validation check for the value for nsslapd-db-locks. (DS 48244)
+- Resolves: bug 1254887 - No man page entry for - option '-u' of dbgen.pl for adding group entries with uniquemembers (DS 48290)
+- Resolves: bug 1255557 - db2index creates index entry from deleted records (DS 48252)
+- Resolves: bug 1258610 - total update request must not be lost (DS 48255)
+- Resolves: bug 1258611 - dna plugin needs to handle binddn groups for authorization (DS 48258)
+- Resolves: bug 1259624 - [RFE] Provide a utility to detect accounts locked due to inactivity (DS 48269)
+- Resolves: bug 1259950 - Add config setting to MemberOf Plugin to add required objectclass got memberOf attribute (DS 48267)
+- Resolves: bug 1266510 - Linked Attributes plug-in - wrong behaviour when adding valid and broken links (DS 48295)
+- Resolves: bug 1266532 - Linked Attributes plug-in - won't update links after MODRDN operation (DS 48294)
+- Resolves: bug 1267750 - pagedresults - when timed out, search results could have been already freed. (DS 48299)
+- Resolves: bug 1269378 - ds-logpipe.py with wrong arguments - python exception in the output (DS 48302)
+- Resolves: bug 1271330 - nunc-stans: Attempt to release connection that is not acquired (DS 48311)
+- Resolves: bug 1272677 - nunc stans: ns-slapd killed by SIGTERM
+- Resolves: bug 1272682 - nunc-stans: ns-slapd killed by SIGABRT
+- Resolves: bug 1273142 - crash in Managed Entry plugin (DS 48312)
+- Resolves: bug 1273549 - [RFE] Improve timestamp resolution in logs (DS 47982)
+- Resolves: bug 1273550 - Deadlock between two MODs on the same entry between entry cache and backend lock (DS 47978)
+- Resolves: bug 1273555 - deadlock in mep delete post op (DS 47976)
+- Resolves: bug 1273584 - lower password history minimum to 1 (DS 48394)
+- Resolves: bug 1275763 - [RFE] add setup-ds.pl option to disable instance specific scripts (DS 47840)
+- Resolves: bug 1276072 - [RFE] Allow RHDS to be setup using a DNS CNAME alias for General.FullMachineName (DS 48328)
+- Resolves: bug 1278567 - SimplePagedResults -- abandon could happen between the abandon check and sending results (DS 48338)
+- Resolves: bug 1278584 - Share nsslapd-threadnumber in the case nunc-stans is enabled, as well. (DS 48339)
+- Resolves: bug 1278755 - deadlock on connection mutex (DS 48341)
+- Resolves: bug 1278987 - Cannot upgrade a consumer to supplier in a multimaster environment (DS 48325)
+- Resolves: bug 1280123 - acl - regression - trailing ', (comma)' in macro matched value is not removed. (DS 48344)
+- Resolves: bug 1290111 - [RFE] Support for rfc3673 '+' to return operational attributes (DS 48363)
+- Resolves: bug 1290141 - With exhausted range, part of DNA shared configuration is deleted after server restart (DS 48362)
+- Resolves: bug 1290242 - SimplePagedResults -- in the search error case, simple paged results slot was not released. (DS 48375)
+- Resolves: bug 1290600 - The 'eq' index does not get updated properly when deleting and re-adding attributes in the same ldapmodify operation (DS 48370)
+- Resolves: bug 1295947 - 389-ds hanging after a few minutes of operation (DS 48406, revert 48338)
+- Resolves: bug 1296310 - ldclt - segmentation fault error while binding (DS 48400)
+- Resolves: bug 1299758 - CVE-2016-0741 389-ds-base: Worker threads do not detect abnormally closed connections causing DoS [rhel-7.3]
+- Resolves: bug 1301097 - logconv.pl displays negative operation speeds (DS 48446)
+- Resolves: bug 1302823 - Crash in slapi_get_object_extension (DS 48536)
+- Resolves: bug 1303641 - heap corruption at schema replication. (DS 48492)
+- Resolves: bug 1307151 - keep alive entries can break replication (DS 48445)
+- Resolves: bug 1310848 - Supplier can skip a failing update, although it should retry. (DS 47788)
+- Resolves: bug 1314557 - change severity of some messages related to "keep alive" enties (DS 48420)
+- Resolves: bug 1316580 - dirsrv service doesn't ask for pin when pin.txt is missing (DS 48450)
+- Resolves: bug 1316742 - no plugin calls in tombstone purging (DS 48759)
+- Resolves: bug 1319329 - [RFE] add nsslapd-auditlog-logging-enabled: off to template-dse.ldif (DS 48145)
+- Resolves: bug 1320295 - If nsSSL3 is on, even if SSL v3 is not really enabled, a confusing message is logged. (DS 48775)
+- Resolves: bug 1326520 - db2index uses a buffer size derived from dbcachesize (DS 48383)
+- Resolves: bug 1328936 - objectclass values could be dropped on the consumer (DS 48799)
+- Resolves: bug 1287475 - [RFE] response control for password age should be sent by default by RHDS (DS 48369)
+- Resolves: bug 1331343 - Paged results search returns the blank list of entries (DS 48808)
 
 * Mon Oct  5 2015 Noriko Hosoi <nhosoi@redhat.com> - 1.3.4.0-19
 - release 1.3.4.0-19

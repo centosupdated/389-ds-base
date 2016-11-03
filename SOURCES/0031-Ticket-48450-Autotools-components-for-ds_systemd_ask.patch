@@ -1,0 +1,76 @@
+From 1d4ad57ad50a33b8a1ef2db7d592f2adb09c3083 Mon Sep 17 00:00:00 2001
+From: William Brown <firstyear@redhat.com>
+Date: Mon, 8 Aug 2016 13:56:02 +1000
+Subject: [PATCH 31/32] Ticket 48450 - Autotools components for
+ ds_systemd_ask_password_acl
+
+Bug Description:  William forgot to add the Makefile.in to the commit. This was
+found in the rpm build because it does not run autoreconf to regenerate the
+Makefile.in, manifiesting as a missing file.
+
+Fix Description:  Commit Makefile.in
+
+https://fedorahosted.org/389/ticket/48450
+
+Author: wibrown
+
+Review by: nhosoi@redhat.com
+
+(cherry picked from commit c5e4ca4e1e0f1ab8be60df7453e6f0b126e6581c)
+---
+ Makefile.in | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/Makefile.in b/Makefile.in
+index 8109469..6788fe1 100644
+--- a/Makefile.in
++++ b/Makefile.in
+@@ -2044,7 +2044,8 @@ sbin_SCRIPTS = ldap/admin/src/scripts/setup-ds.pl \
+ 	ldap/admin/src/scripts/dbmon.sh \
+ 	ldap/admin/src/scripts/ds_selinux_enabled \
+ 	ldap/admin/src/scripts/ds_selinux_port_query \
+-    wrappers/ldap-agent
++	wrappers/ds_systemd_ask_password_acl \
++	wrappers/ldap-agent
+ 
+ bin_SCRIPTS = ldap/servers/slapd/tools/rsearch/scripts/dbgen.pl \
+ 	wrappers/dbscan \
+@@ -10359,7 +10360,7 @@ distdir: $(DISTFILES)
+ 	  ! -type d ! -perm -444 -exec $(install_sh) -c -m a+r {} {} \; \
+ 	|| chmod -R a+r "$(distdir)"
+ dist-gzip: distdir
+-	tardir=$(distdir) && $(am__tar) | GZIP=$(GZIP_ENV) gzip -c >$(distdir).tar.gz
++	tardir=$(distdir) && $(am__tar) | eval GZIP= gzip $(GZIP_ENV) -c >$(distdir).tar.gz
+ 	$(am__post_remove_distdir)
+ dist-bzip2: distdir
+ 	tardir=$(distdir) && $(am__tar) | BZIP2=$${BZIP2--9} bzip2 -c >$(distdir).tar.bz2
+@@ -10384,7 +10385,7 @@ dist-shar: distdir
+ 	@echo WARNING: "Support for shar distribution archives is" \
+ 	               "deprecated." >&2
+ 	@echo WARNING: "It will be removed altogether in Automake 2.0" >&2
+-	shar $(distdir) | GZIP=$(GZIP_ENV) gzip -c >$(distdir).shar.gz
++	shar $(distdir) | eval GZIP= gzip $(GZIP_ENV) -c >$(distdir).shar.gz
+ 	$(am__post_remove_distdir)
+ 
+ dist-zip: distdir
+@@ -10402,7 +10403,7 @@ dist dist-all:
+ distcheck: dist
+ 	case '$(DIST_ARCHIVES)' in \
+ 	*.tar.gz*) \
+-	  GZIP=$(GZIP_ENV) gzip -dc $(distdir).tar.gz | $(am__untar) ;;\
++	  eval GZIP= gzip $(GZIP_ENV) -dc $(distdir).tar.gz | $(am__untar) ;;\
+ 	*.tar.bz2*) \
+ 	  bzip2 -dc $(distdir).tar.bz2 | $(am__untar) ;;\
+ 	*.tar.lz*) \
+@@ -10412,7 +10413,7 @@ distcheck: dist
+ 	*.tar.Z*) \
+ 	  uncompress -c $(distdir).tar.Z | $(am__untar) ;;\
+ 	*.shar.gz*) \
+-	  GZIP=$(GZIP_ENV) gzip -dc $(distdir).shar.gz | unshar ;;\
++	  eval GZIP= gzip $(GZIP_ENV) -dc $(distdir).shar.gz | unshar ;;\
+ 	*.zip*) \
+ 	  unzip $(distdir).zip ;;\
+ 	esac
+-- 
+2.4.11
+

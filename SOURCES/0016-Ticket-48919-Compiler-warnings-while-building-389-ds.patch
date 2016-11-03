@@ -1,0 +1,97 @@
+From 6f55a77b49ecdec56817039308f7c07da820fb62 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Thu, 14 Jul 2016 19:09:21 -0700
+Subject: [PATCH] Ticket #48919 - Compiler warnings while building 389-ds-base
+ on RHEL7
+
+Description: Fixing additional covscan errors.
+1. RESOURCE_LEAK
+   ldap/servers/slapd/agtmmap.c
+   agt_mopen_stats - leaked_handle: Handle variable "fd" going out of scope leaks the handle.
+2. CHECKED_RETURN
+   ldap/servers/slapd/back-ldbm/cache.c
+   entrycache_return - check_return: Calling "remove_hash" without checking return value
+3. NULL_RETURNS
+   ldap/systools/idsktune.c
+   linux_check_cpu_features - dereference: Dereferencing a pointer that might be null "cpuinfo" when calling "fclose".
+4. UNINIT
+   ldap/servers/slapd/detach.c
+   detach - uninit_use: Using uninitialized value "rc".
+
+https://fedorahosted.org/389/ticket/48919
+(cherry picked from commit 381caf52a06ad8cefa9daa99586878249a4aa4f2)
+---
+ ldap/servers/slapd/agtmmap.c         | 1 +
+ ldap/servers/slapd/back-ldbm/cache.c | 6 ++++--
+ ldap/servers/slapd/detach.c          | 3 ++-
+ ldap/systools/idsktune.c             | 4 ++++
+ 4 files changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/agtmmap.c b/ldap/servers/slapd/agtmmap.c
+index 629bc1b..b9d66d9 100644
+--- a/ldap/servers/slapd/agtmmap.c
++++ b/ldap/servers/slapd/agtmmap.c
+@@ -167,6 +167,7 @@ agt_mopen_stats (char * statsfile, int mode, int *hdl)
+ #endif
+                        rc = err;
+                        free (buf);
++                       close(fd);
+                        goto bail;
+                    }
+                    free (buf);
+diff --git a/ldap/servers/slapd/back-ldbm/cache.c b/ldap/servers/slapd/back-ldbm/cache.c
+index bb4e55e..015cd48 100644
+--- a/ldap/servers/slapd/back-ldbm/cache.c
++++ b/ldap/servers/slapd/back-ldbm/cache.c
+@@ -1142,7 +1142,9 @@ entrycache_return(struct cache *cache, struct backentry **bep)
+                      * so we need to remove the entry from the DN cache because
+                      * we don't/can't always call cache_remove().
+                      */
+-                    remove_hash(cache->c_dntable, (void *)ndn, strlen(ndn));
++                    if (remove_hash(cache->c_dntable, (void *)ndn, strlen(ndn)) == 0) {
++                        LOG("entrycache_return: failed to remove %s from dn table\n", ndn, 0, 0);
++                    }
+                 }
+                 backentry_free(bep);
+             } else {
+@@ -1392,7 +1394,7 @@ entrycache_add_int(struct cache *cache, struct backentry *e, int state,
+                 return 0;
+             }
+             if(remove_hash(cache->c_dntable, (void *)ndn, strlen(ndn)) == 0){
+-                LOG("entrycache_add_int: failed to remove %s from dn table\n", 0, 0, 0);
++                LOG("entrycache_add_int: failed to remove %s from dn table\n", ndn, 0, 0);
+             }
+             e->ep_state |= ENTRY_STATE_NOTINCACHE;
+             cache_unlock(cache);
+diff --git a/ldap/servers/slapd/detach.c b/ldap/servers/slapd/detach.c
+index 54c6028..84a9eef 100644
+--- a/ldap/servers/slapd/detach.c
++++ b/ldap/servers/slapd/detach.c
+@@ -48,7 +48,8 @@ int
+ detach( int slapd_exemode, int importexport_encrypt,
+         int s_port, daemon_ports_t *ports_info )
+ {
+-	int i, sd, rc;
++	int i, sd;
++	int rc = 0;
+ 	char *workingdir = 0;
+ 	char *errorlog = 0;
+ 	char *ptr = 0;
+diff --git a/ldap/systools/idsktune.c b/ldap/systools/idsktune.c
+index 4c96529..08b7f12 100644
+--- a/ldap/systools/idsktune.c
++++ b/ldap/systools/idsktune.c
+@@ -875,6 +875,10 @@ linux_check_cpu_features(void)
+     char *token = NULL;
+     size_t size = 0;
+     int found = 0;
++    if (NULL == cpuinfo) {
++        printf("ERROR: Unable to check cpu features since opening \"/proc/cpuinfo\" failed.\n");
++        return;
++    }
+     while(getline(&arg, &size, cpuinfo) != -1)
+     {
+         if (strncmp("flags", arg, 5) == 0) {
+-- 
+2.4.11
+

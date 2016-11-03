@@ -1,0 +1,183 @@
+From 1cd2d9b06b8bc006078ed26bb0d3cbe808681a86 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Fri, 12 Aug 2016 14:06:21 +0200
+Subject: [PATCH 34/35] Ticket 48954 - replication fails because anchorcsn
+ cannot be found
+
+Bug Description: the anchorcsn is calculated based on supploier and consumer
+                 ruv. If this csn is not found in the changelog
+                 replication stops.
+
+Fix Description: Fix consists of two parts
+                 1. log start-iteration csn record for all replicas
+                    after initialization
+                 2. If the csn still cannot be found
+                    - log an error
+                    - use the closest csn available by calling
+                      cursor->c_get with DB_SET_RANGE instead of DB_SET
+
+https://fedorahosted.org/389/ticket/48954
+
+Reviewed by: Noriko, Thierry. thanks
+
+(cherry picked from commit 0721856d5a203689c15ea66ffe6c94ce4d785bd7)
+---
+ ldap/servers/plugins/replication/cl5_clcache.c   | 32 +++++++++++--
+ ldap/servers/plugins/replication/repl5_replica.c | 58 ++++++++++++++++--------
+ 2 files changed, 67 insertions(+), 23 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/cl5_clcache.c b/ldap/servers/plugins/replication/cl5_clcache.c
+index 2d3bb28..74f0fec 100644
+--- a/ldap/servers/plugins/replication/cl5_clcache.c
++++ b/ldap/servers/plugins/replication/cl5_clcache.c
+@@ -376,6 +376,7 @@ clcache_load_buffer_bulk ( CLC_Buffer *buf, int flag )
+ 	DBC *cursor = NULL;
+ 	int rc = 0;
+ 	int tries = 0;
++	int use_flag = flag;
+ 
+ #if 0 /* txn control seems not improving anything so turn it off */
+ 	if ( *(_pool->pl_dbenv) ) {
+@@ -400,20 +401,44 @@ clcache_load_buffer_bulk ( CLC_Buffer *buf, int flag )
+ retry:
+ 	if ( 0 == ( rc = clcache_open_cursor ( txn, buf, &cursor )) ) {
+ 
+-		if ( flag == DB_NEXT ) {
++		if ( use_flag == DB_NEXT ) {
+ 			/* For bulk read, position the cursor before read the next block */
+ 			rc = cursor->c_get ( cursor,
+ 								 & buf->buf_key,
+ 								 & buf->buf_data,
+ 								 DB_SET );
++			if (rc == DB_NOTFOUND) {
++				/* the start position in the changelog is not found
++				 * 1. log an error
++				 * 2. try to find another starting position as close
++				 *    as possible
++				 */
++				slapi_log_error ( SLAPI_LOG_FATAL, "clcache_load_buffer_bulk",
++							"changelog record with csn (%s) not found for DB_NEXT\n",
++							(char *)buf->buf_key.data );
++				rc = cursor->c_get ( cursor, & buf->buf_key, & buf->buf_data,
++							 DB_SET_RANGE );
++				/* this moves the cursor ahead of the tageted csn,
++				 * so we achieved what was intended with DB_SET/DB_NEXT
++				 * continute at this csn.
++				 */
++				use_flag = DB_CURRENT;
++			}
+ 		}
+ 
+ 		/*
+ 		 * Continue if the error is no-mem since we don't need to
+ 		 * load in the key record anyway with DB_SET.
+ 		 */
+-		if ( 0 == rc || DB_BUFFER_SMALL == rc )
+-			rc = clcache_cursor_get ( cursor, buf, flag );
++		if ( 0 == rc || DB_BUFFER_SMALL == rc ) {
++			rc = clcache_cursor_get ( cursor, buf, use_flag );
++			if ( rc == DB_NOTFOUND && use_flag == DB_SET) {
++				slapi_log_error ( SLAPI_LOG_FATAL, "clcache_load_buffer_bulk",
++							"changelog record with csn (%s) not found for DB_SET\n",
++							(char *)buf->buf_key.data );
++				rc = clcache_cursor_get ( cursor, buf, DB_SET_RANGE );
++			}
++		}
+ 
+ 	}
+ 
+@@ -434,6 +459,7 @@ retry:
+ 		/* back off */
+ 		interval = PR_MillisecondsToInterval(slapi_rand() % 100);
+ 		DS_Sleep(interval);
++		use_flag = flag;
+ 		goto retry;
+ 	}
+ 	if ((rc == DB_LOCK_DEADLOCK) && (tries >= MAX_TRIALS)) {
+diff --git a/ldap/servers/plugins/replication/repl5_replica.c b/ldap/servers/plugins/replication/repl5_replica.c
+index b5d65ef..7360d97 100644
+--- a/ldap/servers/plugins/replication/repl5_replica.c
++++ b/ldap/servers/plugins/replication/repl5_replica.c
+@@ -3794,41 +3794,59 @@ replica_remove_legacy_attr (const Slapi_DN *repl_root_sdn, const char *attr)
+     slapi_mods_done (&smods);
+     slapi_pblock_destroy (pb);
+ }
++typedef struct replinfo {
++    char *repl_gen;
++    char *repl_name;
++} replinfo;
++
++static int
++replica_log_start_iteration(const ruv_enum_data *rid_data, void *data)
++{
++    int rc = 0;
++    replinfo *r_info = (replinfo *)data;
++    slapi_operation_parameters op_params;
++
++    if (rid_data->csn == NULL) return 0;
++
++    memset (&op_params, 0, sizeof (op_params));
++    op_params.operation_type = SLAPI_OPERATION_DELETE;
++    op_params.target_address.sdn = slapi_sdn_new_ndn_byval(START_ITERATION_ENTRY_DN);
++    op_params.target_address.uniqueid = START_ITERATION_ENTRY_UNIQUEID;
++    op_params.csn = csn_dup(rid_data->csn);
++    rc = cl5WriteOperation(r_info->repl_name, r_info->repl_gen, &op_params, PR_FALSE);
++    if (rc == CL5_SUCCESS)
++        rc = 0;
++    else
++        rc = -1;
++
++    slapi_sdn_free(&op_params.target_address.sdn);
++    csn_free (&op_params.csn);
++
++    return rc;
++}
+ 
+ static int 
+ replica_log_ruv_elements_nolock (const Replica *r)
+ {
+     int rc = 0;
+-    slapi_operation_parameters op_params;
+     RUV *ruv;
+     char *repl_gen; 
+-    CSN *csn = NULL;
++    replinfo r_info;
+ 
+     ruv = (RUV*) object_get_data (r->repl_ruv);
+     PR_ASSERT (ruv);
+ 
+-    if ((ruv_get_min_csn(ruv, &csn) == RUV_SUCCESS) && csn)
+-    {
+         /* we log it as a delete operation to have the least number of fields
+            to set. the entry can be identified by a special target uniqueid and
+            special target dn */
+-        memset (&op_params, 0, sizeof (op_params));
+-        op_params.operation_type = SLAPI_OPERATION_DELETE;
+-        op_params.target_address.sdn = slapi_sdn_new_ndn_byval(START_ITERATION_ENTRY_DN);
+-        op_params.target_address.uniqueid = START_ITERATION_ENTRY_UNIQUEID;
+-        op_params.csn = csn;
+-        repl_gen = ruv_get_replica_generation (ruv);
+-
+-        rc = cl5WriteOperation(r->repl_name, repl_gen, &op_params, PR_FALSE); 
+-        if (rc == CL5_SUCCESS)
+-            rc = 0;
+-        else
+-            rc = -1;
++    repl_gen = ruv_get_replica_generation (ruv);
+ 
+-        slapi_ch_free ((void**)&repl_gen);
+-        slapi_sdn_free(&op_params.target_address.sdn);
+-        csn_free (&csn);
+-    }
++    r_info.repl_name = r->repl_name;
++    r_info.repl_gen = repl_gen;
++
++    rc = ruv_enumerate_elements(ruv, replica_log_start_iteration, &r_info);
++
++    slapi_ch_free ((void**)&repl_gen);
+ 
+     return rc;
+ }
+-- 
+2.4.11
+

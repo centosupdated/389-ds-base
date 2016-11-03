@@ -1,0 +1,48 @@
+From c9561cbb81fe1504a5741df44dd8c1103134c065 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Sat, 30 Jul 2016 16:56:57 -0700
+Subject: [PATCH 24/29] Ticket #48943 - When fine-grained policy is applied, a
+ sub-tree has a priority over a user while changing password
+
+Description: If the user entry has a pwdpolicysubentry, the configuration
+in the pwpolicy should be the strongest and respected.  If the entry does
+not have it, it retrieves the pwpolicy from the CoS Cache, which is the
+current behaviour.
+
+https://fedorahosted.org/389/ticket/48943
+
+Reviewed by wibrown@redhat.com (Thank you, William!!)
+
+(cherry picked from commit 802224f2846900c870a780fe7608782792806d85)
+---
+ ldap/servers/slapd/pw.c | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/pw.c b/ldap/servers/slapd/pw.c
+index 498afd4..6b865ec 100644
+--- a/ldap/servers/slapd/pw.c
++++ b/ldap/servers/slapd/pw.c
+@@ -1777,9 +1777,17 @@ new_passwdPolicy(Slapi_PBlock *pb, const char *dn)
+ 			attribute in the target entry itself. */
+ 		} else {
+ 			if ( (e = get_entry( pb, dn )) != NULL ) {
+-				rc = slapi_vattr_values_get(e, "pwdpolicysubentry", &values,
+-					&type_name_disposition, &actual_type_name, 
+-					SLAPI_VIRTUALATTRS_REQUEST_POINTERS, &attr_free_flags);
++				Slapi_Attr* attr = NULL;
++				rc = slapi_entry_attr_find(e, "pwdpolicysubentry", &attr);
++				if (attr && (0 == rc)) {
++					/* If the entry has pwdpolicysubentry, use the PwPolicy. */
++					values = valueset_dup(&attr->a_present_values);
++				} else {
++					/* Otherwise, retrieve the policy from CoS Cache */
++					rc = slapi_vattr_values_get(e, "pwdpolicysubentry", &values,
++						&type_name_disposition, &actual_type_name,
++						SLAPI_VIRTUALATTRS_REQUEST_POINTERS, &attr_free_flags);
++				}
+ 				if (rc) {
+ 					values = NULL;
+ 				}
+-- 
+2.4.11
+
