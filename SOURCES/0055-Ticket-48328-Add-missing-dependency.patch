@@ -1,0 +1,39 @@
+From b096ca5e299599081da15554df51b2a06db57a89 Mon Sep 17 00:00:00 2001
+From: Viktor Ashirov <vashirov@redhat.com>
+Date: Tue, 18 Oct 2016 10:31:16 +0200
+Subject: [PATCH 55/55] Ticket 48328 - Add missing dependency
+
+Bug Description:
+`host` utility is used in setup process to determine CNAME, but
+389-ds-base rpm package doesn't depend on bind-utils, which contains it.
+
+Fix Description:
+Add missing dependency for bind-utils.
+
+https://fedorahosted.org/389/ticket/48328
+
+Reviewed by: nhosoi@redhat.com (Thanks!)
+
+(cherry picked from commit 68a76403a6b240ad95d7f9457e01486f128ac4e9)
+(cherry picked from commit ed829078c9dc7b8a940119298f3e12a37034ecf4)
+---
+ rpm/389-ds-base.spec.in | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/rpm/389-ds-base.spec.in b/rpm/389-ds-base.spec.in
+index 0924cb5..404152d 100644
+--- a/rpm/389-ds-base.spec.in
++++ b/rpm/389-ds-base.spec.in
+@@ -123,6 +123,9 @@ Requires(post):   systemd-units
+ Requires(preun):  systemd-units
+ Requires(postun): systemd-units
+ 
++# for setup-ds.pl
++Requires:         bind-utils
++
+ # for setup-ds.pl to support ipv6 
+ %if %{use_Socket6}
+ Requires:         perl-Socket6
+-- 
+2.4.11
+

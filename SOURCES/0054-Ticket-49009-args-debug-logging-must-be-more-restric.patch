@@ -1,0 +1,47 @@
+From b2abc3558e531356385ff996512c742f65048fa7 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Fri, 14 Oct 2016 13:50:18 +0200
+Subject: [PATCH 54/55] Ticket 49009 - args debug logging must be more
+ restrictive
+
+Bug Description: turning on args debugging logs all attribute value, including #unhashed#
+
+Fix Description: filter unhashed attrs
+
+https://fedorahosted.org/389/ticket/49009
+
+Reviewed by: ?
+
+(cherry picked from commit 39870194a094ca8ebe3e8c7dea9090c2360307cf)
+---
+ ldap/servers/slapd/entry.c    | 1 +
+ ldap/servers/slapd/entrywsi.c | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/ldap/servers/slapd/entry.c b/ldap/servers/slapd/entry.c
+index d38f970..0cd3b60 100644
+--- a/ldap/servers/slapd/entry.c
++++ b/ldap/servers/slapd/entry.c
+@@ -3659,6 +3659,7 @@ entry_apply_mod( Slapi_Entry *e, const LDAPMod *mod )
+ 	  if((strcasecmp(mod->mod_type,"objectclass") == 0)  
+               && (strncasecmp((const char *)mod->mod_bvalues[i]->bv_val,"ldapsubentry",mod->mod_bvalues[i]->bv_len) == 0)) 
+ 	    sawsubentry=PR_TRUE;
++	  if (0==strcasecmp(PSEUDO_ATTR_UNHASHEDUSERPASSWORD,mod->mod_type)) continue;
+ 	  LDAPDebug( LDAP_DEBUG_ARGS, "   %s: %s\n", mod->mod_type, mod->mod_bvalues[i]->bv_val, 0 );
+ 	}
+ 	bvcnt = i;
+diff --git a/ldap/servers/slapd/entrywsi.c b/ldap/servers/slapd/entrywsi.c
+index a8f8455..1a4c6aa 100644
+--- a/ldap/servers/slapd/entrywsi.c
++++ b/ldap/servers/slapd/entrywsi.c
+@@ -920,6 +920,7 @@ entry_apply_mod_wsi(Slapi_Entry *e, const LDAPMod *mod, const CSN *csn, int urp)
+ 		for ( i = 0;
+ 		      mod->mod_bvalues != NULL && mod->mod_bvalues[i] != NULL;
+ 		      i++ ) {
++			if (0==strcasecmp(PSEUDO_ATTR_UNHASHEDUSERPASSWORD,mod->mod_type)) continue;
+ 			LDAPDebug( LDAP_DEBUG_ARGS, "   %s: %s\n",
+ 			           mod->mod_type, mod->mod_bvalues[i]->bv_val, 0 );
+ 		}
+-- 
+2.4.11
+

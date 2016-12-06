@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.5.10
-Release:          %{?relprefix}11%{?prerel}%{?dist}
+Release:          %{?relprefix}12%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://port389.org/
 Group:            System Environment/Daemons
@@ -114,6 +114,9 @@ Requires(post):   systemd-units
 Requires(preun):  systemd-units
 Requires(postun): systemd-units
 
+# for setup-ds.pl
+Requires:         bind-utils
+
 # for setup-ds.pl to support ipv6 
 %if %{use_Socket6}
 Requires:         perl-Socket6
@@ -183,6 +186,11 @@ Patch47:          0047-Ticket-48975-Disabling-CLEAR-password-storage-scheme.patc
 Patch48:          0048-Ticket-48957-Update-repl-monitor-to-handle-new-statu.patch
 Patch49:          0049-Ticket-48969-nsslapd-auditfaillog-always-has-an-expl.patch
 Patch50:          0050-Bug-1321124-use-a-consumer-maxcsn-only-as-anchor-if-.patch
+Patch51:          0051-Ticket-48992-Total-init-may-fail-if-the-pushed-schem.patch
+Patch52:          0052-Ticket-48909-Replication-stops-working-in-FIPS-mode.patch
+Patch53:          0053-Ticket-49014-ns-accountstatus.pl-shows-wrong-status-.patch
+Patch54:          0054-Ticket-49009-args-debug-logging-must-be-more-restric.patch
+Patch55:          0055-Ticket-48328-Add-missing-dependency.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -319,6 +327,11 @@ cp %{SOURCE2} README.devel
 %patch48 -p1
 %patch49 -p1
 %patch50 -p1
+%patch51 -p1
+%patch52 -p1
+%patch53 -p1
+%patch54 -p1
+%patch55 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -556,6 +569,14 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Oct 31 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-12
+- Release 1.3.5.10-12
+- Resolves: bug 1384785 - Replica install fails with old IPA master sometimes during replication process (DS 48992)
+- Resolves: bug 1388501 - 389-ds-base is missing runtime dependency - bind-utils (DS 48328)
+- Resolves: bug 1388581 - Replication stops working only when fips mode is set to true (DS 48909)
+- Resolves: bug 1390342 - ns-accountstatus.pl shows wrong status for accounts inactivated by Account policy plugin (DS 49014)
+- Resolves: bug 1390343 - trace args debug logging must be more restrictive (DS 49009)
+
 * Tue Sep 13 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-11
 - Release 1.3.5.10-11
 - Resolves: bug 1321124 - Replication changelog can incorrectly skip over updates
