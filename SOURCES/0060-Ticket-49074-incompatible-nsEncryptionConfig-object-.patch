@@ -1,0 +1,57 @@
+From fa0f215525e9bdfebdb0f84ab8e03b23dcb8197e Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Wed, 21 Dec 2016 16:31:48 +0100
+Subject: [PATCH 60/60] Ticket 49074 - incompatible nsEncryptionConfig object
+ definition prevents RHEL 7->6 schema replication
+
+Bug Description:
+    nsEncryptionConfig schema definition diverge since 1.3.x and 1.2.11.15-83.
+    Schema learning mechanism does not merge definition so the schema can not be pushed RHEL7->6.
+    This triggers schema violation errors
+
+Fix Description:
+    Defines nsTLS10, nsTLS11 and nsTLS12 attributetypes and add them to the allowed
+    attributes list of nsEncryptionConfig
+
+https://fedorahosted.org/389/ticket/49074
+
+Reviewed by: Noriko Hosoi (thanks!!)
+
+Platforms tested: RHEL7.3 vs RHEL6.8 and RHEL6.9
+
+Flag Day: no
+
+Doc impact: no
+
+(cherry picked from commit 64a425e4ea868bc1f08145490a7c8c9cf5c91581)
+(cherry picked from commit 238d3c74a6a289f4af2b6fdb66173df7840ff981)
+---
+ ldap/schema/01core389.ldif | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/schema/01core389.ldif b/ldap/schema/01core389.ldif
+index dfa4729..5e5f69f 100644
+--- a/ldap/schema/01core389.ldif
++++ b/ldap/schema/01core389.ldif
+@@ -91,6 +91,9 @@ attributeTypes: ( nsKeyfile-oid NAME 'nsKeyfile' DESC 'Netscape defined attribut
+ attributeTypes: ( nsSSL2-oid NAME 'nsSSL2' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
+ attributeTypes: ( nsSSL3-oid NAME 'nsSSL3' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
+ attributeTypes: ( nsTLS1-oid NAME 'nsTLS1' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
++attributeTypes: ( nsTLS10-oid NAME 'nsTLS10' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
++attributeTypes: ( nsTLS11-oid NAME 'nsTLS11' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
++attributeTypes: ( nsTLS12-oid NAME 'nsTLS12' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
+ attributeTypes: ( sslVersionMin-oid NAME 'sslVersionMin' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
+ attributeTypes: ( sslVersionMax-oid NAME 'sslVersionMax' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
+ attributeTypes: ( nsSSLClientAuth-oid NAME 'nsSSLClientAuth' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape' )
+@@ -314,7 +317,7 @@ objectClasses: ( 2.16.840.1.113730.3.2.103 NAME 'nsDS5ReplicationAgreement' DESC
+ objectClasses: ( 2.16.840.1.113730.3.2.39 NAME 'nsslapdConfig' DESC 'Netscape defined objectclass' SUP top MAY ( cn ) X-ORIGIN 'Netscape Directory Server' )
+ objectClasses: ( 2.16.840.1.113730.3.2.317 NAME 'nsSaslMapping' DESC 'Netscape defined objectclass' SUP top MUST ( cn $ nsSaslMapRegexString $ nsSaslMapBaseDNTemplate $ nsSaslMapFilterTemplate ) MAY ( nsSaslMapPriority ) X-ORIGIN 'Netscape Directory Server' )
+ objectClasses: ( 2.16.840.1.113730.3.2.43 NAME 'nsSNMP' DESC 'Netscape defined objectclass' SUP top MUST ( cn $ nsSNMPEnabled ) MAY ( nsSNMPOrganization $ nsSNMPLocation $ nsSNMPContact $ nsSNMPDescription $ nsSNMPName $ nsSNMPMasterHost $ nsSNMPMasterPort ) X-ORIGIN 'Netscape Directory Server' )
+-objectClasses: ( nsEncryptionConfig-oid NAME 'nsEncryptionConfig' DESC 'Netscape defined objectclass' SUP top MUST ( cn ) MAY ( nsCertfile $ nsKeyfile $ nsSSL2 $ nsSSL3 $ nsTLS1 $ sslVersionMin $ sslVersionMax $ nsSSLSessionTimeout $ nsSSL3SessionTimeout $ nsSSLClientAuth $ nsSSL2Ciphers $ nsSSL3Ciphers $ nsSSLSupportedCiphers $ allowWeakCipher $ CACertExtractFile $ allowWeakDHParam ) X-ORIGIN 'Netscape' )
++objectClasses: ( nsEncryptionConfig-oid NAME 'nsEncryptionConfig' DESC 'Netscape defined objectclass' SUP top MUST ( cn ) MAY ( nsCertfile $ nsKeyfile $ nsSSL2 $ nsSSL3 $ nsTLS1 $ nsTLS10 $ nsTLS11 $ nsTLS12 $ sslVersionMin $ sslVersionMax $ nsSSLSessionTimeout $ nsSSL3SessionTimeout $ nsSSLClientAuth $ nsSSL2Ciphers $ nsSSL3Ciphers $ nsSSLSupportedCiphers $ allowWeakCipher $ CACertExtractFile $ allowWeakDHParam ) X-ORIGIN 'Netscape' )
+ objectClasses: ( nsEncryptionModule-oid NAME 'nsEncryptionModule' DESC 'Netscape defined objectclass' SUP top MUST ( cn ) MAY ( nsSSLToken $ nsSSLPersonalityssl $ nsSSLActivation $ ServerKeyExtractFile $ ServerCertExtractFile ) X-ORIGIN 'Netscape' )
+ objectClasses: ( 2.16.840.1.113730.3.2.327 NAME 'rootDNPluginConfig' DESC 'Netscape defined objectclass' SUP top MUST ( cn ) MAY ( rootdn-open-time $ rootdn-close-time $ rootdn-days-allowed $ rootdn-allow-host $ rootdn-deny-host $ rootdn-allow-ip $ rootdn-deny-ip ) X-ORIGIN 'Netscape' )
+ objectClasses: ( 2.16.840.1.113730.3.2.328 NAME 'nsSchemaPolicy' DESC 'Netscape defined objectclass' SUP top  MAY ( cn $ schemaUpdateObjectclassAccept $ schemaUpdateObjectclassReject $ schemaUpdateAttributeAccept $ schemaUpdateAttributeReject) X-ORIGIN 'Netscape Directory Server' )
+-- 
+2.9.3
+

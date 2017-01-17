@@ -1,0 +1,470 @@
+From b2cda86aeddd85ecb712d047824e6d25da9222a7 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Mon, 5 Dec 2016 09:59:38 +0100
+Subject: [PATCH 57/57] Ticket 49020 - do not treat missing csn as fatal
+
+    This patch removes the automatic choice of an alternative csn when
+    the calculated anchor csn is not found.
+
+    In that case it does no longer go to fatal state but will retry later.
+
+    It also adds a configuration parameter to thr replication agreement to
+    allow to pick a "next best" anchorcsn if the original is not found to
+    keep replicatio going.
+
+    Reviewed by: Noriko, William
+
+(cherry picked from commit a2dee8fe6faa9fef5824d7852887b21f1158284a)
+---
+ ldap/schema/01core389.ldif                         |   3 +-
+ ldap/servers/plugins/replication/cl5_api.c         |  16 ++-
+ ldap/servers/plugins/replication/cl5_clcache.c     |  43 ++++----
+ ldap/servers/plugins/replication/cl5_clcache.h     |   2 +-
+ ldap/servers/plugins/replication/repl5.h           |   4 +
+ ldap/servers/plugins/replication/repl5_agmt.c      | 114 +++++++++++++++++++++
+ ldap/servers/plugins/replication/repl5_agmtlist.c  |  13 +++
+ .../plugins/replication/repl5_inc_protocol.c       |  12 ++-
+ ldap/servers/plugins/replication/repl_globals.c    |   1 +
+ 9 files changed, 171 insertions(+), 37 deletions(-)
+
+diff --git a/ldap/schema/01core389.ldif b/ldap/schema/01core389.ldif
+index ab07a0b..dfa4729 100644
+--- a/ldap/schema/01core389.ldif
++++ b/ldap/schema/01core389.ldif
+@@ -298,6 +298,7 @@ attributeTypes: ( 2.16.840.1.113730.3.1.2330 NAME 'nsslapd-logging-backend' DESC
+ attributeTypes: ( 2.16.840.1.113730.3.1.2331 NAME 'nsslapd-logging-hr-timestamps-enabled' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape Directory Server' )
+ attributeTypes: ( 2.16.840.1.113730.3.1.2332 NAME 'allowWeakDHParam' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 X-ORIGIN 'Netscape Directory Server' )
+ attributeTypes: ( 2.16.840.1.113730.3.1.2333 NAME 'nsds5ReplicaReleaseTimeout' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.27 SINGLE-VALUE X-ORIGIN 'Netscape Directory Server' )
++attributeTypes: ( 2.16.840.1.113730.3.1.2335 NAME 'nsds5ReplicaIgnoreMissingChange' DESC 'Netscape defined attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 SINGLE-VALUE X-ORIGIN 'Netscape Directory Server' )
+ #
+ # objectclasses
+ #
+@@ -309,7 +310,7 @@ objectClasses: ( 2.16.840.1.113730.3.2.110 NAME 'nsMappingTree' DESC 'Netscape d
+ objectClasses: ( 2.16.840.1.113730.3.2.104 NAME 'nsContainer' DESC 'Netscape defined objectclass' SUP top  MUST ( CN ) X-ORIGIN 'Netscape Directory Server' )
+ objectClasses: ( 2.16.840.1.113730.3.2.108 NAME 'nsDS5Replica' DESC 'Netscape defined objectclass' SUP top  MUST ( nsDS5ReplicaRoot $  nsDS5ReplicaId ) MAY (cn $ nsds5ReplicaPreciseTombstonePurging $ nsds5ReplicaCleanRUV $ nsds5ReplicaAbortCleanRUV $ nsDS5ReplicaType $ nsDS5ReplicaBindDN $ nsState $ nsDS5ReplicaName $ nsDS5Flags $ nsDS5Task $ nsDS5ReplicaReferral $ nsDS5ReplicaAutoReferral $ nsds5ReplicaPurgeDelay $ nsds5ReplicaTombstonePurgeInterval $ nsds5ReplicaChangeCount $ nsds5ReplicaLegacyConsumer $ nsds5ReplicaProtocolTimeout $ nsds5ReplicaBackoffMin $ nsds5ReplicaBackoffMax $ nsds5ReplicaReleaseTimeout ) X-ORIGIN 'Netscape Directory Server' )
+ objectClasses: ( 2.16.840.1.113730.3.2.113 NAME 'nsTombstone' DESC 'Netscape defined objectclass' SUP top MAY ( nstombstonecsn $ nsParentUniqueId $ nscpEntryDN ) X-ORIGIN 'Netscape Directory Server' )
+-objectClasses: ( 2.16.840.1.113730.3.2.103 NAME 'nsDS5ReplicationAgreement' DESC 'Netscape defined objectclass' SUP top MUST ( cn ) MAY ( nsds5ReplicaCleanRUVNotified $ nsDS5ReplicaHost $ nsDS5ReplicaPort $ nsDS5ReplicaTransportInfo $ nsDS5ReplicaBindDN $ nsDS5ReplicaCredentials $ nsDS5ReplicaBindMethod $ nsDS5ReplicaRoot $ nsDS5ReplicatedAttributeList $ nsDS5ReplicatedAttributeListTotal $ nsDS5ReplicaUpdateSchedule $ nsds5BeginReplicaRefresh $ description $ nsds50ruv $ nsruvReplicaLastModified $ nsds5ReplicaTimeout $ nsds5replicaChangesSentSinceStartup $ nsds5replicaLastUpdateEnd $ nsds5replicaLastUpdateStart $ nsds5replicaLastUpdateStatus $ nsds5replicaUpdateInProgress $ nsds5replicaLastInitEnd $ nsds5ReplicaEnabled $ nsds5replicaLastInitStart $ nsds5replicaLastInitStatus $ nsds5debugreplicatimeout $ nsds5replicaBusyWaitTime $ nsds5ReplicaStripAttrs $ nsds5replicaSessionPauseTime $ nsds5ReplicaProtocolTimeout $ nsds5ReplicaFlowControlWindow $ nsds5ReplicaFlowControlPause $ nsDS5ReplicaWaitForAsyncResults ) X-ORIGIN 'Netscape Directory Server' )
++objectClasses: ( 2.16.840.1.113730.3.2.103 NAME 'nsDS5ReplicationAgreement' DESC 'Netscape defined objectclass' SUP top MUST ( cn ) MAY ( nsds5ReplicaCleanRUVNotified $ nsDS5ReplicaHost $ nsDS5ReplicaPort $ nsDS5ReplicaTransportInfo $ nsDS5ReplicaBindDN $ nsDS5ReplicaCredentials $ nsDS5ReplicaBindMethod $ nsDS5ReplicaRoot $ nsDS5ReplicatedAttributeList $ nsDS5ReplicatedAttributeListTotal $ nsDS5ReplicaUpdateSchedule $ nsds5BeginReplicaRefresh $ description $ nsds50ruv $ nsruvReplicaLastModified $ nsds5ReplicaTimeout $ nsds5replicaChangesSentSinceStartup $ nsds5replicaLastUpdateEnd $ nsds5replicaLastUpdateStart $ nsds5replicaLastUpdateStatus $ nsds5replicaUpdateInProgress $ nsds5replicaLastInitEnd $ nsds5ReplicaEnabled $ nsds5replicaLastInitStart $ nsds5replicaLastInitStatus $ nsds5debugreplicatimeout $ nsds5replicaBusyWaitTime $ nsds5ReplicaStripAttrs $ nsds5replicaSessionPauseTime $ nsds5ReplicaProtocolTimeout $ nsds5ReplicaFlowControlWindow $ nsds5ReplicaFlowControlPause $ nsDS5ReplicaWaitForAsyncResults $ nsds5ReplicaIgnoreMissingChange) X-ORIGIN 'Netscape Directory Server' )
+ objectClasses: ( 2.16.840.1.113730.3.2.39 NAME 'nsslapdConfig' DESC 'Netscape defined objectclass' SUP top MAY ( cn ) X-ORIGIN 'Netscape Directory Server' )
+ objectClasses: ( 2.16.840.1.113730.3.2.317 NAME 'nsSaslMapping' DESC 'Netscape defined objectclass' SUP top MUST ( cn $ nsSaslMapRegexString $ nsSaslMapBaseDNTemplate $ nsSaslMapFilterTemplate ) MAY ( nsSaslMapPriority ) X-ORIGIN 'Netscape Directory Server' )
+ objectClasses: ( 2.16.840.1.113730.3.2.43 NAME 'nsSNMP' DESC 'Netscape defined objectclass' SUP top MUST ( cn $ nsSNMPEnabled ) MAY ( nsSNMPOrganization $ nsSNMPLocation $ nsSNMPContact $ nsSNMPDescription $ nsSNMPName $ nsSNMPMasterHost $ nsSNMPMasterPort ) X-ORIGIN 'Netscape Directory Server' )
+diff --git a/ldap/servers/plugins/replication/cl5_api.c b/ldap/servers/plugins/replication/cl5_api.c
+index 6a09aea..f8b2cea 100644
+--- a/ldap/servers/plugins/replication/cl5_api.c
++++ b/ldap/servers/plugins/replication/cl5_api.c
+@@ -310,7 +310,7 @@ static int _cl5WriteBervals (struct berval **bv, char** buff, u_int32_t *size);
+ static PRBool _cl5ValidReplayIterator (const CL5ReplayIterator *iterator);
+ #endif
+ static int _cl5PositionCursorForReplay (ReplicaId consumerRID, const RUV *consumerRuv,
+-			Object *replica, Object *fileObject, CL5ReplayIterator **iterator);
++		Object *replica, Object *fileObject, CL5ReplayIterator **iterator, int *continue_on_missing);
+ static int _cl5CheckMissingCSN (const CSN *minCsn, const RUV *supplierRUV, CL5DBFile *file);
+ 
+ /* changelog trimming */
+@@ -1536,7 +1536,7 @@ int cl5CreateReplayIteratorEx (Private_Repl_Protocol *prp, const RUV *consumerRu
+     	/* iterate through the ruv in csn order to find first master for which 
+ 	       we can replay changes */		    
+ 		
+-		rc = _cl5PositionCursorForReplay (consumerRID, consumerRuv, replica, obj, iterator);
++		rc = _cl5PositionCursorForReplay (consumerRID, consumerRuv, replica, obj, iterator, NULL);
+ 	}
+ 	else
+ 	{
+@@ -1597,7 +1597,13 @@ int cl5CreateReplayIterator (Private_Repl_Protocol *prp, const RUV *consumerRuv,
+     	/* iterate through the ruv in csn order to find first master for which 
+ 	       we can replay changes */		    
+ 		ReplicaId consumerRID = agmt_get_consumer_rid ( prp->agmt, prp->conn );
+-		rc = _cl5PositionCursorForReplay (consumerRID, consumerRuv, replica, obj, iterator);
++		int continue_on_missing = agmt_get_ignoremissing ( prp->agmt);
++		int save_cont_miss = continue_on_missing;
++		rc = _cl5PositionCursorForReplay (consumerRID, consumerRuv, replica, obj, iterator, &continue_on_missing);
++		if (save_cont_miss == 1 && continue_on_missing ==0) {
++			/* the option to continue once on a missing csn was used, rest */
++			agmt_set_ignoremissing ( prp->agmt, 0);
++		}
+ 	}
+ 	else
+ 	{
+@@ -5516,7 +5522,7 @@ struct replica_hash_entry
+ 
+ 
+ static int _cl5PositionCursorForReplay (ReplicaId consumerRID, const RUV *consumerRuv,
+-		Object *replica, Object *fileObj, CL5ReplayIterator **iterator)
++		Object *replica, Object *fileObj, CL5ReplayIterator **iterator, int *continue_on_missing)
+ {
+ 	CLC_Buffer *clcache = NULL;
+ 	CL5DBFile *file;
+@@ -5560,7 +5566,7 @@ static int _cl5PositionCursorForReplay (ReplicaId consumerRID, const RUV *consum
+ 	rc = clcache_get_buffer ( &clcache, file->db, consumerRID, consumerRuv, supplierRuv );
+ 	if ( rc != 0 ) goto done;
+ 
+-	rc = clcache_load_buffer (clcache, &startCSN);
++	rc = clcache_load_buffer (clcache, &startCSN, continue_on_missing);
+ 
+         if (rc == 0) {
+ 		haveChanges = PR_TRUE;
+diff --git a/ldap/servers/plugins/replication/cl5_clcache.c b/ldap/servers/plugins/replication/cl5_clcache.c
+index ca8b841..47789f4 100644
+--- a/ldap/servers/plugins/replication/cl5_clcache.c
++++ b/ldap/servers/plugins/replication/cl5_clcache.c
+@@ -324,7 +324,7 @@ clcache_return_buffer ( CLC_Buffer **buf )
+  *		       historic reason.
+  */
+ int
+-clcache_load_buffer ( CLC_Buffer *buf, CSN **anchorCSN )
++clcache_load_buffer ( CLC_Buffer *buf, CSN **anchorCSN, int *continue_on_miss )
+ {
+ 	int rc = 0;
+         int flag = DB_NEXT;
+@@ -345,6 +345,22 @@ clcache_load_buffer ( CLC_Buffer *buf, CSN **anchorCSN )
+ 		if (anchorCSN) *anchorCSN = buf->buf_current_csn;
+ 		rc = clcache_load_buffer_bulk ( buf, flag );
+ 
++		if (rc == DB_NOTFOUND && continue_on_miss && *continue_on_miss) {
++			/* make replication going using next best startcsn */
++			slapi_log_error(SLAPI_LOG_FATAL, buf->buf_agmt_name,
++					"clcache_load_buffer - Can't load changelog buffer starting at CSN %s with flag(%s). "
++					"Trying to use an alterantive start CSN.\n",
++					(char*)buf->buf_key.data,
++					flag==DB_NEXT?"DB_NEXT":"DB_SET" );
++			rc = clcache_load_buffer_bulk ( buf, DB_SET_RANGE );
++			if (rc == 0) {
++				slapi_log_error(SLAPI_LOG_FATAL, buf->buf_agmt_name,
++					"clcache_load_buffer - Using alternative start iteration csn: %s \n",
++					(char*)buf->buf_key.data);
++			}
++			/* the use of alternative start csns can be limited, record its usage */
++			(*continue_on_miss)--;
++		}
+ 		/* Reset some flag variables */
+ 		if ( rc == 0 ) {
+ 			int i;
+@@ -407,23 +423,6 @@ retry:
+ 								 & buf->buf_key,
+ 								 & buf->buf_data,
+ 								 DB_SET );
+-			if (rc == DB_NOTFOUND) {
+-				/* the start position in the changelog is not found
+-				 * 1. log an error
+-				 * 2. try to find another starting position as close
+-				 *    as possible
+-				 */
+-				slapi_log_error ( SLAPI_LOG_FATAL, "clcache_load_buffer_bulk",
+-							"changelog record with csn (%s) not found for DB_NEXT\n",
+-							(char *)buf->buf_key.data );
+-				rc = cursor->c_get ( cursor, & buf->buf_key, & buf->buf_data,
+-							 DB_SET_RANGE );
+-				/* this moves the cursor ahead of the tageted csn,
+-				 * so we achieved what was intended with DB_SET/DB_NEXT
+-				 * continute at this csn.
+-				 */
+-				use_flag = DB_CURRENT;
+-			}
+ 		}
+ 
+ 		/*
+@@ -432,12 +431,6 @@ retry:
+ 		 */
+ 		if ( 0 == rc || DB_BUFFER_SMALL == rc ) {
+ 			rc = clcache_cursor_get ( cursor, buf, use_flag );
+-			if ( rc == DB_NOTFOUND && use_flag == DB_SET) {
+-				slapi_log_error ( SLAPI_LOG_FATAL, "clcache_load_buffer_bulk",
+-							"changelog record with csn (%s) not found for DB_SET\n",
+-							(char *)buf->buf_key.data );
+-				rc = clcache_cursor_get ( cursor, buf, DB_SET_RANGE );
+-			}
+ 		}
+ 
+ 	}
+@@ -511,7 +504,7 @@ clcache_get_next_change ( CLC_Buffer *buf, void **key, size_t *keylen, void **da
+ 		 * We're done with the current buffer. Now load the next chunk.
+ 		 */
+ 		if ( NULL == *key && CLC_STATE_READY == buf->buf_state ) {
+-			rc = clcache_load_buffer ( buf, NULL );
++			rc = clcache_load_buffer ( buf, NULL, NULL );
+ 			if ( 0 == rc && buf->buf_record_ptr ) {
+ 				DB_MULTIPLE_KEY_NEXT ( buf->buf_record_ptr, &buf->buf_data,
+ 								   *key, *keylen, *data, *datalen );
+diff --git a/ldap/servers/plugins/replication/cl5_clcache.h b/ldap/servers/plugins/replication/cl5_clcache.h
+index 75b2817..6809542 100644
+--- a/ldap/servers/plugins/replication/cl5_clcache.h
++++ b/ldap/servers/plugins/replication/cl5_clcache.h
+@@ -23,7 +23,7 @@ typedef struct clc_buffer CLC_Buffer;
+ int	 clcache_init ( DB_ENV **dbenv );
+ void clcache_set_config ();
+ int	 clcache_get_buffer ( CLC_Buffer **buf, DB *db, ReplicaId consumer_rid, const RUV *consumer_ruv, const RUV *local_ruv );
+-int	 clcache_load_buffer ( CLC_Buffer *buf, CSN **anchorCSN );
++int	 clcache_load_buffer ( CLC_Buffer *buf, CSN **anchorCSN, int *continue_on_miss );
+ void clcache_return_buffer ( CLC_Buffer **buf );
+ int	 clcache_get_next_change ( CLC_Buffer *buf, void **key, size_t *keylen, void **data, size_t *datalen, CSN **csn );
+ void clcache_destroy ();
+diff --git a/ldap/servers/plugins/replication/repl5.h b/ldap/servers/plugins/replication/repl5.h
+index 13a38fd..6582876 100644
+--- a/ldap/servers/plugins/replication/repl5.h
++++ b/ldap/servers/plugins/replication/repl5.h
+@@ -154,6 +154,7 @@ extern const char *type_replicaReleaseTimeout;
+ extern const char *type_replicaBackoffMin;
+ extern const char *type_replicaBackoffMax;
+ extern const char *type_replicaPrecisePurge;
++extern const char *type_replicaIgnoreMissingChange;
+ 
+ /* Attribute names for windows replication agreements */
+ extern const char *type_nsds7WindowsReplicaArea;
+@@ -317,6 +318,7 @@ long agmt_get_busywaittime(const Repl_Agmt *ra);
+ long agmt_get_pausetime(const Repl_Agmt *ra);
+ long agmt_get_flowcontrolwindow(const Repl_Agmt *ra);
+ long agmt_get_flowcontrolpause(const Repl_Agmt *ra);
++long agmt_get_ignoremissing(const Repl_Agmt *ra);
+ int agmt_start(Repl_Agmt *ra);
+ int windows_agmt_start(Repl_Agmt *ra); 
+ int agmt_stop(Repl_Agmt *ra);
+@@ -339,6 +341,7 @@ int agmt_set_schedule_from_entry( Repl_Agmt *ra, const Slapi_Entry *e );
+ int agmt_set_timeout_from_entry( Repl_Agmt *ra, const Slapi_Entry *e );
+ int agmt_set_flowcontrolwindow_from_entry(Repl_Agmt *ra, const Slapi_Entry *e);
+ int agmt_set_flowcontrolpause_from_entry(Repl_Agmt *ra, const Slapi_Entry *e);
++int agmt_set_ignoremissing_from_entry(Repl_Agmt *ra, const Slapi_Entry *e);
+ int agmt_set_busywaittime_from_entry( Repl_Agmt *ra, const Slapi_Entry *e );
+ int agmt_set_pausetime_from_entry( Repl_Agmt *ra, const Slapi_Entry *e );
+ int agmt_set_credentials_from_entry( Repl_Agmt *ra, const Slapi_Entry *e );
+@@ -385,6 +388,7 @@ int agmt_set_enabled_from_entry(Repl_Agmt *ra, Slapi_Entry *e, char *returntext)
+ char **agmt_get_attrs_to_strip(Repl_Agmt *ra);
+ int agmt_set_attrs_to_strip(Repl_Agmt *ra, Slapi_Entry *e);
+ int agmt_set_timeout(Repl_Agmt *ra, long timeout);
++int agmt_set_ignoremissing(Repl_Agmt *ra, long ignoremissing);
+ void agmt_update_done(Repl_Agmt *ra, int is_total);
+ PRUint64 agmt_get_protocol_timeout(Repl_Agmt *agmt);
+ void agmt_set_protocol_timeout(Repl_Agmt *agmt, PRUint64 timeout);
+diff --git a/ldap/servers/plugins/replication/repl5_agmt.c b/ldap/servers/plugins/replication/repl5_agmt.c
+index 52cc8b6..b089f97 100644
+--- a/ldap/servers/plugins/replication/repl5_agmt.c
++++ b/ldap/servers/plugins/replication/repl5_agmt.c
+@@ -124,6 +124,7 @@ typedef struct repl5agmt {
+ 	long flowControlPause; /* When nb of not acknowledged entries overpass totalUpdateWindow
+ 	                        * This is the duration (in msec) that the RA will pause before sending the next entry
+ 	                        */
++	long ignoreMissingChange;	/* if set replication will try to continue even if change cannot be found in changelog */
+ 	Slapi_RWLock *attr_lock; /* RW lock for all the stripped attrs */
+ 	int WaitForAsyncResults; /* Pass to DS_Sleep(PR_MillisecondsToInterval(WaitForAsyncResults))
+ 	                          * in repl5_inc_waitfor_async_results */
+@@ -137,6 +138,7 @@ static int get_agmt_status(Slapi_PBlock *pb, Slapi_Entry* e,
+ static int agmt_set_bind_method_no_lock(Repl_Agmt *ra, const Slapi_Entry *e);
+ static int agmt_set_transportinfo_no_lock(Repl_Agmt *ra, const Slapi_Entry *e);
+ static ReplicaId agmt_maxcsn_get_rid(char *maxcsn);
++static void agmt_replica_reset_ignoremissing (const Repl_Agmt *agmt);
+ 
+ /*
+ Schema for replication agreement:
+@@ -349,6 +351,21 @@ agmt_new_from_entry(Slapi_Entry *e)
+ 		}
+ 	}
+ 
++	/* continue on missing change ? */
++	ra->ignoreMissingChange = 0;
++	tmpstr = slapi_entry_attr_get_charptr(e, type_replicaIgnoreMissingChange);
++	if (NULL != tmpstr)
++	{
++		if (strcasecmp(tmpstr,"off") == 0 || strcasecmp(tmpstr,"never") == 0) {
++			ra->ignoreMissingChange = 0;
++		} else if (strcasecmp(tmpstr,"on") == 0 || strcasecmp(tmpstr,"once") == 0) {
++			ra->ignoreMissingChange = 1;
++		} else if (strcasecmp(tmpstr,"always") == 0) {
++			ra->ignoreMissingChange = -1;
++		}
++		slapi_ch_free_string(&tmpstr);
++	}
++
+ 	/* DN of entry at root of replicated area */
+ 	tmpstr = slapi_entry_attr_get_charptr(e, type_nsds5ReplicaRoot);
+ 	if (NULL != tmpstr)
+@@ -1131,6 +1148,16 @@ agmt_get_flowcontrolpause(const Repl_Agmt *ra)
+ 	PR_Unlock(ra->lock);
+ 	return return_value;
+ }
++long
++agmt_get_ignoremissing(const Repl_Agmt *ra)
++{
++	long return_value;
++	PR_ASSERT(NULL != ra);
++	PR_Lock(ra->lock);
++	return_value = ra->ignoreMissingChange;
++	PR_Unlock(ra->lock);
++	return return_value;
++}
+ /*
+  * Warning - reference to the long name of the agreement is returned.
+  * The long name of an agreement is the DN of the agreement entry,
+@@ -1996,6 +2023,48 @@ agmt_set_flowcontrolpause_from_entry(Repl_Agmt *ra, const Slapi_Entry *e)
+ 	}
+ 	return return_value;
+ }
++/* add comment here */
++int
++agmt_set_ignoremissing_from_entry(Repl_Agmt *ra, const Slapi_Entry *e)
++{
++	Slapi_Attr *sattr = NULL;
++	int return_value = -1;
++
++	PR_ASSERT(NULL != ra);
++	PR_Lock(ra->lock);
++	if (ra->stop_in_progress)
++	{
++		PR_Unlock(ra->lock);
++		return return_value;
++	}
++
++	slapi_entry_attr_find(e, type_replicaIgnoreMissingChange, &sattr);
++	if (NULL != sattr)
++	{
++		Slapi_Value *sval = NULL;
++		slapi_attr_first_value(sattr, &sval);
++		if (NULL != sval)
++		{
++			const char *tmpval = slapi_value_get_string(sval);
++			if (strcasecmp(tmpval,"off") == 0 || strcasecmp(tmpval,"never") == 0) {
++				ra->ignoreMissingChange = 0;
++				return_value = 0;
++			} else if (strcasecmp(tmpval,"on") == 0 || strcasecmp(tmpval,"once") == 0) {
++				ra->ignoreMissingChange = 1;
++				return_value = 0;
++			} else if (strcasecmp(tmpval,"always") == 0) {
++				ra->ignoreMissingChange = -1;
++				return_value = 0;
++			}
++		}
++	}
++	PR_Unlock(ra->lock);
++	if (return_value == 0)
++	{
++		prot_notify_agmt_changed(ra->protocol, ra->long_name);
++	}
++	return return_value;
++}
+ 
+ int
+ agmt_set_timeout(Repl_Agmt *ra, long timeout)
+@@ -2036,6 +2105,20 @@ agmt_set_flowcontrolpause(Repl_Agmt *ra, long pause)
+ 
+     return 0;
+ }
++int
++agmt_set_ignoremissing(Repl_Agmt *ra, long ignoremissing)
++{
++    PR_Lock(ra->lock);
++    if (ra->stop_in_progress){
++        PR_Unlock(ra->lock);
++        return -1;
++    }
++    ra->ignoreMissingChange = ignoremissing;
++    PR_Unlock(ra->lock);
++    /* if reset to 0 update the entry */
++    agmt_replica_reset_ignoremissing(ra);
++    return 0;
++}
+ 
+ /*
+  * Set or reset the busywaittime
+@@ -2272,6 +2355,37 @@ agmt_replica_init_done (const Repl_Agmt *agmt)
+     slapi_pblock_destroy (pb);
+ }
+ 
++
++/* delete nsds5replicaIgnoreMissingChange attribute */
++static void
++agmt_replica_reset_ignoremissing (const Repl_Agmt *agmt)
++{
++    int rc;
++    Slapi_PBlock *pb = slapi_pblock_new ();
++    LDAPMod *mods [2];
++    LDAPMod mod;
++
++    mods[0] = &mod;
++    mods[1] = NULL;
++    mod.mod_op = LDAP_MOD_DELETE | LDAP_MOD_BVALUES;
++    mod.mod_type = (char*)type_replicaIgnoreMissingChange;
++    mod.mod_bvalues = NULL;
++
++    slapi_modify_internal_set_pb_ext(pb, agmt->dn, mods, NULL/* controls */,
++          NULL/* uniqueid */, repl_get_plugin_identity (PLUGIN_MULTIMASTER_REPLICATION), 0/* flags */);
++    slapi_modify_internal_pb (pb);
++
++    slapi_pblock_get(pb, SLAPI_PLUGIN_INTOP_RESULT, &rc);
++    if (rc != LDAP_SUCCESS && rc != LDAP_NO_SUCH_ATTRIBUTE)
++    {
++        slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name, "agmt_replica_ignoremissing: "
++                        "failed to remove (%s) attribute from (%s) entry; LDAP error - %d\n",
++                        type_replicaIgnoreMissingChange, slapi_sdn_get_ndn (agmt->dn), rc);
++    }
++
++    slapi_pblock_destroy (pb);
++}
++
+ /* Agreement object is acquired on behalf of the caller.
+    The caller is responsible for releasing the object
+    when it is no longer used */
+diff --git a/ldap/servers/plugins/replication/repl5_agmtlist.c b/ldap/servers/plugins/replication/repl5_agmtlist.c
+index f50862f..2e6a7de 100644
+--- a/ldap/servers/plugins/replication/repl5_agmtlist.c
++++ b/ldap/servers/plugins/replication/repl5_agmtlist.c
+@@ -399,6 +399,19 @@ agmtlist_modify_callback(Slapi_PBlock *pb, Slapi_Entry *entryBefore, Slapi_Entry
+ 			}
+ 		}
+ 		else if (slapi_attr_types_equivalent(mods[i]->mod_type,
++					type_replicaIgnoreMissingChange))
++		{
++			/* New replica timeout */
++			if (agmt_set_ignoremissing_from_entry(agmt, e) != 0)
++			{
++				slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name, "agmtlist_modify_callback - "
++						"Failed to update the ignorMissingChange attribute for agreement %s\n",
++						agmt_get_long_name(agmt));
++				*returncode = LDAP_OPERATIONS_ERROR;
++				rc = SLAPI_DSE_CALLBACK_ERROR;
++			}
++		}
++		else if (slapi_attr_types_equivalent(mods[i]->mod_type,
+ 					type_nsds5ReplicaBusyWaitTime))
+ 		{
+ 			/* New replica busywaittime */
+diff --git a/ldap/servers/plugins/replication/repl5_inc_protocol.c b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+index d1de6c5..5ab865a 100644
+--- a/ldap/servers/plugins/replication/repl5_inc_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_inc_protocol.c
+@@ -1706,16 +1706,18 @@ send_updates(Private_Repl_Protocol *prp, RUV *remote_update_vector, PRUint32 *nu
+ 				agmt_get_long_name(prp->agmt));
+ 			agmt_set_last_update_status(prp->agmt, 0, NSDS50_REPL_CL_ERROR,
+ 				"Data required to update replica has been purged from the changelog. "
+-				"The replica must be reinitialized.");
+-			return_value = UPDATE_FATAL_ERROR;
++				"If the error persists the replica must be reinitialized.");
++			return_value = UPDATE_TRANSIENT_ERROR;
+ 			break;
+ 		case CL5_MISSING_DATA:   /* data should be in the changelog, but is missing */
+ 			slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name,
+-				"%s: Missing data encountered\n",
++				"send_updates - %s: Missing data encountered. "
++				"If the error persists the replica must be reinitialized.\n",
+ 				agmt_get_long_name(prp->agmt));
+ 			agmt_set_last_update_status(prp->agmt, 0, NSDS50_REPL_CL_ERROR,
+-				"Changelog data is missing");
+-			return_value = UPDATE_FATAL_ERROR;
++				"Changelog data is missing. "
++				"If the error persists the replica must be reinitialized.");
++			return_value = UPDATE_TRANSIENT_ERROR;
+ 			break;
+ 		case CL5_UNKNOWN_ERROR:   /* unclassified error */
+ 			slapi_log_error(SLAPI_LOG_FATAL, repl_plugin_name,
+diff --git a/ldap/servers/plugins/replication/repl_globals.c b/ldap/servers/plugins/replication/repl_globals.c
+index 8b891fb..ab85e7f 100644
+--- a/ldap/servers/plugins/replication/repl_globals.c
++++ b/ldap/servers/plugins/replication/repl_globals.c
+@@ -114,6 +114,7 @@ const char *type_nsds5ReplicaStripAttrs = "nsds5ReplicaStripAttrs";
+ const char* type_nsds5ReplicaFlowControlWindow = "nsds5ReplicaFlowControlWindow";
+ const char* type_nsds5ReplicaFlowControlPause = "nsds5ReplicaFlowControlPause";
+ const char *type_nsds5WaitForAsyncResults = "nsds5ReplicaWaitForAsyncResults";
++const char* type_replicaIgnoreMissingChange = "nsds5ReplicaIgnoreMissingChange";
+ 
+ /* windows sync specific attributes */
+ const char *type_nsds7WindowsReplicaArea = "nsds7WindowsReplicaSubtree";
+-- 
+2.4.11
+

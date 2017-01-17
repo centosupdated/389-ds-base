@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.5.10
-Release:          %{?relprefix}12%{?prerel}%{?dist}
+Release:          %{?relprefix}15%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://port389.org/
 Group:            System Environment/Daemons
@@ -191,6 +191,11 @@ Patch52:          0052-Ticket-48909-Replication-stops-working-in-FIPS-mode.patch
 Patch53:          0053-Ticket-49014-ns-accountstatus.pl-shows-wrong-status-.patch
 Patch54:          0054-Ticket-49009-args-debug-logging-must-be-more-restric.patch
 Patch55:          0055-Ticket-48328-Add-missing-dependency.patch
+Patch56:          0056-Ticket-48133-v2-Non-tombstone-entry-which-dn-startin.patch
+Patch57:          0057-Ticket-49020-do-not-treat-missing-csn-as-fatal.patch
+Patch58:          0058-Ticket-48964-cleanallruv-changelog-purging-removes-w.patch
+Patch59:          0059-Ticket-48964-should-not-free-repl-name-after-purging.patch
+Patch60:          0060-Ticket-49074-incompatible-nsEncryptionConfig-object-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -332,6 +337,11 @@ cp %{SOURCE2} README.devel
 %patch53 -p1
 %patch54 -p1
 %patch55 -p1
+%patch56 -p1
+%patch57 -p1
+%patch58 -p1
+%patch59 -p1
+%patch60 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -569,6 +579,20 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Wed Jan  4 2017 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-15
+- Release 1.3.5.10-15
+- Resolves: bug 1402325 - do not treat missing csn as fatal (DS 48964)
+- Resolves: bug 1410080 - incompatible nsEncryptionConfig object definition prevents RHEL 7->6 schema replication (DS 49074)
+
+* Fri Dec 23 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-14
+- Release 1.3.5.10-14
+- Resolves: bug 1402325 - do not treat missing csn as fatal (DS 48964)
+
+* Mon Dec 12 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-13
+- Release 1.3.5.10-13
+- Resolves: bug 1402030 - Non tombstone entry which dn starting with "nsuniqueid=...," cannot be deleted (DS 48133)
+- Resolves: bug 1402325 - do not treat missing csn as fatal (DS 49020)
+
 * Mon Oct 31 2016 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-12
 - Release 1.3.5.10-12
 - Resolves: bug 1384785 - Replica install fails with old IPA master sometimes during replication process (DS 48992)
