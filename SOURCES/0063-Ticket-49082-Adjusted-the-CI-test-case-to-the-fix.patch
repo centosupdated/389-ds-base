@@ -1,0 +1,33 @@
+From ee9b5c5dc3f4382ee73abefb9d2e3c275e62d6c8 Mon Sep 17 00:00:00 2001
+From: Noriko Hosoi <nhosoi@redhat.com>
+Date: Wed, 11 Jan 2017 15:14:07 -0800
+Subject: [PATCH 63/67] Ticket #49082 - Adjusted the CI test case to the fix.
+
+Description: Fix password expiration related shadow attributes
+(cherry picked from commit 5a6a5a18d0458bd147af57a06158245f329ddba3)
+(cherry picked from commit b9e565df5d304ba9fb516b987ad62480590a5845)
+---
+ dirsrvtests/tests/tickets/ticket548_test.py | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/dirsrvtests/tests/tickets/ticket548_test.py b/dirsrvtests/tests/tickets/ticket548_test.py
+index d29fa53..dea7c3c 100644
+--- a/dirsrvtests/tests/tickets/ticket548_test.py
++++ b/dirsrvtests/tests/tickets/ticket548_test.py
+@@ -98,6 +98,13 @@ def set_global_pwpolicy(topology, min_=1, max_=10, warn=3):
+         log.error('Failed to set passwordMinAge: error ' + e.message['desc'])
+         assert False
+ 
++    log.info("		Set global password Expiration -- on\n")
++    try:
++        topology_st.standalone.modify_s(DN_CONFIG, [(ldap.MOD_REPLACE, 'passwordExp', 'on')])
++    except ldap.LDAPError as e:
++        log.error('Failed to set passwordExp: error ' + e.message['desc'])
++        assert False
++
+     log.info("		Set global password Max Age -- %s days\n" % max_)
+     try:
+         topology.standalone.modify_s(DN_CONFIG, [(ldap.MOD_REPLACE, 'passwordMaxAge', '%s' % max_secs)])
+-- 
+2.9.3
+

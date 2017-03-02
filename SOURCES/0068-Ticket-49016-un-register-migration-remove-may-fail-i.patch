@@ -1,0 +1,59 @@
+From 99a0def5c6b9910616d95ee7cd15ecad5b406951 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Mon, 30 Jan 2017 17:38:01 +0100
+Subject: [PATCH] Ticket 49016 - (un)register/migration/remove may fail if
+ there is no suffix on 'userRoot' backend
+
+Bug Description:
+    Previous fix was incomplete in case none of the backend entries have
+    'nsslapd-suffix' value
+
+Fix Description:
+
+    Just return if $suffix keep unmodified
+
+https://fedorahosted.org/389/ticket/49016
+
+Reviewed by: nhosoi
+
+Platforms tested: F23, F25
+
+Flag Day: no
+
+Doc impact: no
+
+(cherry picked from commit bd5fdfc8f4a560eae99672b712235c1260ee42b0)
+(cherry picked from commit 1abb0ffb2930d019f58d5dac1937ddbb56c9287f)
+---
+ ldap/admin/src/scripts/DSUtil.pm.in | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/admin/src/scripts/DSUtil.pm.in b/ldap/admin/src/scripts/DSUtil.pm.in
+index eac59a3..c8eb14d 100644
+--- a/ldap/admin/src/scripts/DSUtil.pm.in
++++ b/ldap/admin/src/scripts/DSUtil.pm.in
+@@ -965,7 +965,7 @@ sub createInfFromConfig {
+     $inf->{slapd}->{ServerPort} = $ent->getValues('nsslapd-port');
+     $inf->{slapd}->{ServerIdentifier} = $id;
+ 
+-    my $suffix;
++    my $suffix = "";
+     $ent = $conn->search("cn=ldbm database,cn=plugins,cn=config",
+                          "one", "(objectclass=*)");
+     if (!$ent) {
+@@ -981,6 +981,12 @@ sub createInfFromConfig {
+         last if ($ent->hasValue('cn', 'userRoot', 1));
+         $ent = $conn->nextEntry();
+     }
++    if ( "" eq "$suffix" )
++    {
++        push @{$errs}, "error_opening_dseldif", $fname, $!;
++        $conn->close();
++        return 0;
++    }
+ 
+     # we also need the instance dir
+     $ent = $conn->search("cn=config", "base", "(objectclass=*)");
+-- 
+2.9.3
+

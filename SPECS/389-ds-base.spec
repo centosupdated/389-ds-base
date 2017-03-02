@@ -34,9 +34,9 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.5.10
-Release:          %{?relprefix}15%{?prerel}%{?dist}
+Release:          %{?relprefix}18%{?prerel}%{?dist}
 License:          GPLv3+
-URL:              https://port389.org/
+URL:              https://www.port389.org/
 Group:            System Environment/Daemons
 BuildRoot:        %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 Obsoletes:        %{name}-selinux
@@ -196,6 +196,15 @@ Patch57:          0057-Ticket-49020-do-not-treat-missing-csn-as-fatal.patch
 Patch58:          0058-Ticket-48964-cleanallruv-changelog-purging-removes-w.patch
 Patch59:          0059-Ticket-48964-should-not-free-repl-name-after-purging.patch
 Patch60:          0060-Ticket-49074-incompatible-nsEncryptionConfig-object-.patch
+Patch61:          0061-Ticket-49080-shadowExpire-should-not-be-a-calculated.patch
+Patch62:          0062-Ticket-49082-Fix-password-expiration-related-shadow-.patch
+Patch63:          0063-Ticket-49082-Adjusted-the-CI-test-case-to-the-fix.patch
+Patch64:          0064-Ticket-49008-backport-1.3.5-aborted-operation-can-le.patch
+Patch65:          0065-Ticket-49008-backport-1.3.5-aborted-operation-can-le.patch
+Patch66:          0066-Ticket-49079-deadlock-on-cos-cache-rebuild.patch
+Patch67:          0067-Ticket-49016-un-register-migration-remove-may-fail-i.patch
+Patch68:          0068-Ticket-49016-un-register-migration-remove-may-fail-i.patch
+Patch69:          0069-fix-for-reg-in-49008-check-if-ruv-element-exists.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -342,6 +351,15 @@ cp %{SOURCE2} README.devel
 %patch58 -p1
 %patch59 -p1
 %patch60 -p1
+%patch61 -p1
+%patch62 -p1
+%patch63 -p1
+%patch64 -p1
+%patch65 -p1
+%patch66 -p1
+%patch67 -p1
+%patch68 -p1
+%patch69 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -579,6 +597,21 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Thu Feb 16 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.5.10-18
+- Release 1.3.5.10-18
+- Resolves: bug 1387340 - Aborted operation can leave RUV in incorrect state 
+
+* Tue Jan 31 2017 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-17
+- Release 1.3.5.10-17
+- Resolves: bug 1414677 - (un)register/migration/remove may fail if there is no suffix (DS 49016)
+
+* Wed Jan 25 2017 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-16
+- Release 1.3.5.10-16
+- Resolves: bug 1414677 - (un)register/migration/remove may fail if there is no suffix (DS 49016)
+- Resolves: bug 1414678 - deadlock on cos cache rebuild (DS 49079)
+- Resolves: bug 1414679 - Release 1.3.5 may allow expired accounts access to systems (DS 49080, DS 49082)
+- Resolves: bug 1416368 - Aborted operation can leave RUV in incorrect state (DS 49008)
+
 * Wed Jan  4 2017 Noriko Hosoi <nhosoi@redhat.com> - 1.3.5.10-15
 - Release 1.3.5.10-15
 - Resolves: bug 1402325 - do not treat missing csn as fatal (DS 48964)

@@ -1,0 +1,34 @@
+From 7a5d77d8a65d65ed7c5fa94abf952669993f45c2 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Tue, 7 Feb 2017 17:02:00 +0100
+Subject: [PATCH] fix for reg in 49008, check if ruv element exists
+
+(cherry picked from commit 23d98baa8aadab80691680ba065563ad1e35591c)
+---
+ ldap/servers/plugins/replication/repl5_ruv.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_ruv.c b/ldap/servers/plugins/replication/repl5_ruv.c
+index c2d3bb4..5086313 100644
+--- a/ldap/servers/plugins/replication/repl5_ruv.c
++++ b/ldap/servers/plugins/replication/repl5_ruv.c
+@@ -1703,8 +1703,14 @@ int ruv_cancel_csn_inprogress (RUV *ruv, const CSN *csn, ReplicaId local_rid)
+ 	replica = ruvGetReplica (ruv, prim_rid);
+ 	rc = csnplRemoveAll (replica->csnpl, prim_csn);
+ 	if (prim_rid != local_rid) {
+-		replica = ruvGetReplica (ruv, local_rid);
+-		rc = csnplRemoveAll (replica->csnpl, prim_csn);
++		if( local_rid != READ_ONLY_REPLICA_ID) {
++			replica = ruvGetReplica (ruv, local_rid);
++			if (replica) {
++				rc = csnplRemoveAll (replica->csnpl, prim_csn);
++			} else {
++				rc = RUV_NOTFOUND;
++			}
++		}
+ 	}
+     } else {
+ 	rc = csnplRemove (replica->csnpl, csn);
+-- 
+2.7.4
+
