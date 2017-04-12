@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.5.10
-Release:          %{?relprefix}18%{?prerel}%{?dist}
+Release:          %{?relprefix}20%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -205,6 +205,9 @@ Patch66:          0066-Ticket-49079-deadlock-on-cos-cache-rebuild.patch
 Patch67:          0067-Ticket-49016-un-register-migration-remove-may-fail-i.patch
 Patch68:          0068-Ticket-49016-un-register-migration-remove-may-fail-i.patch
 Patch69:          0069-fix-for-reg-in-49008-check-if-ruv-element-exists.patch
+Patch70:          0070-Ticket-49121-ns-slapd-crashes-in-ldif_sput-due-to-th.patch
+Patch71:          0071-Issue-49122-Filtered-nsrole-that-uses-nsrole-crashes.patch
+Patch72:          0072-fix-for-cve-2017-2668-simple-return-text-if-suffix-n.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -360,6 +363,9 @@ cp %{SOURCE2} README.devel
 %patch67 -p1
 %patch68 -p1
 %patch69 -p1
+%patch70 -p1
+%patch71 -p1
+%patch72 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -597,6 +603,15 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Apr 3 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.5.10-20
+- Bump version to 1.3.5.10-20
+- Resolves: bug 1437005 - CVE-2017-2668 389-ds-base: Remote crash via crafted LDAP messages
+
+* Fri Mar 3 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.5.10-19
+- Release 1.3.5.10-19
+- Resolves: bug 1429495 - ns-slapd dies under heavy load 
+- Resolves: bug 1429498 - A filtered nsrole that specifies an empty nsrole in its nsRoleFilter will result in a segfault
+
 * Thu Feb 16 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.5.10-18
 - Release 1.3.5.10-18
 - Resolves: bug 1387340 - Aborted operation can leave RUV in incorrect state 
