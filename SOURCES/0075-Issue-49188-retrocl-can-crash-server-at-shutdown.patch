@@ -1,0 +1,36 @@
+From c101544797e0b563bc0955934a74a4dc25a5b467 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 22 Mar 2017 10:18:13 -0400
+Subject: [PATCH] Issue 49188 - retrocl can crash server at shutdown
+
+Description:  We do not calloc enough elements when processing nsslapd-attribute
+              from the retrocl plugin configuration.  This causes invalid memory
+              to be freed at shutdown(via slapi_ch_array_free).
+
+https://pagure.io/389-ds-base/issue/49188
+
+Reviewed by: mreynolds(one line commit rule)
+
+(cherry picked from commit b2f76abe10bfbe621308410a1e7f41287cf2ff9e)
+---
+ ldap/servers/plugins/retrocl/retrocl.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/plugins/retrocl/retrocl.c b/ldap/servers/plugins/retrocl/retrocl.c
+index 0b336d5..6167e88 100644
+--- a/ldap/servers/plugins/retrocl/retrocl.c
++++ b/ldap/servers/plugins/retrocl/retrocl.c
+@@ -468,8 +468,8 @@ static int retrocl_start (Slapi_PBlock *pb)
+ 
+         retrocl_nattributes = n;
+ 
+-        retrocl_attributes = (char **)slapi_ch_calloc(n, sizeof(char *));
+-        retrocl_aliases = (char **)slapi_ch_calloc(n, sizeof(char *));
++        retrocl_attributes = (char **)slapi_ch_calloc(n + 1, sizeof(char *));
++        retrocl_aliases = (char **)slapi_ch_calloc(n + 1, sizeof(char *));
+ 
+         slapi_log_error(SLAPI_LOG_PLUGIN, RETROCL_PLUGIN_NAME, "Attributes:\n");
+ 
+-- 
+2.9.3
+

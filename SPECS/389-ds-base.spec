@@ -34,7 +34,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.5.10
-Release:          %{?relprefix}20%{?prerel}%{?dist}
+Release:          %{?relprefix}21%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -208,6 +208,10 @@ Patch69:          0069-fix-for-reg-in-49008-check-if-ruv-element-exists.patch
 Patch70:          0070-Ticket-49121-ns-slapd-crashes-in-ldif_sput-due-to-th.patch
 Patch71:          0071-Issue-49122-Filtered-nsrole-that-uses-nsrole-crashes.patch
 Patch72:          0072-fix-for-cve-2017-2668-simple-return-text-if-suffix-n.patch
+Patch73:          0073-Ticket-49209-Hang-due-to-omitted-replica-lock-releas.patch
+Patch74:          0074-Issue-49221-During-an-upgrade-the-provided-localhost.patch
+Patch75:          0075-Issue-49188-retrocl-can-crash-server-at-shutdown.patch
+Patch76:          0076-Issue-49095-targetattr-wildcard-evaluation-is-incorr.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -366,6 +370,10 @@ cp %{SOURCE2} README.devel
 %patch70 -p1
 %patch71 -p1
 %patch72 -p1
+%patch73 -p1
+%patch74 -p1
+%patch75 -p1
+%patch76 -p1
 
 %build
 %if %{use_nunc_stans}
@@ -603,6 +611,13 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Apr 24 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.5.10-21
+- Bump verison to 1.3.5.10-21
+- Resolves: Bug 1440654 - Possible deadlock while installing an ipa replica
+- Resolves: Bug 1445178 - Silent install localhost issue
+- Resolves: Bug 1445177 - retrocl crash at shutdown
+- Resolves: Bug 1445176 - case sensitivity in acl
+
 * Mon Apr 3 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.5.10-20
 - Bump version to 1.3.5.10-20
 - Resolves: bug 1437005 - CVE-2017-2668 389-ds-base: Remote crash via crafted LDAP messages
