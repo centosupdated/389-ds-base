@@ -7,8 +7,6 @@
 # also need the relprefix field for a pre-release e.g. .0 - also comment out for official release
 #% global relprefix 0.
 
-%global use_openldap 1
-%global use_db4 0
 # If perl-Socket-2.000 or newer is available, set 0 to use_Socket6.
 %global use_Socket6 0
 %global use_nunc_stans 1
@@ -32,7 +30,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.6.1
-Release:          %{?relprefix}16%{?prerel}%{?dist}
+Release:          %{?relprefix}19%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -43,17 +41,9 @@ Provides:         ldif2ldbm >= 0
 
 BuildRequires:    nspr-devel
 BuildRequires:    nss-devel
-BuildRequires:    svrcore-devel >= 4.1.2
-%if %{use_openldap}
+BuildRequires:    svrcore-devel >= 4.1.3
 BuildRequires:    openldap-devel
-%else
-BuildRequires:    mozldap-devel
-%endif
-%if %{use_db4}
-BuildRequires:    db4-devel
-%else
 BuildRequires:    libdb-devel
-%endif
 BuildRequires:    cyrus-sasl-devel
 BuildRequires:    icu
 BuildRequires:    libicu-devel
@@ -93,11 +83,7 @@ Requires:         libsemanage-python
 Requires:         selinux-policy >= 3.13.1-137
 
 # the following are needed for some of our scripts
-%if %{use_openldap}
 Requires:         openldap-clients
-%else
-Requires:         mozldap-tools
-%endif
 # use_openldap assumes perl-Mozilla-LDAP is built with openldap support
 Requires:         perl-Mozilla-LDAP
 
@@ -112,11 +98,7 @@ Requires:         cyrus-sasl-md5
 Requires:         cyrus-sasl-plain
 
 # this is needed for verify-db.pl
-%if %{use_db4}
-Requires:         db4-utils
-%else
 Requires:         libdb-utils
-%endif
 
 # This picks up libperl.so as a Requires, so we add this versioned one
 Requires:         perl(:MODULE_COMPAT_%(eval "`%{__perl} -V:version`"; echo $version))
@@ -137,7 +119,7 @@ Requires:         perl-Socket
 %endif
 Requires:         perl-NetAddr-IP
 Requires:         systemd-libs
-Requires:         svrcore >= 4.1.2
+Requires:         svrcore >= 4.1.3
 
 # upgrade path from monolithic % {name} (including -libs & -devel) to % {name} + % {name}-snmp
 Obsoletes:        %{name} <= 1.3.5.4
@@ -207,6 +189,12 @@ Patch52:          0052-Ticket-49257-Reject-nsslapd-cachememsize-nsslapd-cac.patc
 Patch53:          0053-Ticket-49257-Reject-dbcachesize-updates-while-auto-c.patch
 Patch54:          0054-Ticket-49184-adjust-logging-level-in-MO-plugin.patch
 Patch55:          0055-Ticket-49241-add-symblic-link-location-to-db2bak.pl-.patch
+Patch56:          0056-Ticket-49313-Change-the-retrochangelog-default-cache.patch
+Patch57:          0057-Ticket-49287-v3-extend-csnpl-handling-to-multiple-ba.patch
+Patch58:          0058-Ticket-49336-SECURITY-Locked-account-provides-differ.patch
+Patch59:          0059-Ticket-49298-force-sync-on-shutdown.patch
+Patch60:          0060-Ticket-49334-fix-backup-restore-if-changelog-exists.patch
+Patch61:          0061-Ticket-49356-mapping-tree-crash-can-occur-during-tot.patch
 
 
 %description
@@ -218,17 +206,9 @@ Summary:          Core libraries for 389 Directory Server
 Group:            System Environment/Daemons
 BuildRequires:    nspr-devel
 BuildRequires:    nss-devel
-BuildRequires:    svrcore-devel >= 4.1.2
-%if %{use_openldap}
+BuildRequires:    svrcore-devel >= 4.1.3
 BuildRequires:    openldap-devel
-%else
-BuildRequires:    mozldap-devel
-%endif
-%if %{use_db4}
-BuildRequires:    db4-devel
-%else
 BuildRequires:    libdb-devel
-%endif
 BuildRequires:    cyrus-sasl-devel
 BuildRequires:    libicu-devel
 BuildRequires:    pcre-devel
@@ -251,12 +231,8 @@ Requires:         %{name}-libs = %{version}-%{release}
 Requires:         pkgconfig
 Requires:         nspr-devel
 Requires:         nss-devel
-Requires:         svrcore-devel >= 4.1.2
-%if %{use_openldap}
+Requires:         svrcore-devel >= 4.1.3
 Requires:         openldap-devel
-%else
-Requires:         mozldap-devel
-%endif
 %if %{use_nunc_stans}
 Requires:         libtalloc
 Requires:         libevent
@@ -345,12 +321,15 @@ cp %{SOURCE2} README.devel
 %patch53 -p1
 %patch54 -p1
 %patch55 -p1
-
+%patch56 -p1
+%patch57 -p1
+%patch58 -p1
+%patch59 -p1
+%patch60 -p1
+%patch61 -p1
 %build
 
-%if %{use_openldap}
 OPENLDAP_FLAG="--with-openldap"
-%endif
 %{?with_tmpfiles_d: TMPFILES_FLAG="--with-tmpfiles-d=%{with_tmpfiles_d}"}
 # hack hack hack https://bugzilla.redhat.com/show_bug.cgi?id=833529
 NSSARGS="--with-svrcore-inc=%{_includedir} --with-svrcore-lib=%{_libdir} --with-nss-lib=%{_libdir} --with-nss-inc=%{_includedir}/nss3"
@@ -442,11 +421,7 @@ HOMEDIR="/usr/share/dirsrv"
 
 getent group $GROUPNAME >/dev/null || /usr/sbin/groupadd -f -g $ALLOCATED_GID -r $GROUPNAME
 if ! getent passwd $USERNAME >/dev/null ; then
-    if ! getent passwd $ALLOCATED_UID >/dev/null ; then
-        /usr/sbin/useradd -r -u $ALLOCATED_UID -g $GROUPNAME -d $HOMEDIR -s /sbin/nologin -c "user for 389-ds-base" $USERNAME
-    else
-        /usr/sbin/useradd -r -g $GROUPNAME -d $HOMEDIR -s /sbin/nologin -c "user for 389-ds-base" $USERNAME
-    fi
+    /usr/sbin/useradd -r -u $ALLOCATED_UID -g $GROUPNAME -d $HOMEDIR -s /sbin/nologin -c "user for 389-ds-base" $USERNAME
 fi
 
 echo looking for instances in %{_sysconfdir}/%{pkgname} > $output 2>&1 || :
@@ -583,6 +558,23 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Aug 21 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.19-1
+- Bump version to 1.3.6.19-1
+- Remove old mozldap and db4 requirements
+- Resolves: Bug 1483865 - Crash while binding to a server during replication online init
+
+* Tue Aug 8 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-18
+- Bump version to 1.3.6.1-18
+- Require srvcore 4.1.3
+- Resolves: Bug 1479757 - dse.ldif and fsync
+- Resolves: Bug 1479755 - backup fails if changelog is enabled
+- Resolves: Bug 1479756 - Locked account provides different return code if password is correct 
+
+* Mon Jul 31 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-17
+- Bump version to 1.3.6.1-17
+- Resolves: Bug 1476161 - replication halt - pending list first CSN not committed, pending list increasing
+- Resolves: Bug 1476162 - Change the retrochangelog default cache size
+
 * Tue Jun 6 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-16
 - Bump version to 1.3.6.1-16
 - Resolves: Bug 1444938 - nsslapd-allowed-sasl-mechanisms doesn't reset to default values without a restart
