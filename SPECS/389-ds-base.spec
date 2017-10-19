@@ -30,7 +30,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.6.1
-Release:          %{?relprefix}19%{?prerel}%{?dist}
+Release:          %{?relprefix}21%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -195,7 +195,17 @@ Patch58:          0058-Ticket-49336-SECURITY-Locked-account-provides-differ.patc
 Patch59:          0059-Ticket-49298-force-sync-on-shutdown.patch
 Patch60:          0060-Ticket-49334-fix-backup-restore-if-changelog-exists.patch
 Patch61:          0061-Ticket-49356-mapping-tree-crash-can-occur-during-tot.patch
-
+Patch62:          0062-Ticket-49330-Improve-ndn-cache-performance-1.3.6.patch
+Patch63:          0063-Ticket-49330-Add-endian-header-file-check-to-configu.patch
+Patch64:          0064-Ticket-49257-only-register-modify-callbacks.patch
+Patch65:          0065-Ticket-49291-slapi_search_internal_callback_pb-may-S.patch
+Patch66:          0066-Ticket-49370-local-password-policies-should-use-the-.patch
+Patch67:          0067-Ticket-49380-Crash-when-adding-invalid-replication.patch
+Patch68:          0068-Ticket-49380-Add-CI-test.patch
+Patch69:          0069-Ticket-49327-password-expired-control-not-sent-durin.patch
+Patch70:          0070-Ticket-49379-Allowed-sasl-mapping-requires-restart.patch
+Patch71:          0071-Fix-cherry-pick-error-from-sasl-mech-commit.patch
+Patch72:          0072-Ticket-49389-unable-to-retrieve-specific-cosAttribut.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -327,6 +337,17 @@ cp %{SOURCE2} README.devel
 %patch59 -p1
 %patch60 -p1
 %patch61 -p1
+%patch62 -p1
+%patch63 -p1
+%patch64 -p1
+%patch65 -p1
+%patch66 -p1
+%patch67 -p1
+%patch68 -p1
+%patch69 -p1
+%patch70 -p1
+%patch71 -p1
+%patch72 -p1
 %build
 
 OPENLDAP_FLAG="--with-openldap"
@@ -457,9 +478,9 @@ echo remove pid files . . . >> $output 2>&1 || :
 echo upgrading instances . . . >> $output 2>&1 || :
 DEBUGPOSTSETUPOPT=`/usr/bin/echo $DEBUGPOSTSETUP | /usr/bin/sed -e "s/[^d]//g"`
 if [ -n "$DEBUGPOSTSETUPOPT" ] ; then
-    %{_sbindir}/setup-ds.pl -l $output2 -$DEBUGPOSTSETUPOPT -u -s General.UpdateMode=offline >> $output 2>&1 || :
+    %{_sbindir}/setup-ds.pl -$DEBUGPOSTSETUPOPT -u -s General.UpdateMode=offline >> $output 2>&1 || :
 else
-    %{_sbindir}/setup-ds.pl -l $output2 -u -s General.UpdateMode=offline >> $output 2>&1 || :
+    %{_sbindir}/setup-ds.pl -u -s General.UpdateMode=offline >> $output 2>&1 || :
 fi
 
 # restart instances that require it
@@ -558,8 +579,22 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
-* Mon Aug 21 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.19-1
-- Bump version to 1.3.6.19-1
+* Thu Oct 5 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-21
+- Bump verions to 1.3.6.1-21
+- Resolves: Bug 1498958 - unable to retrieve specific cosAttribute when subtree password policy is configured
+
+* Mon Sep 18 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-20
+- Bump verions to 1.3.6.1-20
+- Resolves: Bug 1489693 - PasswordCheckSyntax attribute fails to validate cn, sn, uid
+- Resovles: Bug 1492829 - patch should of been applied to 7.4 but got missed
+- Resolves: Bug 1486128 - Performance issues with RHDS 10 - NDN cache investigation
+- Resolves: Bug 1489694 - crash in send_ldap_result
+- Resolves: Bug 1491778 - crash when adding invalid repl agmt
+- Resolves: Bug 1492830 - password expired control not sent
+- Resolves: Bug 1492833 - sasl-mechanisms removed during upgrade
+
+* Mon Aug 21 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-19
+- Bump version to 1.3.6.1-19
 - Remove old mozldap and db4 requirements
 - Resolves: Bug 1483865 - Crash while binding to a server during replication online init
 
