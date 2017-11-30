@@ -30,7 +30,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.6.1
-Release:          %{?relprefix}21%{?prerel}%{?dist}
+Release:          %{?relprefix}24%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -206,6 +206,16 @@ Patch69:          0069-Ticket-49327-password-expired-control-not-sent-durin.patc
 Patch70:          0070-Ticket-49379-Allowed-sasl-mapping-requires-restart.patch
 Patch71:          0071-Fix-cherry-pick-error-from-sasl-mech-commit.patch
 Patch72:          0072-Ticket-49389-unable-to-retrieve-specific-cosAttribut.patch
+Patch73:          0073-Ticket-49180-backport-1.3.6-errors-log-filled-with-a.patch
+Patch74:          0074-Ticket-48894-harden-valueset_array_to_sorted_quick-v.patch
+Patch75:          0075-Ticket-49401-improve-valueset-sorted-performance-on-.patch
+Patch76:          0076-Ticket-49401-Fix-compiler-incompatible-pointer-types.patch
+Patch77:          0077-Ticket-48235-Remove-memberOf-global-lock.patch
+Patch78:          0078-Ticket-49402-Adding-a-database-entry-with-the-same-d.patch
+Patch79:          0079-Ticket-49439-cleanallruv-is-not-logging-information.patch
+Patch80:          0080-Ticket-49436-double-free-in-COS-in-some-conditions.patch
+Patch81:          0081-Ticket-49441-Import-crashes-with-large-indexed-binar.patch
+Patch82:          0082-Ticket-49431-replicated-MODRDN-fails-breaking-replic.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -348,6 +358,17 @@ cp %{SOURCE2} README.devel
 %patch70 -p1
 %patch71 -p1
 %patch72 -p1
+%patch73 -p1
+%patch74 -p1
+%patch75 -p1
+%patch76 -p1
+%patch77 -p1
+%patch78 -p1
+%patch79 -p1
+%patch80 -p1
+%patch81 -p1
+%patch82 -p1
+
 %build
 
 OPENLDAP_FLAG="--with-openldap"
@@ -579,6 +600,23 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Fri Nov 10 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-24
+- Bump version to 1.3.6.1-24
+- Resolves: Bug 1508978 - replicated MODRDN fails breaking replication
+- Resolves: Bug 1511940 - heap corruption during import
+- Resolves: Bug 1510319 - [abrt] 389-ds-base: SLL_Next(): ns-slapd killed by SIGSEGV 
+- Resolves: Bug 1509347 - cleanallruv task is not logging any information
+
+* Fri Oct 27 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-23
+- Bump version to 1.3.6.1-23
+- Resolves: Bug 1504536 - [memberOf Plugin] bulk deleting users causes deadlock when there are multiple backends
+- Resolves: Bug 1503001 - Adding a database entry fails if the same database was deleted after an import
+- Resolves: Bug 1506912 - Improve valueset sort performance during valueset purging
+
+* Mon Oct 9 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-22
+- Bump version to 1.3.6.1-22
+- Resolves: Bug 1499668 - Errors log filled with attrlist_replace
+
 * Thu Oct 5 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-21
 - Bump verions to 1.3.6.1-21
 - Resolves: Bug 1498958 - unable to retrieve specific cosAttribute when subtree password policy is configured
