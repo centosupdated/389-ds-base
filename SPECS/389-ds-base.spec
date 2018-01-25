@@ -30,7 +30,7 @@
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.3.6.1
-Release:          %{?relprefix}24%{?prerel}%{?dist}
+Release:          %{?relprefix}26%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -216,6 +216,10 @@ Patch79:          0079-Ticket-49439-cleanallruv-is-not-logging-information.patch
 Patch80:          0080-Ticket-49436-double-free-in-COS-in-some-conditions.patch
 Patch81:          0081-Ticket-49441-Import-crashes-with-large-indexed-binar.patch
 Patch82:          0082-Ticket-49431-replicated-MODRDN-fails-breaking-replic.patch
+Patch83:          0083-Ticket-49410-opened-connection-can-remain-no-longer-.patch
+Patch84:          0084-Ticket-48118-backport-changelog-can-be-erronously-re.patch
+Patch85:          0085-Ticket-49495-Fix-memory-management-is-vattr.patch
+Patch86:          0086-CVE-2017-15134-389-ds-base-Remote-DoS-via-search-fil.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -368,6 +372,10 @@ cp %{SOURCE2} README.devel
 %patch80 -p1
 %patch81 -p1
 %patch82 -p1
+%patch83 -p1
+%patch84 -p1
+%patch85 -p1
+%patch86 -p1
 
 %build
 
@@ -600,6 +608,16 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Tue Jan 16 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-26
+- Bump version to 1.3.6.1-25
+- Resolves: Bug 1534430 - crash in slapi_filter_sprintf 
+
+* Mon Dec 18 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-25
+- Bump version to 1.3.6.1-25
+- Resolves: Bug 1526928 - search with CoS attribute is getting slower after modifying/adding CosTemplate
+- Resolves: Bug 1523505 - opened connection are hanging, no longer poll
+- Resolves: Bug 1523507 - IPA server replication broken, after DS stop-start, due to changelog reset
+
 * Fri Nov 10 2017 Mark Reynolds <mreynolds@redhat.com> - 1.3.6.1-24
 - Bump version to 1.3.6.1-24
 - Resolves: Bug 1508978 - replicated MODRDN fails breaking replication
