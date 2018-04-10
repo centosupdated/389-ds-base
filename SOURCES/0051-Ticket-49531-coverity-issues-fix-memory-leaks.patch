@@ -1,0 +1,56 @@
+From 7acfb18228322ab2e331720bd7fe083da04625a2 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 12 Jan 2018 09:50:34 -0500
+Subject: [PATCH] Ticket 49531 - coverity issues - fix memory leaks
+
+Description:  There were two false positives around pwpolicy struct
+              being leaked, but it is freed when the pblock is
+              destroyed.  The other two leaks were real, but they
+              only occurred during error conditions.
+
+https://pagure.io/389-ds-base/issue/49531
+
+Reviewed by: lkrispen (Thanks!)
+
+(cherry picked from commit 700d7422e6309d2d405961abbb805fbfe852e53c)
+---
+ ldap/servers/plugins/replication/cl5_api.c | 1 +
+ ldap/servers/plugins/replication/urp.c     | 3 ++-
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/replication/cl5_api.c b/ldap/servers/plugins/replication/cl5_api.c
+index dc2857910..89ae9956c 100644
+--- a/ldap/servers/plugins/replication/cl5_api.c
++++ b/ldap/servers/plugins/replication/cl5_api.c
+@@ -4046,6 +4046,7 @@ _cl5WriteRUV(CL5DBFile *file, PRBool purge)
+         slapi_log_err(SLAPI_LOG_ERR, repl_plugin_name_cl,
+                       "_cl5WriteRUV - changelog maxRUV not found in changelog for file %s\n",
+                       file->name);
++        ber_bvecfree(vals);
+         return CL5_DB_ERROR;
+     }
+ 
+diff --git a/ldap/servers/plugins/replication/urp.c b/ldap/servers/plugins/replication/urp.c
+index 9534c0322..d4556d7fd 100644
+--- a/ldap/servers/plugins/replication/urp.c
++++ b/ldap/servers/plugins/replication/urp.c
+@@ -861,7 +861,7 @@ urp_fixup_add_cenotaph (Slapi_PBlock *pb, char *sessionid, CSN *opcsn)
+     Slapi_Entry *pre_entry = NULL;
+     int ret = 0;
+     Slapi_DN *pre_sdn = NULL;
+-    Slapi_RDN *rdn = slapi_rdn_new();
++    Slapi_RDN *rdn = NULL;
+     char *parentdn = NULL;
+     char *newdn;
+     const char *entrydn;
+@@ -882,6 +882,7 @@ urp_fixup_add_cenotaph (Slapi_PBlock *pb, char *sessionid, CSN *opcsn)
+        entrydn = slapi_entry_get_ndn (pre_entry);*/
+     uniqueid = slapi_entry_get_uniqueid (pre_entry);
+     parentdn = slapi_dn_parent(entrydn);
++    rdn = slapi_rdn_new();
+     slapi_sdn_get_rdn(pre_sdn, rdn);
+     slapi_rdn_remove_attr (rdn, SLAPI_ATTR_UNIQUEID );
+     slapi_rdn_add(rdn, "cenotaphID", uniqueid);
+-- 
+2.13.6
+

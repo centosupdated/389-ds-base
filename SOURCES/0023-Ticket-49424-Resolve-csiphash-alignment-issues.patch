@@ -1,0 +1,176 @@
+From 5909e20899334816f36cac0e47105e56df52ad3c Mon Sep 17 00:00:00 2001
+From: William Brown <firstyear@redhat.com>
+Date: Mon, 30 Oct 2017 12:01:34 +1000
+Subject: [PATCH] Ticket 49424 - Resolve csiphash alignment issues
+
+Bug Description:  On some platforms, uint64_t is not the same size
+as a void * - as well, if the input is not aligned correctly, then
+a number of nasty crashes can result
+
+Fix Description:  Instead of relying on alignment to be correct,
+we should memcpy the data to inputs instead.
+
+https://pagure.io/389-ds-base/issue/49424
+
+Author: wibrown
+
+Review by: lslebodn, cgrzemba, vashirov, mreynolds (Thanks!)
+
+(cherry picked from commit 751446440f5269a246e6e652a64e63aa5933734a)
+---
+ src/libsds/external/csiphash/csiphash.c | 52 +++++++++++++++++++--------------
+ src/libsds/test/test_sds_csiphash.c     | 43 +++++++++++++++++++++------
+ 2 files changed, 64 insertions(+), 31 deletions(-)
+
+diff --git a/src/libsds/external/csiphash/csiphash.c b/src/libsds/external/csiphash/csiphash.c
+index 0089c82f7..2351db6cf 100644
+--- a/src/libsds/external/csiphash/csiphash.c
++++ b/src/libsds/external/csiphash/csiphash.c
+@@ -32,6 +32,9 @@
+ #include <inttypes.h>
+ #include <stddef.h> /* for size_t */
+ 
++#include <stdlib.h> /* calloc,free */
++#include <string.h> /* memcpy */
++
+ #include <config.h>
+ 
+ #if defined(HAVE_SYS_ENDIAN_H)
+@@ -75,11 +78,24 @@
+ uint64_t
+ sds_siphash13(const void *src, size_t src_sz, const char key[16])
+ {
+-    const uint64_t *_key = (uint64_t *)key;
++    uint64_t _key[2] = {0};
++    memcpy(_key, key, 16);
+     uint64_t k0 = _le64toh(_key[0]);
+     uint64_t k1 = _le64toh(_key[1]);
+     uint64_t b = (uint64_t)src_sz << 56;
+-    const uint64_t *in = (uint64_t *)src;
++
++    size_t input_sz = (src_sz / sizeof(uint64_t)) + 1;
++
++    /* Account for non-uint64_t alligned input */
++    /* Could make this stack allocation */
++    uint64_t *in = calloc(1, input_sz * sizeof(uint64_t));
++    /*
++     * Because all crypto code sucks, they modify *in
++     * during operation, so we stash a copy of the ptr here.
++     * alternately, we could use stack allocated array, but gcc
++     * will complain about the vla being unbounded.
++     */
++    uint64_t *in_ptr = memcpy(in, src, src_sz);
+ 
+     uint64_t v0 = k0 ^ 0x736f6d6570736575ULL;
+     uint64_t v1 = k1 ^ 0x646f72616e646f6dULL;
+@@ -96,27 +112,15 @@ sds_siphash13(const void *src, size_t src_sz, const char key[16])
+         v0 ^= mi;
+     }
+ 
++    /*
++     * Because we allocate in as size + 1, we can over-read 0
++     * for this buffer to be padded correctly. in here is a pointer to the
++     * excess data because the while loop above increments the in pointer
++     * to point to the excess once src_sz drops < 8.
++     */
+     uint64_t t = 0;
+-    uint8_t *pt = (uint8_t *)&t;
+-    uint8_t *m = (uint8_t *)in;
+-
+-    switch (src_sz) {
+-    case 7:
+-        pt[6] = m[6]; /* FALLTHRU */
+-    case 6:
+-        pt[5] = m[5]; /* FALLTHRU */
+-    case 5:
+-        pt[4] = m[4]; /* FALLTHRU */
+-    case 4:
+-        *((uint32_t *)&pt[0]) = *((uint32_t *)&m[0]);
+-        break;
+-    case 3:
+-        pt[2] = m[2]; /* FALLTHRU */
+-    case 2:
+-        pt[1] = m[1]; /* FALLTHRU */
+-    case 1:
+-        pt[0] = m[0]; /* FALLTHRU */
+-    }
++    memcpy(&t, in, sizeof(uint64_t));
++
+     b |= _le64toh(t);
+ 
+     v3 ^= b;
+@@ -126,5 +130,9 @@ sds_siphash13(const void *src, size_t src_sz, const char key[16])
+     v2 ^= 0xff;
+     // dround
+     dROUND(v0, v1, v2, v3);
++
++    free(in_ptr);
++
+     return (v0 ^ v1) ^ (v2 ^ v3);
+ }
++
+diff --git a/src/libsds/test/test_sds_csiphash.c b/src/libsds/test/test_sds_csiphash.c
+index cdb6b7f46..cc9a6b2b5 100644
+--- a/src/libsds/test/test_sds_csiphash.c
++++ b/src/libsds/test/test_sds_csiphash.c
+@@ -25,23 +25,48 @@
+ static void
+ test_siphash(void **state __attribute__((unused)))
+ {
+-
+-    //
+     uint64_t value = 0;
+     uint64_t hashout = 0;
+     char key[16] = {0};
+ 
+-    uint64_t test_a = 15794382300316794652U;
+-    uint64_t test_b = 13042610424265326907U;
++    uint64_t test_simple = 15794382300316794652U;
+ 
+-    // Initial simple test
++    /* Initial simple test */
+     value = htole64(5);
+     hashout = sds_siphash13(&value, sizeof(uint64_t), key);
+-    assert_true(hashout == test_a);
++    assert_int_equal(hashout, test_simple);
++
++    /* Test a range of input sizes to check endianness behaviour */
++
++    hashout = sds_siphash13("a", 1, key);
++    assert_int_equal(hashout, 0x407448d2b89b1813U);
++
++    hashout = sds_siphash13("aa", 2, key);
++    assert_int_equal(hashout, 0x7910e0436ed8d1deU);
++
++    hashout = sds_siphash13("aaa", 3, key);
++    assert_int_equal(hashout, 0xf752893a6c769652U);
++
++    hashout = sds_siphash13("aaaa", 4, key);
++    assert_int_equal(hashout, 0x8b02350718d87164U);
++
++    hashout = sds_siphash13("aaaaa", 5, key);
++    assert_int_equal(hashout, 0x92a991474c7eef2U);
++
++    hashout = sds_siphash13("aaaaaa", 6, key);
++    assert_int_equal(hashout, 0xf0ab815a640277ccU);
++
++    hashout = sds_siphash13("aaaaaaa", 7, key);
++    assert_int_equal(hashout, 0x33f3c6d7dbc82c0dU);
++
++    hashout = sds_siphash13("aaaaaaaa", 8, key);
++    assert_int_equal(hashout, 0xc501b12e18428c92U);
++
++    hashout = sds_siphash13("aaaaaaaabbbb", 12, key);
++    assert_int_equal(hashout, 0xcddca673069ade64U);
+ 
+-    char *test = "abc";
+-    hashout = sds_siphash13(test, 4, key);
+-    assert_true(hashout == test_b);
++    hashout = sds_siphash13("aaaaaaaabbbbbbbb", 16, key);
++    assert_int_equal(hashout, 0xdc54f0bfc0e1deb0U);
+ }
+ 
+ int
+-- 
+2.13.6
+

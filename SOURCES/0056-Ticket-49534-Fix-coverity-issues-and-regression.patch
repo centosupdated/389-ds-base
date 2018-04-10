@@ -1,0 +1,1495 @@
+From 961a1d68274453a9a0e79acdd4a3d6e3da146722 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 16 Jan 2018 10:14:34 -0500
+Subject: [PATCH] Ticket 49534 - Fix coverity issues and regression
+
+Description:  Fix regression introdcued in the previous coverity patch.
+
+              Also fixed many other coverity issues.
+
+https://pagure.io/389-ds-base/issue/49534
+
+Reviewed by:  wibrown, tbordaz, lkrispen(Thanks!)
+
+(cherry picked from commit 7658232cc427a5c46e94989eec9195f0392ee540)
+---
+ ldap/servers/plugins/acl/acl.c                     |  6 ++++
+ ldap/servers/plugins/acl/acllas.c                  | 13 +++++--
+ ldap/servers/plugins/automember/automember.c       |  6 ++++
+ ldap/servers/plugins/cos/cos_cache.c               | 16 +++++++--
+ ldap/servers/plugins/memberof/memberof_config.c    |  8 ++---
+ ldap/servers/plugins/replication/cl5_clcache.c     |  9 +++--
+ .../plugins/replication/repl5_replica_config.c     |  3 --
+ ldap/servers/plugins/rootdn_access/rootdn_access.c |  7 +++-
+ ldap/servers/plugins/uiduniq/7bit.c                | 18 +++++-----
+ ldap/servers/plugins/views/views.c                 |  3 ++
+ ldap/servers/slapd/auth.c                          |  3 +-
+ ldap/servers/slapd/back-ldbm/dblayer.c             |  5 ++-
+ ldap/servers/slapd/back-ldbm/filterindex.c         |  2 +-
+ ldap/servers/slapd/back-ldbm/import-threads.c      | 10 +++---
+ ldap/servers/slapd/back-ldbm/index.c               |  3 +-
+ ldap/servers/slapd/back-ldbm/instance.c            |  4 +++
+ ldap/servers/slapd/back-ldbm/ldbm_add.c            | 18 +++++++---
+ .../slapd/back-ldbm/ldbm_attrcrypt_config.c        |  7 ++--
+ .../servers/slapd/back-ldbm/ldbm_instance_config.c |  2 +-
+ ldap/servers/slapd/back-ldbm/ldbm_search.c         |  4 +--
+ ldap/servers/slapd/back-ldbm/vlv.c                 |  2 +-
+ ldap/servers/slapd/back-ldbm/vlv_srch.c            |  2 +-
+ ldap/servers/slapd/backend.c                       |  2 +-
+ ldap/servers/slapd/compare.c                       |  7 ++--
+ ldap/servers/slapd/connection.c                    | 40 ++++++++++++----------
+ ldap/servers/slapd/control.c                       |  6 ++++
+ ldap/servers/slapd/dse.c                           |  5 +--
+ ldap/servers/slapd/eventq.c                        |  2 +-
+ ldap/servers/slapd/extendop.c                      | 10 +++---
+ ldap/servers/slapd/filter.c                        | 12 ++++---
+ ldap/servers/slapd/index_subsystem.c               |  2 +-
+ ldap/servers/slapd/main.c                          | 19 ++++++++--
+ ldap/servers/slapd/mapping_tree.c                  |  2 +-
+ ldap/servers/slapd/modify.c                        | 39 ++++++++++-----------
+ ldap/servers/slapd/opshared.c                      |  7 ++++
+ ldap/servers/slapd/passwd_extop.c                  |  4 +++
+ ldap/servers/slapd/plugin.c                        |  8 +++--
+ ldap/servers/slapd/plugin_internal_op.c            |  1 +
+ ldap/servers/slapd/psearch.c                       |  6 ++--
+ ldap/servers/slapd/pw.c                            |  3 +-
+ ldap/servers/slapd/pw_mgmt.c                       | 30 ++++++++++------
+ ldap/servers/slapd/result.c                        |  2 +-
+ ldap/servers/slapd/saslbind.c                      |  5 +++
+ ldap/servers/slapd/task.c                          |  5 +--
+ ldap/servers/slapd/util.c                          | 12 ++++---
+ ldap/servers/slapd/valueset.c                      | 10 ++++--
+ ldap/servers/slapd/vattr.c                         | 20 ++++++++---
+ ldap/servers/snmp/main.c                           | 19 ++++++----
+ 48 files changed, 276 insertions(+), 153 deletions(-)
+
+diff --git a/ldap/servers/plugins/acl/acl.c b/ldap/servers/plugins/acl/acl.c
+index f10c9f6b5..bc154c78f 100644
+--- a/ldap/servers/plugins/acl/acl.c
++++ b/ldap/servers/plugins/acl/acl.c
+@@ -437,6 +437,12 @@ acl_access_allowed(
+      * pointers to them--we must always start afresh (see psearch.c).
+     */
+     slapi_pblock_get(pb, SLAPI_OPERATION, &op);
++    if (op == NULL) {
++        slapi_log_err(SLAPI_LOG_ERR, plugin_name,
++                      "acl_access_allowed - NULL op\n");
++        ret_val = LDAP_OPERATIONS_ERROR;
++        goto cleanup_and_ret;
++    }
+     if (operation_is_flag_set(op, OP_FLAG_PS) ||
+         (aclpb->aclpb_curr_entry_sdn == NULL) ||
+         (slapi_sdn_compare(aclpb->aclpb_curr_entry_sdn, e_sdn) != 0) ||
+diff --git a/ldap/servers/plugins/acl/acllas.c b/ldap/servers/plugins/acl/acllas.c
+index b9bea205c..3950fd405 100644
+--- a/ldap/servers/plugins/acl/acllas.c
++++ b/ldap/servers/plugins/acl/acllas.c
+@@ -4260,7 +4260,7 @@ acllas_replace_attr_macro(char *rule, lasInfo *lasinfo)
+             /*
+              * working_rule is the first member of working_list.
+              * str points to the next $attr.attrName in working_rule.
+-             * each member of working_list needs to have each occurence of
++             * each member of working_list needs to have each occurrence of
+              * $attr.atrName replaced with the value of attrName in e.
+              * If attrName is multi valued then this generates another
+              * list which replaces the old one.
+@@ -4273,8 +4273,7 @@ acllas_replace_attr_macro(char *rule, lasInfo *lasinfo)
+             str = strstr(macro_str, ".");
+             if (!str) {
+                 slapi_log_err(SLAPI_LOG_ERR, plugin_name,
+-                              "acllas_replace_attr_macro - Invalid macro \"%s\".",
+-                              macro_str);
++                              "acllas_replace_attr_macro - Invalid macro \"%s\".", macro_str);
+                 slapi_ch_free_string(&macro_str);
+                 charray_free(working_list);
+                 return NULL;
+@@ -4282,10 +4281,18 @@ acllas_replace_attr_macro(char *rule, lasInfo *lasinfo)
+ 
+             str++; /* skip the . */
+             l = acl_strstr(&str[0], ")");
++            if (l == -1){
++                slapi_log_err(SLAPI_LOG_ERR, plugin_name,
++                              "acllas_replace_attr_macro - Invalid macro str \"%s\".", str);
++                slapi_ch_free_string(&macro_str);
++                charray_free(working_list);
++                return NULL;
++            }
+             macro_attr_name = slapi_ch_malloc(l + 1);
+             strncpy(macro_attr_name, &str[0], l);
+             macro_attr_name[l] = '\0';
+ 
++
+             slapi_entry_attr_find(e, macro_attr_name, &attr);
+             if (NULL == attr) {
+ 
+diff --git a/ldap/servers/plugins/automember/automember.c b/ldap/servers/plugins/automember/automember.c
+index 4c008e1f2..cbd25915a 100644
+--- a/ldap/servers/plugins/automember/automember.c
++++ b/ldap/servers/plugins/automember/automember.c
+@@ -1047,6 +1047,7 @@ automember_parse_regex_entry(struct configEntry *config, Slapi_Entry *e)
+                         /* Order rules by target group DN */
+                         if (slapi_sdn_compare(rule->target_group_dn, curr_rule->target_group_dn) < 0) {
+                             PR_INSERT_BEFORE(&(rule->list), list);
++                            rule = NULL;
+                             break;
+                         }
+ 
+@@ -1055,9 +1056,11 @@ automember_parse_regex_entry(struct configEntry *config, Slapi_Entry *e)
+                         /* If we hit the end of the list, add to the tail. */
+                         if ((PRCList *)config->inclusive_rules == list) {
+                             PR_INSERT_BEFORE(&(rule->list), list);
++                            rule = NULL;
+                             break;
+                         }
+                     }
++                    automember_free_regex_rule(rule);
+                 } else {
+                     /* Add to head of list */
+                     PR_INSERT_LINK(&(rule->list), (PRCList *)config->inclusive_rules);
+@@ -1101,6 +1104,7 @@ automember_parse_regex_entry(struct configEntry *config, Slapi_Entry *e)
+                         /* Order rules by target group DN */
+                         if (slapi_sdn_compare(rule->target_group_dn, curr_rule->target_group_dn) < 0) {
+                             PR_INSERT_BEFORE(&(rule->list), list);
++                            rule = NULL;
+                             break;
+                         }
+ 
+@@ -1109,6 +1113,7 @@ automember_parse_regex_entry(struct configEntry *config, Slapi_Entry *e)
+                         /* If we hit the end of the list, add to the tail. */
+                         if ((PRCList *)config->exclusive_rules == list) {
+                             PR_INSERT_BEFORE(&(rule->list), list);
++                            rule = NULL;
+                             break;
+                         }
+                     }
+@@ -1116,6 +1121,7 @@ automember_parse_regex_entry(struct configEntry *config, Slapi_Entry *e)
+                     /* Add to head of list */
+                     PR_INSERT_LINK(&(rule->list), (PRCList *)config->exclusive_rules);
+                 }
++                automember_free_regex_rule(rule);
+             } else {
+                 slapi_log_err(SLAPI_LOG_ERR, AUTOMEMBER_PLUGIN_SUBSYSTEM,
+                               "automember_parse_regex_entry - Skipping invalid exclusive "
+diff --git a/ldap/servers/plugins/cos/cos_cache.c b/ldap/servers/plugins/cos/cos_cache.c
+index 3b3c05783..5e0cf1725 100644
+--- a/ldap/servers/plugins/cos/cos_cache.c
++++ b/ldap/servers/plugins/cos/cos_cache.c
+@@ -874,7 +874,7 @@ cos_dn_defs_cb(Slapi_Entry *e, void *callback_data)
+ 
+     if (pCosAttribute && (!pCosTargetTree || !pCosTemplateDn)) {
+         /* get the parent of the definition */
+-        char *orig = slapi_dn_parent(pDn->val);
++        char *orig = pDn ? slapi_dn_parent(pDn->val) : NULL;
+         char *parent = NULL;
+         if (orig) {
+             parent = slapi_create_dn_string("%s", orig);
+@@ -900,7 +900,7 @@ cos_dn_defs_cb(Slapi_Entry *e, void *callback_data)
+             slapi_log_err(SLAPI_LOG_ERR, COS_PLUGIN_SUBSYSTEM,
+                           "cos_dn_defs_cb - "
+                           "Failed to get parent dn of cos definition %s.\n",
+-                          pDn->val);
++                          pDn ? pDn->val : "<NONE>");
+             if (!pCosTemplateDn) {
+                 if (!pCosTargetTree) {
+                     slapi_log_err(SLAPI_LOG_ERR, COS_PLUGIN_SUBSYSTEM, "cos_dn_defs_cb - cosTargetTree and cosTemplateDn are not set.\n");
+@@ -1843,6 +1843,13 @@ cos_cache_add_tmpl(cosTemplates **pTemplates, cosAttrValue *dn, cosAttrValue *ob
+ 
+     slapi_log_err(SLAPI_LOG_TRACE, COS_PLUGIN_SUBSYSTEM, "--> cos_cache_add_tmpl\n");
+ 
++    if (dn == NULL) {
++        slapi_log_err(SLAPI_LOG_ERR, COS_PLUGIN_SUBSYSTEM,
++                      "cos_cache_add_tmpl - param cosAttrValue dn is NULL\n");
++        ret = -1;
++        goto done;
++    }
++
+     /* create the attribute */
+     theTemp = (cosTemplates *)slapi_ch_malloc(sizeof(cosTemplates));
+     if (theTemp) {
+@@ -1851,7 +1858,9 @@ cos_cache_add_tmpl(cosTemplates **pTemplates, cosAttrValue *dn, cosAttrValue *ob
+         int index = 0;
+         int template_default = 0;
+         char *ptr = NULL;
+-        char *normed = slapi_create_dn_string("%s", dn->val);
++        char *normed = NULL;
++
++        normed = slapi_create_dn_string("%s", dn->val);
+         if (normed) {
+             slapi_ch_free_string(&dn->val);
+             dn->val = normed;
+@@ -1964,6 +1973,7 @@ cos_cache_add_tmpl(cosTemplates **pTemplates, cosAttrValue *dn, cosAttrValue *ob
+         ret = -1;
+     }
+ 
++done:
+     slapi_log_err(SLAPI_LOG_TRACE, COS_PLUGIN_SUBSYSTEM, "<-- cos_cache_add_tmpl\n");
+     return ret;
+ }
+diff --git a/ldap/servers/plugins/memberof/memberof_config.c b/ldap/servers/plugins/memberof/memberof_config.c
+index 3f22d95d6..8a27f5250 100644
+--- a/ldap/servers/plugins/memberof/memberof_config.c
++++ b/ldap/servers/plugins/memberof/memberof_config.c
+@@ -550,7 +550,7 @@ memberof_apply_config(Slapi_PBlock *pb __attribute__((unused)),
+         }
+ 
+         /* Build the new list */
+-        for (i = 0; theConfig.groupattrs[i]; i++) {
++        for (i = 0; theConfig.groupattrs && theConfig.groupattrs[i]; i++) {
+             theConfig.group_slapiattrs[i] = slapi_attr_new();
+             slapi_attr_init(theConfig.group_slapiattrs[i], theConfig.groupattrs[i]);
+         }
+@@ -572,7 +572,7 @@ memberof_apply_config(Slapi_PBlock *pb __attribute__((unused)),
+             bytes_out = snprintf(filter_str, filter_str_len - bytes_out, "(|");
+ 
+             /* Add filter section for each groupattr. */
+-            for (i = 0; theConfig.groupattrs[i]; i++) {
++            for (i = 0; theConfig.groupattrs && theConfig.groupattrs[i]; i++) {
+                 bytes_out += snprintf(filter_str + bytes_out, filter_str_len - bytes_out, "(%s=*)", theConfig.groupattrs[i]);
+             }
+ 
+@@ -721,7 +721,7 @@ memberof_copy_config(MemberOfConfig *dest, MemberOfConfig *src)
+             }
+ 
+             /* Count how many values we have in the source list. */
+-            for (j = 0; src->group_slapiattrs[j]; j++) {
++            for (j = 0; src->group_slapiattrs && src->group_slapiattrs[j]; j++) {
+                 /* Do nothing. */
+             }
+ 
+@@ -731,7 +731,7 @@ memberof_copy_config(MemberOfConfig *dest, MemberOfConfig *src)
+             }
+ 
+             /* Copy the attributes. */
+-            for (i = 0; src->group_slapiattrs[i]; i++) {
++            for (i = 0; src->group_slapiattrs && src->group_slapiattrs[i]; i++) {
+                 dest->group_slapiattrs[i] = slapi_attr_dup(src->group_slapiattrs[i]);
+             }
+ 
+diff --git a/ldap/servers/plugins/replication/cl5_clcache.c b/ldap/servers/plugins/replication/cl5_clcache.c
+index 40985b9a7..a8477a83a 100644
+--- a/ldap/servers/plugins/replication/cl5_clcache.c
++++ b/ldap/servers/plugins/replication/cl5_clcache.c
+@@ -676,7 +676,7 @@ clcache_initial_anchorcsn(CLC_Buffer *buf, int *flag)
+         buf->buf_state = CLC_STATE_DONE;
+     } else {
+         csn_init_by_csn(buf->buf_current_csn, anchorcsn);
+-        csn_as_string(buf->buf_current_csn, 0, (char *)buf->buf_key.data);
++        buf->buf_key.data = csn_as_string(buf->buf_current_csn, 0, (char *)buf->buf_key.data);
+         slapi_log_err(SLAPI_LOG_REPL, "clcache_initial_anchorcsn",
+                       "anchor is now: %s\n", (char *)buf->buf_key.data);
+     }
+@@ -746,10 +746,9 @@ clcache_adjust_anchorcsn(CLC_Buffer *buf, int *flag)
+         buf->buf_state = CLC_STATE_DONE;
+     } else {
+         csn_init_by_csn(buf->buf_current_csn, anchorcsn);
+-        csn_as_string(buf->buf_current_csn, 0, (char *)buf->buf_key.data);
+-        slapi_log_err(SLAPI_LOG_REPL, buf->buf_agmt_name, "clcache_adjust_anchorcsn - "
+-                                                          "anchor is now: %s\n",
+-                      (char *)buf->buf_key.data);
++        buf->buf_key.data = csn_as_string(buf->buf_current_csn, 0, (char *)buf->buf_key.data);
++        slapi_log_err(SLAPI_LOG_REPL, buf->buf_agmt_name,
++                      "clcache_adjust_anchorcsn - anchor is now: %s\n", (char *)buf->buf_key.data);
+     }
+ 
+     return buf->buf_state;
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index 95b933bb8..bda333362 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -2527,9 +2527,6 @@ add_cleaned_rid(cleanruv_data *cleanruv_data, char *maxcsn)
+     Replica *r;
+     char *forcing;
+ 
+-    if (data == NULL) {
+-        return;
+-    }
+     rid = cleanruv_data->rid;
+     r = cleanruv_data->replica;
+     forcing = cleanruv_data->force;
+diff --git a/ldap/servers/plugins/rootdn_access/rootdn_access.c b/ldap/servers/plugins/rootdn_access/rootdn_access.c
+index b4db1202a..1cb999792 100644
+--- a/ldap/servers/plugins/rootdn_access/rootdn_access.c
++++ b/ldap/servers/plugins/rootdn_access/rootdn_access.c
+@@ -459,7 +459,7 @@ rootdn_check_access(Slapi_PBlock *pb)
+     PRNetAddr *client_addr = NULL;
+     PRHostEnt *host_entry = NULL;
+     time_t curr_time;
+-    struct tm *timeinfo;
++    struct tm *timeinfo = NULL;
+     char *dnsName = NULL;
+     int isRoot = 0;
+     int rc = SLAPI_PLUGIN_SUCCESS;
+@@ -478,6 +478,11 @@ rootdn_check_access(Slapi_PBlock *pb)
+     if (open_time || daysAllowed) {
+         curr_time = slapi_current_utc_time();
+         timeinfo = localtime(&curr_time);
++        if (timeinfo == NULL) {
++            slapi_log_err(SLAPI_LOG_ERR, ROOTDN_PLUGIN_SUBSYSTEM,
++                "rootdn_check_access - Failed to get localtime\n");
++            return -1;
++        }
+     }
+     /*
+      *  First check TOD restrictions, continue through if we are in the open "window"
+diff --git a/ldap/servers/plugins/uiduniq/7bit.c b/ldap/servers/plugins/uiduniq/7bit.c
+index b23e652cf..60fcbab93 100644
+--- a/ldap/servers/plugins/uiduniq/7bit.c
++++ b/ldap/servers/plugins/uiduniq/7bit.c
+@@ -715,18 +715,18 @@ preop_modrdn(Slapi_PBlock *pb)
+ int
+ NS7bitAttr_Init(Slapi_PBlock *pb)
+ {
+-    int err = 0;
++    int32_t err = 0;
+     Slapi_Entry *plugin_entry = NULL;
+     char *plugin_type = NULL;
+-    int preadd = SLAPI_PLUGIN_PRE_ADD_FN;
+-    int premod = SLAPI_PLUGIN_PRE_MODIFY_FN;
+-    int premdn = SLAPI_PLUGIN_PRE_MODRDN_FN;
++    int32_t preadd = SLAPI_PLUGIN_PRE_ADD_FN;
++    int32_t premod = SLAPI_PLUGIN_PRE_MODIFY_FN;
++    int32_t premdn = SLAPI_PLUGIN_PRE_MODRDN_FN;
+ 
+     BEGIN
+-    int attr_count = 0;
+-    int argc;
+-    char **argv;
+-    int valid_suffix = 0;
++    int32_t attr_count = 0;
++    int32_t argc = 0;
++    char **argv = NULL;
++    int32_t valid_suffix = 0;
+ 
+     /* Declare plugin version */
+     err = slapi_pblock_set(pb, SLAPI_PLUGIN_VERSION,
+@@ -752,7 +752,7 @@ NS7bitAttr_Init(Slapi_PBlock *pb)
+         break;
+ 
+     err = slapi_pblock_get(pb, SLAPI_PLUGIN_ARGV, &argv);
+-    if (err)
++    if (err || argv == NULL)
+         break;
+ 
+     for (attr_count = 0; argv && argv[attr_count]; attr_count++) {
+diff --git a/ldap/servers/plugins/views/views.c b/ldap/servers/plugins/views/views.c
+index 6ba3e290d..6f784f599 100644
+--- a/ldap/servers/plugins/views/views.c
++++ b/ldap/servers/plugins/views/views.c
+@@ -558,6 +558,9 @@ views_cache_index(void)
+         /* copy over the views */
+         for (i = 0; i < theCache.view_count; i++) {
+             theCache.ppViewIndex[i] = theView;
++            if (theView == NULL){
++                break;
++            }
+             theView = theView->list.pNext;
+         }
+ 
+diff --git a/ldap/servers/slapd/auth.c b/ldap/servers/slapd/auth.c
+index b8e171b27..a2050b990 100644
+--- a/ldap/servers/slapd/auth.c
++++ b/ldap/servers/slapd/auth.c
+@@ -463,7 +463,8 @@ handle_handshake_done(PRFileDesc *prfd, void *clientData)
+             slapi_log_access(LDAP_DEBUG_STATS,
+                              "conn=%" PRIu64 " %s %i-bit %s; client %s; issuer %s\n",
+                              conn->c_connid,
+-                             sslversion, keySize, cipher ? cipher : "NULL",
++                             sslversion, keySize,
++                             cipher ? cipher : "NULL",
+                              subject ? escape_string(subject, sbuf) : "NULL",
+                              issuer ? escape_string(issuer, ibuf) : "NULL");
+             if (issuer)
+diff --git a/ldap/servers/slapd/back-ldbm/dblayer.c b/ldap/servers/slapd/back-ldbm/dblayer.c
+index 9e557a24a..5d870e364 100644
+--- a/ldap/servers/slapd/back-ldbm/dblayer.c
++++ b/ldap/servers/slapd/back-ldbm/dblayer.c
+@@ -3007,7 +3007,7 @@ dblayer_erase_index_file_ex(backend *be, struct attrinfo *a, PRBool use_lock, in
+     struct dblayer_private_env *pEnv = NULL;
+     ldbm_instance *inst = NULL;
+     dblayer_handle *handle = NULL;
+-    char dbName[MAXPATHLEN];
++    char dbName[MAXPATHLEN] = {0};
+     char *dbNamep;
+     char *p;
+     int dbbasenamelen, dbnamelen;
+@@ -3098,8 +3098,7 @@ dblayer_erase_index_file_ex(backend *be, struct attrinfo *a, PRBool use_lock, in
+                     dbNamep = (char *)slapi_ch_realloc(dbNamep, dbnamelen);
+                 }
+                 p = dbNamep + dbbasenamelen;
+-                sprintf(p, "%c%s%s",
+-                        get_sep(dbNamep), a->ai_type, LDBM_FILENAME_SUFFIX);
++                sprintf(p, "%c%s%s", get_sep(dbNamep), a->ai_type, LDBM_FILENAME_SUFFIX);
+                 rc = dblayer_db_remove_ex(pEnv, dbNamep, 0, 0);
+                 a->ai_dblayer = NULL;
+                 if (dbNamep != dbName)
+diff --git a/ldap/servers/slapd/back-ldbm/filterindex.c b/ldap/servers/slapd/back-ldbm/filterindex.c
+index fd079077c..e8c3c2008 100644
+--- a/ldap/servers/slapd/back-ldbm/filterindex.c
++++ b/ldap/servers/slapd/back-ldbm/filterindex.c
+@@ -563,7 +563,7 @@ range_candidates(
+ 
+     /* Check if it is for bulk import. */
+     slapi_pblock_get(pb, SLAPI_OPERATION, &op);
+-    if (entryrdn_get_switch() && operation_is_flag_set(op, OP_FLAG_INTERNAL) &&
++    if (entryrdn_get_switch() && op && operation_is_flag_set(op, OP_FLAG_INTERNAL) &&
+         operation_is_flag_set(op, OP_FLAG_BULK_IMPORT)) {
+         /* parentid is treated specially that is needed for the bulk import. (See #48755) */
+         operator= SLAPI_OP_RANGE_NO_IDL_SORT | SLAPI_OP_RANGE_NO_ALLIDS;
+diff --git a/ldap/servers/slapd/back-ldbm/import-threads.c b/ldap/servers/slapd/back-ldbm/import-threads.c
+index b8cd9aaa0..0419865c9 100644
+--- a/ldap/servers/slapd/back-ldbm/import-threads.c
++++ b/ldap/servers/slapd/back-ldbm/import-threads.c
+@@ -1664,8 +1664,7 @@ upgradedn_producer(void *param)
+                 slapi_ch_free_string(&rdn);
+             }
+         } else {
+-            e =
+-                slapi_str2entry(data.data, SLAPI_STR2ENTRY_USE_OBSOLETE_DNFORMAT);
++            e = slapi_str2entry(data.data, SLAPI_STR2ENTRY_USE_OBSOLETE_DNFORMAT);
+             rdn = slapi_ch_strdup(slapi_entry_get_rdn_const(e));
+             if (NULL == rdn) {
+                 Slapi_RDN srdn;
+@@ -1683,6 +1682,7 @@ upgradedn_producer(void *param)
+             slapi_log_err(SLAPI_LOG_WARNING, "upgradedn_producer",
+                           "%s: Skipping badly formatted entry (id %lu)\n",
+                           inst->inst_name, (u_long)temp_id);
++            slapi_ch_free_string(&rdn);
+             continue;
+         }
+ 
+@@ -2183,6 +2183,7 @@ done:
+     free_IDarray(&dn_norm_sp_conflicts);
+     slapi_ch_free_string(&ecopy);
+     slapi_ch_free(&(data.data));
++    slapi_ch_free_string(&rdn);
+     if (job->upgradefd) {
+         fclose(job->upgradefd);
+     }
+@@ -3783,7 +3784,7 @@ out:
+     slapi_ch_free_string(&search_scope);
+ 
+ 
+-    if (fd > 0) {
++    if (fd >= 0) {
+         close(fd);
+     }
+ 
+@@ -3949,8 +3950,7 @@ import_get_and_add_parent_rdns(ImportWorkerInfo *info,
+         rc = slapi_rdn_add_srdn_to_all_rdns(srdn, &mysrdn);
+         if (rc) {
+             slapi_log_err(SLAPI_LOG_ERR, "import_get_and_add_parent_rdns",
+-                          "Failed to merge Slapi_RDN %s to RDN\n",
+-                          slapi_sdn_get_dn(bdn->dn_sdn));
++                          "Failed to merge Slapi_RDN to RDN\n");
+         }
+     bail:
+         slapi_ch_free(&data.data);
+diff --git a/ldap/servers/slapd/back-ldbm/index.c b/ldap/servers/slapd/back-ldbm/index.c
+index 587f4d991..7e1cdd0db 100644
+--- a/ldap/servers/slapd/back-ldbm/index.c
++++ b/ldap/servers/slapd/back-ldbm/index.c
+@@ -749,7 +749,7 @@ index_add_mods(
+                                           mods[i]->mod_type,
+                                           &curr_attr);
+                     if (curr_attr) {
+-                        for (j = 0; mods_valueArray[j] != NULL; j++) {
++                        for (j = 0; mods_valueArray && mods_valueArray[j] != NULL; j++) {
+                             if (!slapi_valueset_find(curr_attr, all_vals, mods_valueArray[j])) {
+                                 /*
+                                  * If the mod del value is not found in all_vals
+@@ -1054,6 +1054,7 @@ index_read_ext_allids(
+     for (retry_count = 0; retry_count < IDL_FETCH_RETRY_COUNT; retry_count++) {
+         *err = NEW_IDL_DEFAULT;
+         PRIntervalTime interval;
++        idl_free(&idl);
+         idl = idl_fetch_ext(be, db, &key, db_txn, ai, err, allidslimit);
+         if (*err == DB_LOCK_DEADLOCK) {
+             ldbm_nasty("index_read_ext_allids", "index read retrying transaction", 1045, *err);
+diff --git a/ldap/servers/slapd/back-ldbm/instance.c b/ldap/servers/slapd/back-ldbm/instance.c
+index d4715ab9c..7f9f423a5 100644
+--- a/ldap/servers/slapd/back-ldbm/instance.c
++++ b/ldap/servers/slapd/back-ldbm/instance.c
+@@ -352,6 +352,10 @@ ldbm_instance_find_by_name(struct ldbminfo *li, char *name)
+     Object *inst_obj;
+     ldbm_instance *inst;
+ 
++    if (name == NULL) {
++        return NULL;
++    }
++
+     inst_obj = objset_first_obj(li->li_instance_set);
+     while (inst_obj != NULL) {
+         inst = (ldbm_instance *)object_get_data(inst_obj);
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_add.c b/ldap/servers/slapd/back-ldbm/ldbm_add.c
+index f29945a7e..c93d44a65 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_add.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_add.c
+@@ -60,7 +60,7 @@ ldbm_back_add(Slapi_PBlock *pb)
+     ID pid;
+     int isroot;
+     char *errbuf = NULL;
+-    back_txn txn;
++    back_txn txn = {0};
+     back_txnid parent_txn;
+     int retval = -1;
+     char *msg;
+@@ -96,6 +96,7 @@ ldbm_back_add(Slapi_PBlock *pb)
+     PRUint64 conn_id;
+     int op_id;
+     int result_sent = 0;
++
+     if (slapi_pblock_get(pb, SLAPI_CONN_ID, &conn_id) < 0) {
+         conn_id = 0; /* connection is NULL */
+     }
+@@ -109,6 +110,11 @@ ldbm_back_add(Slapi_PBlock *pb)
+     slapi_pblock_get(pb, SLAPI_IS_REPLICATED_OPERATION, &is_replicated_operation);
+     slapi_pblock_get(pb, SLAPI_BACKEND, &be);
+ 
++    if (operation == NULL) {
++        slapi_log_err(SLAPI_LOG_ERR, "ldbm_back_add", "NULL operation\n");
++        return LDAP_OPERATIONS_ERROR;
++    }
++
+     is_resurect_operation = operation_is_flag_set(operation, OP_FLAG_RESURECT_ENTRY);
+     is_tombstone_operation = operation_is_flag_set(operation, OP_FLAG_TOMBSTONE_ENTRY);
+     is_fixup_operation = operation_is_flag_set(operation, OP_FLAG_REPL_FIXUP);
+@@ -126,6 +132,11 @@ ldbm_back_add(Slapi_PBlock *pb)
+         goto error_return;
+     }
+ 
++    if (e == NULL){
++        slapi_log_err(SLAPI_LOG_ERR, "ldbm_back_add", "entry is NULL.\n");
++        goto error_return;
++    }
++
+     /* sdn & parentsdn need to be initialized before "goto *_return" */
+     slapi_sdn_init(&parentsdn);
+ 
+@@ -169,9 +180,8 @@ ldbm_back_add(Slapi_PBlock *pb)
+      * before we make our last abandon check to avoid race conditions in
+      * the code that processes abandon operations.
+      */
+-    if (operation) {
+-        operation->o_status = SLAPI_OP_STATUS_WILL_COMPLETE;
+-    }
++    operation->o_status = SLAPI_OP_STATUS_WILL_COMPLETE;
++
+     if (slapi_op_abandoned(pb)) {
+         ldap_result_code = -1; /* needs to distinguish from "success" */
+         goto error_return;
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_attrcrypt_config.c b/ldap/servers/slapd/back-ldbm/ldbm_attrcrypt_config.c
+index e792c26cf..9ecb09903 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_attrcrypt_config.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_attrcrypt_config.c
+@@ -124,8 +124,8 @@ ldbm_instance_attrcrypt_config_add_callback(Slapi_PBlock *pb __attribute__((unus
+ {
+     ldbm_instance *inst = (ldbm_instance *)arg;
+     char *attribute_name = NULL;
+-    int cipher = 0;
+-    int ret = 0;
++    int32_t cipher = 0;
++    int32_t ret = SLAPI_DSE_CALLBACK_OK;
+ 
+     returntext[0] = '\0';
+ 
+@@ -146,7 +146,6 @@ ldbm_instance_attrcrypt_config_add_callback(Slapi_PBlock *pb __attribute__((unus
+             *returncode = LDAP_UNWILLING_TO_PERFORM;
+             ret = SLAPI_DSE_CALLBACK_ERROR;
+         } else {
+-
+             ainfo_get(inst->inst_be, attribute_name, &ai);
+             /* If we couldn't find a non-default attrinfo, then that means
+              * that no indexing or encryption has yet been defined for this attribute
+@@ -172,9 +171,7 @@ ldbm_instance_attrcrypt_config_add_callback(Slapi_PBlock *pb __attribute__((unus
+                 *returncode = LDAP_UNWILLING_TO_PERFORM;
+                 ret = SLAPI_DSE_CALLBACK_ERROR;
+             }
+-            ret = SLAPI_DSE_CALLBACK_OK;
+         }
+-
+     } else {
+         ret = SLAPI_DSE_CALLBACK_ERROR;
+     }
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c b/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
+index c2e49d5ab..eb2603897 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
+@@ -1307,7 +1307,7 @@ ldbm_instance_delete_instance_entry_callback(Slapi_PBlock *pb __attribute__((unu
+                                              char *returntext,
+                                              void *arg)
+ {
+-    char *instance_name;
++    char *instance_name = NULL;
+     struct ldbminfo *li = (struct ldbminfo *)arg;
+     struct ldbm_instance *inst = NULL;
+ 
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_search.c b/ldap/servers/slapd/back-ldbm/ldbm_search.c
+index 02a21bf92..8f3111813 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_search.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_search.c
+@@ -1157,7 +1157,7 @@ subtree_candidates(
+     slapi_pblock_get(pb, SLAPI_REQUESTOR_ISROOT, &isroot);
+     /* Check if it is for bulk import. */
+     slapi_pblock_get(pb, SLAPI_OPERATION, &op);
+-    if (entryrdn_get_switch() && operation_is_flag_set(op, OP_FLAG_INTERNAL) &&
++    if (op && entryrdn_get_switch() && operation_is_flag_set(op, OP_FLAG_INTERNAL) &&
+         operation_is_flag_set(op, OP_FLAG_BULK_IMPORT)) {
+         is_bulk_import = PR_TRUE;
+     }
+@@ -1168,7 +1168,7 @@ subtree_candidates(
+      * since tombstone entries are not indexed in the ancestorid index.
+      * Note: they are indexed in the entryrdn index.
+      */
+-    if (candidates != NULL && (idl_length(candidates) > FILTER_TEST_THRESHOLD)) {
++    if (candidates != NULL && (idl_length(candidates) > FILTER_TEST_THRESHOLD) && e) {
+         IDList *tmp = candidates, *descendants = NULL;
+         back_txn txn = {NULL};
+ 
+diff --git a/ldap/servers/slapd/back-ldbm/vlv.c b/ldap/servers/slapd/back-ldbm/vlv.c
+index 9a1a1c63e..23825c2d5 100644
+--- a/ldap/servers/slapd/back-ldbm/vlv.c
++++ b/ldap/servers/slapd/back-ldbm/vlv.c
+@@ -1518,7 +1518,7 @@ vlv_trim_candidates_byvalue(backend *be, const IDList *candidates, const sort_sp
+ {
+     PRUint32 si = 0; /* The Selected Index */
+     PRUint32 low = 0;
+-    PRUint32 high = candidates->b_nids - 1;
++    PRUint32 high = 0;
+     PRUint32 current = 0;
+     ID id = NOID;
+     int found = 0;
+diff --git a/ldap/servers/slapd/back-ldbm/vlv_srch.c b/ldap/servers/slapd/back-ldbm/vlv_srch.c
+index e9780b590..c4c0875ad 100644
+--- a/ldap/servers/slapd/back-ldbm/vlv_srch.c
++++ b/ldap/servers/slapd/back-ldbm/vlv_srch.c
+@@ -168,7 +168,7 @@ vlvSearch_init(struct vlvSearch *p, Slapi_PBlock *pb, const Slapi_Entry *e, ldbm
+ 
+             /* switch context back to the DSE backend */
+             slapi_pblock_set(pb, SLAPI_BACKEND, oldbe);
+-            slapi_pblock_set(pb, SLAPI_PLUGIN, oldbe->be_database);
++            slapi_pblock_set(pb, SLAPI_PLUGIN, oldbe ? oldbe->be_database: NULL);
+         }
+ 
+         /* make (&(parentid=idofbase)(|(originalfilter)(objectclass=referral))) */
+diff --git a/ldap/servers/slapd/backend.c b/ldap/servers/slapd/backend.c
+index fb3eb77a3..78c00a5a8 100644
+--- a/ldap/servers/slapd/backend.c
++++ b/ldap/servers/slapd/backend.c
+@@ -171,7 +171,7 @@ slapi_be_issuffix(const Slapi_Backend *be, const Slapi_DN *suffix)
+     struct suffixlist *list;
+     int r = 0;
+     /* this backend is no longer valid */
+-    if (be->be_state != BE_STATE_DELETED) {
++    if (be && be->be_state != BE_STATE_DELETED) {
+         int i = 0, count;
+ 
+         count = slapi_counter_get_value(be->be_suffixcounter);
+diff --git a/ldap/servers/slapd/compare.c b/ldap/servers/slapd/compare.c
+index 2626d91d0..88a6c3599 100644
+--- a/ldap/servers/slapd/compare.c
++++ b/ldap/servers/slapd/compare.c
+@@ -47,9 +47,11 @@ do_compare(Slapi_PBlock *pb)
+ 
+     slapi_log_err(SLAPI_LOG_TRACE, "do_compare", "=>\n");
+ 
++    /* have to init this here so we can "done" it below if we short circuit */
++    slapi_sdn_init(&sdn);
++
+     slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+-
+     if (pb_op == NULL || pb_conn == NULL) {
+         slapi_log_err(SLAPI_LOG_ERR, "do_compare", "NULL param: pb_conn (0x%p) pb_op (0x%p)\n",
+                       pb_conn, pb_op);
+@@ -62,9 +64,6 @@ do_compare(Slapi_PBlock *pb)
+     /* count the compare request */
+     slapi_counter_increment(g_get_global_snmp_vars()->ops_tbl.dsCompareOps);
+ 
+-    /* have to init this here so we can "done" it below if we short circuit */
+-    slapi_sdn_init(&sdn);
+-
+     /*
+      * Parse the compare request.  It looks like this:
+      *
+diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
+index fa24ec040..5d2b64ed2 100644
+--- a/ldap/servers/slapd/connection.c
++++ b/ldap/servers/slapd/connection.c
+@@ -1526,18 +1526,6 @@ connection_threadmain()
+                [blackflag 624234] */
+             ret = connection_wait_for_new_work(pb, interval);
+ 
+-            /*
+-             * Connection wait for new work provides the conn and op for us.
+-             */
+-            slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+-            if (pb_conn == NULL) {
+-                slapi_log_err(SLAPI_LOG_ERR, "connection_threadmain",
+-                              "pb_conn is NULL\n");
+-                slapi_pblock_destroy(pb);
+-                g_decr_active_threadcnt();
+-                return;
+-            }
+-
+             switch (ret) {
+             case CONN_NOWORK:
+                 PR_ASSERT(interval != PR_INTERVAL_NO_TIMEOUT); /* this should never happen with PR_INTERVAL_NO_TIMEOUT */
+@@ -1550,15 +1538,22 @@ connection_threadmain()
+                 return;
+             case CONN_FOUND_WORK_TO_DO:
+                 /* note - don't need to lock here - connection should only
+-                       be used by this thread - since c_gettingber is set to 1
+-                       in connection_activity when the conn is added to the
+-                       work queue, setup_pr_read_pds won't add the connection prfd
+-                       to the poll list */
++                   be used by this thread - since c_gettingber is set to 1
++                   in connection_activity when the conn is added to the
++                   work queue, setup_pr_read_pds won't add the connection prfd
++                   to the poll list */
++                slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
++                if (pb_conn == NULL) {
++                    slapi_log_err(SLAPI_LOG_ERR, "connection_threadmain", "pb_conn is NULL\n");
++                    slapi_pblock_destroy(pb);
++                    g_decr_active_threadcnt();
++                    return;
++                }
+                 if (pb_conn->c_opscompleted == 0) {
+                     /*
+-                         * We have a new connection, set the anonymous reslimit idletimeout
+-                         * if applicable.
+-                         */
++                     * We have a new connection, set the anonymous reslimit idletimeout
++                     * if applicable.
++                     */
+                     char *anon_dn = config_get_anon_limits_dn();
+                     int idletimeout;
+                     /* If an anonymous limits dn is set, use it to set the limits. */
+@@ -1578,6 +1573,7 @@ connection_threadmain()
+                     slapi_log_err(SLAPI_LOG_ERR, "connection_threadmain",
+                                   "Could not add/remove IO layers from connection\n");
+                 }
++                break;
+             default:
+                 break;
+             }
+@@ -1604,6 +1600,12 @@ connection_threadmain()
+         /* Once we're here we have a pb */
+         slapi_pblock_get(pb, SLAPI_CONNECTION, &conn);
+         slapi_pblock_get(pb, SLAPI_OPERATION, &op);
++        if (conn == NULL || op == NULL) {
++            slapi_log_err(SLAPI_LOG_ERR, "connection_threadmain", "NULL param: conn (0x%p) op (0x%p)\n", conn, op);
++            slapi_pblock_destroy(pb);
++            g_decr_active_threadcnt();
++            return;
++        }
+         maxthreads = config_get_maxthreadsperconn();
+         more_data = 0;
+         ret = connection_read_operation(conn, op, &tag, &more_data);
+diff --git a/ldap/servers/slapd/control.c b/ldap/servers/slapd/control.c
+index 366ec7897..4fd8473be 100644
+--- a/ldap/servers/slapd/control.c
++++ b/ldap/servers/slapd/control.c
+@@ -304,6 +304,12 @@ get_ldapmessage_controls_ext(
+ 
+             Operation *pb_op = NULL;
+             slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
++            if (pb_op == NULL) {
++                rc = LDAP_OPERATIONS_ERROR;
++                slapi_log_err(SLAPI_LOG_ERR, "get_ldapmessage_controls_ext", "NULL pb_op\n");
++                slapi_rwlock_unlock(supported_controls_lock);
++                goto free_and_return;
++            }
+ 
+             if (supported_controls == NULL ||
+                 supported_controls[i] == NULL ||
+diff --git a/ldap/servers/slapd/dse.c b/ldap/servers/slapd/dse.c
+index 662e91aa7..932912c17 100644
+--- a/ldap/servers/slapd/dse.c
++++ b/ldap/servers/slapd/dse.c
+@@ -1727,8 +1727,9 @@ dse_modify(Slapi_PBlock *pb) /* JCM There should only be one exit point from thi
+     }
+ 
+     slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
+-    internal_op = operation_is_flag_set(pb_op, OP_FLAG_INTERNAL);
+-
++    if (pb_op){
++        internal_op = operation_is_flag_set(pb_op, OP_FLAG_INTERNAL);
++    }
+     /* Find the entry we are about to modify. */
+     ec = dse_get_entry_copy(pdse, sdn, DSE_USE_LOCK);
+     if (ec == NULL) {
+diff --git a/ldap/servers/slapd/eventq.c b/ldap/servers/slapd/eventq.c
+index 8fccf38a8..a491acd0a 100644
+--- a/ldap/servers/slapd/eventq.c
++++ b/ldap/servers/slapd/eventq.c
+@@ -462,7 +462,7 @@ slapi_eq_get_arg(Slapi_Eq_Context ctx)
+     slapi_eq_context **p;
+ 
+     PR_ASSERT(eq_initialized);
+-    if (!eq_stopped) {
++    if (eq && !eq_stopped) {
+         PR_Lock(eq->eq_lock);
+         p = &(eq->eq_queue);
+         while (p && *p != NULL) {
+diff --git a/ldap/servers/slapd/extendop.c b/ldap/servers/slapd/extendop.c
+index 815949be6..98595bcaa 100644
+--- a/ldap/servers/slapd/extendop.c
++++ b/ldap/servers/slapd/extendop.c
+@@ -135,10 +135,12 @@ extop_handle_import_start(Slapi_PBlock *pb, char *extoid __attribute__((unused))
+      * connection block & mark this connection as belonging to a bulk import
+      */
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+-    PR_EnterMonitor(pb_conn->c_mutex);
+-    pb_conn->c_flags |= CONN_FLAG_IMPORT;
+-    pb_conn->c_bi_backend = be;
+-    PR_ExitMonitor(pb_conn->c_mutex);
++    if (pb_conn) {
++        PR_EnterMonitor(pb_conn->c_mutex);
++        pb_conn->c_flags |= CONN_FLAG_IMPORT;
++        pb_conn->c_bi_backend = be;
++        PR_ExitMonitor(pb_conn->c_mutex);
++    }
+ 
+     slapi_pblock_set(pb, SLAPI_EXT_OP_RET_OID, EXTOP_BULK_IMPORT_START_OID);
+     bv.bv_val = NULL;
+diff --git a/ldap/servers/slapd/filter.c b/ldap/servers/slapd/filter.c
+index ef975e679..2ac3d2cd8 100644
+--- a/ldap/servers/slapd/filter.c
++++ b/ldap/servers/slapd/filter.c
+@@ -686,11 +686,13 @@ slapi_filter_dup(Slapi_Filter *f)
+         outl = &out->f_list;
+         for (fl = f->f_list; fl != NULL; fl = fl->f_next) {
+             (*outl) = slapi_filter_dup(fl);
+-            (*outl)->f_next = 0;
+-            if (lastout)
+-                lastout->f_next = *outl;
+-            lastout = *outl;
+-            outl = &((*outl)->f_next);
++            if (*outl){
++                (*outl)->f_next = 0;
++                if (lastout)
++                    lastout->f_next = *outl;
++                lastout = *outl;
++                outl = &((*outl)->f_next);
++            }
+         }
+         break;
+ 
+diff --git a/ldap/servers/slapd/index_subsystem.c b/ldap/servers/slapd/index_subsystem.c
+index 47ca90047..97cb7b489 100644
+--- a/ldap/servers/slapd/index_subsystem.c
++++ b/ldap/servers/slapd/index_subsystem.c
+@@ -1179,7 +1179,7 @@ index_subsys_assign_decoder(Slapi_Filter *f)
+                          * have the same associated attributes configuration for now
+                          * though they may have different namespaces
+                          */
+-                        if (index_subsys_index_matches_index(f->assigned_decoder, index)) {
++                        if (index_subsys_index_matches_index(f->assigned_decoder, index) && last) {
+                             /* add to end */
+                             last->list.pNext = index_subsys_index_shallow_dup(index);
+                             last = last->list.pNext;
+diff --git a/ldap/servers/slapd/main.c b/ldap/servers/slapd/main.c
+index ddaceffea..e1493bb80 100644
+--- a/ldap/servers/slapd/main.c
++++ b/ldap/servers/slapd/main.c
+@@ -683,13 +683,26 @@ main(int argc, char **argv)
+     {
+         char *s = getenv("DEBUG_SLEEP");
+         if ((s != NULL) && isdigit(*s)) {
+-            int secs = atoi(s);
+-            printf("slapd pid is %d\n", getpid());
++            char *endp = NULL;
++            int64_t secs;
++            errno = 0;
++
++            secs = strtol(s, &endp, 10);
++            if ( endp == s ||
++                 *endp != '\0' ||
++                 ((secs == LONG_MIN || secs == LONG_MAX) && errno == ERANGE) ||
++                 secs < 1 )
++            {
++                /* Invalid value, default to 30 seconds */
++                secs = 30;
++            } else if (secs > 3600) {
++                secs = 3600;
++            }
++            printf("slapd pid is %d - sleeping for %ld\n", getpid(), secs);
+             sleep(secs);
+         }
+     }
+ 
+-
+     /* used to set configfile to the default config file name here */
+     if ((mcfg.myname = strrchr(argv[0], '/')) == NULL) {
+         mcfg.myname = slapi_ch_strdup(argv[0]);
+diff --git a/ldap/servers/slapd/mapping_tree.c b/ldap/servers/slapd/mapping_tree.c
+index 8cc531834..472a2f6aa 100644
+--- a/ldap/servers/slapd/mapping_tree.c
++++ b/ldap/servers/slapd/mapping_tree.c
+@@ -2629,7 +2629,7 @@ mtn_get_be(mapping_tree_node *target_node, Slapi_PBlock *pb, Slapi_Backend **be,
+                     (target_node->mtn_be_states[*index] == SLAPI_BE_STATE_OFFLINE)) {
+                     slapi_log_err(SLAPI_LOG_TRACE, "mtn_get_be",
+                                   "Operation attempted on backend in OFFLINE state : %s\n",
+-                                  target_node->mtn_backend_names[*index]);
++                                  target_node->mtn_backend_names ? target_node->mtn_backend_names[*index] : "Unknown backend");
+                     result = LDAP_OPERATIONS_ERROR;
+                     *be = defbackend_get_backend();
+                 }
+diff --git a/ldap/servers/slapd/modify.c b/ldap/servers/slapd/modify.c
+index 10d263159..f2f6d1783 100644
+--- a/ldap/servers/slapd/modify.c
++++ b/ldap/servers/slapd/modify.c
+@@ -123,7 +123,7 @@ do_modify(Slapi_PBlock *pb)
+ 
+     slapi_pblock_get(pb, SLAPI_OPERATION, &operation);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+-    if (operation == NULL) {
++    if (operation == NULL || pb_conn == NULL) {
+         send_ldap_result(pb, LDAP_OPERATIONS_ERROR,
+                          NULL, "operation is NULL parameter", 0, NULL);
+         slapi_log_err(SLAPI_LOG_ERR, "do_modify",
+@@ -1156,6 +1156,7 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+     char *proxydn = NULL;
+     char *proxystr = NULL;
+     char *errtext = NULL;
++    int32_t needpw = 0;
+ 
+     slapi_pblock_get(pb, SLAPI_IS_REPLICATED_OPERATION, &repl_op);
+     if (repl_op) {
+@@ -1169,24 +1170,23 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+     slapi_pblock_get(pb, SLAPI_REQUESTOR_ISROOT, &isroot);
+     slapi_pblock_get(pb, SLAPI_OPERATION, &operation);
+     slapi_pblock_get(pb, SLAPI_PWPOLICY, &pwresponse_req);
+-    internal_op = operation_is_flag_set(operation, OP_FLAG_INTERNAL);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
++    slapi_sdn_init_dn_byref(&sdn, dn);
+ 
+-    if (pb_conn == NULL || operation == NULL) {
+-        slapi_log_err(SLAPI_LOG_ERR, "op_shared_allow_pw_change",
+-                      "NULL param error: conn (0x%p) op (0x%p)\n", pb_conn, operation);
++    if (operation == NULL) {
++        slapi_log_err(SLAPI_LOG_ERR, "op_shared_allow_pw_change", "NULL operation\n");
+         rc = -1;
+         goto done;
+     }
+-
+-    slapi_sdn_init_dn_byref(&sdn, dn);
+-    pwpolicy = new_passwdPolicy(pb, (char *)slapi_sdn_get_ndn(&sdn));
++    if (pb_conn) {
++        needpw = pb_conn->c_needpw;
++    }
+ 
+     /* get the proxy auth dn if the proxy auth control is present */
+     if ((proxy_err = proxyauth_get_dn(pb, &proxydn, &errtext)) != LDAP_SUCCESS) {
+         if (operation_is_flag_set(operation, OP_FLAG_ACTION_LOG_ACCESS)) {
+             slapi_log_access(LDAP_DEBUG_STATS, "conn=%" PRIu64 " op=%d MOD dn=\"%s\"\n",
+-                             pb_conn->c_connid, operation->o_opid,
++                             pb_conn ? pb_conn->c_connid: -1, operation->o_opid,
+                              slapi_sdn_get_dn(&sdn));
+         }
+ 
+@@ -1195,6 +1195,9 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+         goto done;
+     }
+ 
++    pwpolicy = new_passwdPolicy(pb, (char *)slapi_sdn_get_ndn(&sdn));
++    internal_op = operation_is_flag_set(operation, OP_FLAG_INTERNAL);
++
+     /* internal operation has root permissions for subtrees it is allowed to access */
+     if (!internal_op) {
+         /* slapi_acl_check_mods needs an array of LDAPMods, but
+@@ -1225,7 +1228,7 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+                     proxystr = slapi_ch_smprintf(" authzid=\"%s\"", proxydn);
+                 }
+                 slapi_log_access(LDAP_DEBUG_STATS, "conn=%" PRIu64 " op=%d MOD dn=\"%s\"%s\n",
+-                                 pb_conn->c_connid, operation->o_opid,
++                                 pb_conn ? pb_conn->c_connid : -1, operation->o_opid,
+                                  slapi_sdn_get_dn(&sdn), proxystr ? proxystr : "");
+             }
+ 
+@@ -1254,7 +1257,7 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+ 
+         /* Check if password policy allows users to change their passwords.*/
+         if (!operation->o_isroot && slapi_sdn_compare(&sdn, &operation->o_sdn) == 0 &&
+-            !pb_conn->c_needpw && !pwpolicy->pw_change) {
++            !needpw && !pwpolicy->pw_change) {
+             if (pwresponse_req == 1) {
+                 slapi_pwpolicy_make_response_control(pb, -1, -1, LDAP_PWPOLICY_PWDMODNOTALLOWED);
+             }
+@@ -1267,7 +1270,7 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+                 }
+ 
+                 slapi_log_access(LDAP_DEBUG_STATS, "conn=%" PRIu64 " op=%d MOD dn=\"%s\"%s, %s\n",
+-                                 pb_conn->c_connid, operation->o_opid,
++                                 pb_conn ? pb_conn->c_connid : -1, operation->o_opid,
+                                  slapi_sdn_get_dn(&sdn),
+                                  proxystr ? proxystr : "",
+                                  "user is not allowed to change password");
+@@ -1280,8 +1283,7 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+ 
+     /* check if password is within password minimum age;
+        error result is sent directly from check_pw_minage */
+-    if (pb_conn && !pb_conn->c_needpw &&
+-        check_pw_minage(pb, &sdn, mod->mod_bvalues) == 1) {
++    if (!needpw && check_pw_minage(pb, &sdn, mod->mod_bvalues) == 1) {
+         if (operation_is_flag_set(operation, OP_FLAG_ACTION_LOG_ACCESS)) {
+             if (proxydn) {
+                 proxystr = slapi_ch_smprintf(" authzid=\"%s\"", proxydn);
+@@ -1289,7 +1291,7 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+ 
+             if (!internal_op) {
+                 slapi_log_access(LDAP_DEBUG_STATS, "conn=%" PRIu64 " op=%d MOD dn=\"%s\"%s, %s\n",
+-                                 pb_conn->c_connid,
++                                 pb_conn ? pb_conn->c_connid : -1,
+                                  operation->o_opid,
+                                  slapi_sdn_get_dn(&sdn),
+                                  proxystr ? proxystr : "",
+@@ -1303,17 +1305,14 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+                                  "within password minimum age");
+             }
+         }
+-
+         rc = -1;
+         goto done;
+     }
+ 
+-
+     /* check password syntax; remember the old password;
+        error sent directly from check_pw_syntax function */
+     valuearray_init_bervalarray(mod->mod_bvalues, &values);
+-    switch (check_pw_syntax_ext(pb, &sdn, values, old_pw, NULL,
+-                                mod->mod_op, smods)) {
++    switch (check_pw_syntax_ext(pb, &sdn, values, old_pw, NULL, mod->mod_op, smods)) {
+     case 0: /* success */
+         rc = 1;
+         break;
+@@ -1326,7 +1325,7 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+ 
+             if (!internal_op) {
+                 slapi_log_access(LDAP_DEBUG_STATS, "conn=%" PRIu64 " op=%d MOD dn=\"%s\"%s, %s\n",
+-                                 pb_conn->c_connid,
++                                 pb_conn ? pb_conn->c_connid : -1,
+                                  operation->o_opid,
+                                  slapi_sdn_get_dn(&sdn),
+                                  proxystr ? proxystr : "",
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index 46dcf6fba..50b7ae8f6 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -276,6 +276,13 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+     slapi_pblock_get(pb, SLAPI_SEARCH_STRFILTER, &fstr);
+     slapi_pblock_get(pb, SLAPI_SEARCH_ATTRS, &attrs);
+     slapi_pblock_get(pb, SLAPI_OPERATION, &operation);
++    if (operation == NULL) {
++        op_shared_log_error_access(pb, "SRCH", base, "NULL operation");
++        send_ldap_result(pb, LDAP_OPERATIONS_ERROR, NULL, "NULL operation", 0, NULL);
++        rc = -1;
++        goto free_and_return_nolock;
++    }
++
+     internal_op = operation_is_flag_set(operation, OP_FLAG_INTERNAL);
+     flag_psearch = operation_is_flag_set(operation, OP_FLAG_PS);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+diff --git a/ldap/servers/slapd/passwd_extop.c b/ldap/servers/slapd/passwd_extop.c
+index 40145af2e..5f21f2f71 100644
+--- a/ldap/servers/slapd/passwd_extop.c
++++ b/ldap/servers/slapd/passwd_extop.c
+@@ -727,6 +727,10 @@ parse_req_done:
+       */
+     Operation *pb_op = NULL;
+     slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
++    if (pb_op == NULL) {
++        slapi_log_err(SLAPI_LOG_ERR, "passwd_modify_extop", "pb_op is NULL");
++        goto free_and_return;
++    }
+ 
+     operation_set_target_spec(pb_op, slapi_entry_get_sdn(targetEntry));
+     slapi_pblock_set(pb, SLAPI_REQUESTOR_ISROOT, &pb_op->o_isroot);
+diff --git a/ldap/servers/slapd/plugin.c b/ldap/servers/slapd/plugin.c
+index e02133abc..2db3c7fcd 100644
+--- a/ldap/servers/slapd/plugin.c
++++ b/ldap/servers/slapd/plugin.c
+@@ -3625,9 +3625,11 @@ plugin_invoke_plugin_pb(struct slapdplugin *plugin, int operation, Slapi_PBlock
+         return PR_TRUE;
+ 
+     slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
+-
+-
+-    PR_ASSERT(pb_op);
++    if (pb_op == NULL) {
++        slapi_log_err(SLAPI_LOG_ERR, "plugin_invoke_plugin_pb", "pb_op is NULL");
++        PR_ASSERT(0);
++        return PR_FALSE;
++    }
+ 
+     target_spec = operation_get_target_spec(pb_op);
+ 
+diff --git a/ldap/servers/slapd/plugin_internal_op.c b/ldap/servers/slapd/plugin_internal_op.c
+index 52b8df8c3..f6bbafb92 100644
+--- a/ldap/servers/slapd/plugin_internal_op.c
++++ b/ldap/servers/slapd/plugin_internal_op.c
+@@ -527,6 +527,7 @@ internal_plugin_search_entry_callback(Slapi_Entry *e, void *callback_data)
+     this_entry = (Entry_Node *)slapi_ch_calloc(1, sizeof(Entry_Node));
+ 
+     if ((this_entry->data = slapi_entry_dup(e)) == NULL) {
++        slapi_ch_free((void**)&this_entry);
+         return (0);
+     }
+ 
+diff --git a/ldap/servers/slapd/psearch.c b/ldap/servers/slapd/psearch.c
+index 1bf062954..8ad268a85 100644
+--- a/ldap/servers/slapd/psearch.c
++++ b/ldap/servers/slapd/psearch.c
+@@ -353,8 +353,8 @@ ps_send_results(void *arg)
+                 if (rc) {
+                     slapi_log_err(SLAPI_LOG_CONNS, "ps_send_results",
+                                   "conn=%" PRIu64 " op=%d Error %d sending entry %s with op status %d\n",
+-                                  pb_conn->c_connid, pb_op->o_opid,
+-                                  rc, slapi_entry_get_dn_const(ec), pb_op->o_status);
++                                  pb_conn->c_connid, pb_op ? pb_op->o_opid: -1,
++                                  rc, slapi_entry_get_dn_const(ec), pb_op ? pb_op->o_status : -1);
+                 }
+             }
+ 
+@@ -401,7 +401,7 @@ ps_send_results(void *arg)
+ 
+     slapi_log_err(SLAPI_LOG_CONNS, "ps_send_results",
+                   "conn=%" PRIu64 " op=%d Releasing the connection and operation\n",
+-                  conn->c_connid, pb_op->o_opid);
++                  conn->c_connid, pb_op ? pb_op->o_opid : -1);
+     /* Delete this op from the connection's list */
+     connection_remove_operation_ext(ps->ps_pblock, conn, pb_op);
+ 
+diff --git a/ldap/servers/slapd/pw.c b/ldap/servers/slapd/pw.c
+index 0cf795b41..53464c64a 100644
+--- a/ldap/servers/slapd/pw.c
++++ b/ldap/servers/slapd/pw.c
+@@ -1741,7 +1741,6 @@ new_passwdPolicy(Slapi_PBlock *pb, const char *dn)
+             pwdpolicy->pw_min8bit = SLAPD_DEFAULT_PW_MIN8BIT;
+             pwdpolicy->pw_maxrepeats = SLAPD_DEFAULT_PW_MAXREPEATS;
+             pwdpolicy->pw_mincategories = SLAPD_DEFAULT_PW_MINCATEGORIES;
+-            pwdpolicy->pw_mintokenlength = SLAPD_DEFAULT_PW_MINTOKENLENGTH;
+             pwdpolicy->pw_maxage = SLAPD_DEFAULT_PW_MAXAGE;
+             pwdpolicy->pw_minage = SLAPD_DEFAULT_PW_MINAGE;
+             pwdpolicy->pw_warning = SLAPD_DEFAULT_PW_WARNING;
+@@ -2229,7 +2228,7 @@ slapi_check_account_lock(Slapi_PBlock *pb, Slapi_Entry *bind_target_entry, int p
+     /*
+      * Check if the password policy has to be checked or not
+      */
+-    if (!check_password_policy || pwpolicy->pw_lockout == 0) {
++    if (!check_password_policy || !pwpolicy || pwpolicy->pw_lockout == 0) {
+         goto notlocked;
+     }
+ 
+diff --git a/ldap/servers/slapd/pw_mgmt.c b/ldap/servers/slapd/pw_mgmt.c
+index 50bcbde99..602868470 100644
+--- a/ldap/servers/slapd/pw_mgmt.c
++++ b/ldap/servers/slapd/pw_mgmt.c
+@@ -44,6 +44,7 @@ need_new_pw(Slapi_PBlock *pb, Slapi_Entry *e, int pwresponse_req)
+     char graceUserTime[16] = {0};
+     Connection *pb_conn = NULL;
+     long t;
++    int needpw = 0;
+ 
+     if (NULL == e) {
+         return (-1);
+@@ -91,6 +92,9 @@ need_new_pw(Slapi_PBlock *pb, Slapi_Entry *e, int pwresponse_req)
+     slapi_ch_free_string(&passwordExpirationTime);
+ 
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
++    if (pb_conn) {
++        needpw = pb_conn->c_needpw;
++    }
+ 
+     /* Check if password has been reset */
+     if (pw_exp_date == NO_TIME) {
+@@ -99,7 +103,11 @@ need_new_pw(Slapi_PBlock *pb, Slapi_Entry *e, int pwresponse_req)
+         if (pwpolicy->pw_must_change) {
+             /* set c_needpw for this connection to be true.  this client
+                now can only change its own password */
+-            pb_conn->c_needpw = 1;
++            if (pb_conn){
++                pb_conn->c_needpw = needpw = 1;
++            } else {
++                needpw = 1;
++            }
+             t = 0;
+             /* We need to include "changeafterreset" error in
+              * passwordpolicy response control. So, we will not be
+@@ -121,7 +129,7 @@ skip:
+     /* if password never expires, don't need to go on; return 0 */
+     if (pwpolicy->pw_exp == 0) {
+         /* check for "changeafterreset" condition */
+-        if (pb_conn->c_needpw == 1) {
++        if (needpw == 1) {
+             if (pwresponse_req) {
+                 slapi_pwpolicy_make_response_control(pb, -1, -1, LDAP_PWPOLICY_CHGAFTERRESET);
+             }
+@@ -150,7 +158,7 @@ skip:
+             slapi_mods_done(&smods);
+             if (pwresponse_req) {
+                 /* check for "changeafterreset" condition */
+-                if (pb_conn->c_needpw == 1) {
++                if (needpw == 1) {
+                     slapi_pwpolicy_make_response_control(pb, -1,
+                                                          ((pwpolicy->pw_gracelimit) - pwdGraceUserTime),
+                                                          LDAP_PWPOLICY_CHGAFTERRESET);
+@@ -182,9 +190,11 @@ skip:
+         if (pb_conn && (LDAP_VERSION2 == pb_conn->c_ldapversion)) {
+             Operation *pb_op = NULL;
+             slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
+-            /* We close the connection only with LDAPv2 connections */
+-            disconnect_server(pb_conn, pb_op->o_connid,
+-                              pb_op->o_opid, SLAPD_DISCONNECT_UNBIND, 0);
++            if (pb_op) {
++                /* We close the connection only with LDAPv2 connections */
++                disconnect_server(pb_conn, pb_op->o_connid,
++                                  pb_op->o_opid, SLAPD_DISCONNECT_UNBIND, 0);
++            }
+         }
+         /* Apply current modifications */
+         pw_apply_mods(sdn, &smods);
+@@ -207,7 +217,7 @@ skip:
+             /* reset the expiration time to current + warning time
+              * and set passwordExpWarned to true
+              */
+-            if (pb_conn->c_needpw != 1) {
++            if (needpw != 1) {
+                 pw_exp_date = time_plus_sec(cur_time, pwpolicy->pw_warning);
+             }
+ 
+@@ -227,14 +237,14 @@ skip:
+         slapi_mods_done(&smods);
+         if (pwresponse_req) {
+             /* check for "changeafterreset" condition */
+-            if (pb_conn->c_needpw == 1) {
++            if (needpw == 1) {
+                 slapi_pwpolicy_make_response_control(pb, t, -1, LDAP_PWPOLICY_CHGAFTERRESET);
+             } else {
+                 slapi_pwpolicy_make_response_control(pb, t, -1, -1);
+             }
+         }
+ 
+-        if (pb_conn->c_needpw == 1) {
++        if (needpw == 1) {
+             slapi_add_pwd_control(pb, LDAP_CONTROL_PWEXPIRED, 0);
+         } else {
+             slapi_add_pwd_control(pb, LDAP_CONTROL_PWEXPIRING, t);
+@@ -250,7 +260,7 @@ skip:
+     pw_apply_mods(sdn, &smods);
+     slapi_mods_done(&smods);
+     /* Leftover from "changeafterreset" condition */
+-    if (pb_conn->c_needpw == 1) {
++    if (needpw == 1) {
+         slapi_add_pwd_control(pb, LDAP_CONTROL_PWEXPIRED, 0);
+     }
+     /* passes checking, return 0 */
+diff --git a/ldap/servers/slapd/result.c b/ldap/servers/slapd/result.c
+index ce394d948..6892ccfdc 100644
+--- a/ldap/servers/slapd/result.c
++++ b/ldap/servers/slapd/result.c
+@@ -1340,7 +1340,7 @@ send_specific_attrs(Slapi_Entry *e, char **attrs, Slapi_Operation *op, Slapi_PBl
+         attrs = attrs_ext;
+     }
+ 
+-    for (i = 0; attrs && attrs[i] != NULL; i++) {
++    for (i = 0; my_searchattrs && attrs && attrs[i] != NULL; i++) {
+         char *current_type_name = attrs[i];
+         Slapi_ValueSet **values = NULL;
+         int attr_free_flags = 0;
+diff --git a/ldap/servers/slapd/saslbind.c b/ldap/servers/slapd/saslbind.c
+index 67da97148..0907c623f 100644
+--- a/ldap/servers/slapd/saslbind.c
++++ b/ldap/servers/slapd/saslbind.c
+@@ -884,6 +884,11 @@ ids_sasl_check_bind(Slapi_PBlock *pb)
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+     PR_ASSERT(pb_conn);
+ 
++    if (pb_conn == NULL){
++        slapi_log_err(SLAPI_LOG_ERR, "ids_sasl_check_bind", "pb_conn is NULL\n");
++        return;
++    }
++
+     PR_EnterMonitor(pb_conn->c_mutex); /* BIG LOCK */
+     continuing = pb_conn->c_flags & CONN_FLAG_SASL_CONTINUE;
+     pb_conn->c_flags &= ~CONN_FLAG_SASL_CONTINUE; /* reset flag */
+diff --git a/ldap/servers/slapd/task.c b/ldap/servers/slapd/task.c
+index 002083c04..4bd8895ff 100644
+--- a/ldap/servers/slapd/task.c
++++ b/ldap/servers/slapd/task.c
+@@ -2335,8 +2335,9 @@ task_fixup_tombstone_thread(void *arg)
+     Slapi_Task *task = task_data->task;
+     char **base = task_data->base;
+     char *filter = NULL;
+-    int fixup_count = 0;
+-    int rc, i, j;
++    int32_t fixup_count = 0;
++    int32_t rc = 0;
++    int32_t i, j;
+ 
+     if (!task) {
+         return; /* no task */
+diff --git a/ldap/servers/slapd/util.c b/ldap/servers/slapd/util.c
+index a0f3268da..a72de9b07 100644
+--- a/ldap/servers/slapd/util.c
++++ b/ldap/servers/slapd/util.c
+@@ -746,8 +746,9 @@ normalize_mods2bvals(const LDAPMod **mods)
+             struct berval **mbvp = NULL;
+ 
+             for (mbvp = mods[w]->mod_bvalues,
+-                normmbvp = normalized_mods[w]->mod_bvalues;
+-                 mbvp && *mbvp; mbvp++, normmbvp++) {
++                 normmbvp = normalized_mods[w]->mod_bvalues;
++                 normmbvp && mbvp && *mbvp; mbvp++, normmbvp++)
++            {
+                 if (is_dn_syntax) {
+                     Slapi_DN *sdn = slapi_sdn_new_dn_byref((*mbvp)->bv_val);
+                     if (slapi_sdn_get_dn(sdn)) {
+@@ -769,8 +770,9 @@ normalize_mods2bvals(const LDAPMod **mods)
+             char **mvp = NULL;
+ 
+             for (mvp = mods[w]->mod_values,
+-                normmbvp = normalized_mods[w]->mod_bvalues;
+-                 mvp && *mvp; mvp++, normmbvp++) {
++                 normmbvp = normalized_mods[w]->mod_bvalues;
++                 normmbvp && mvp && *mvp; mvp++, normmbvp++)
++            {
+                 vlen = strlen(*mvp);
+ 
+                 *normmbvp =
+@@ -801,7 +803,7 @@ normalize_mods2bvals(const LDAPMod **mods)
+         PR_ASSERT(normmbvp - normalized_mods[w]->mod_bvalues <= num_values);
+ 
+         /* don't forget to null terminate it */
+-        if (num_values > 0) {
++        if (num_values > 0 && normmbvp) {
+             *normmbvp = NULL;
+         }
+     }
+diff --git a/ldap/servers/slapd/valueset.c b/ldap/servers/slapd/valueset.c
+index 14ebc48e6..2af3ee18d 100644
+--- a/ldap/servers/slapd/valueset.c
++++ b/ldap/servers/slapd/valueset.c
+@@ -121,7 +121,9 @@ valuearray_add_valuearray_fast(Slapi_Value ***vals,
+             j++;
+         }
+     }
+-    (*vals)[nvals + j] = NULL;
++    if (*vals) {
++        (*vals)[nvals + j] = NULL;
++    }
+ }
+ 
+ void
+@@ -1138,7 +1140,7 @@ slapi_valueset_add_attr_valuearray_ext(const Slapi_Attr *a, Slapi_ValueSet *vs,
+     }
+ 
+     for (size_t i = 0; i < naddvals; i++) {
+-        if (addvals[i] != NULL) {
++        if (addvals[i] != NULL && vs->va) {
+             if (passin) {
+                 /* We consume the values */
+                 (vs->va)[vs->num] = addvals[i];
+@@ -1166,7 +1168,9 @@ slapi_valueset_add_attr_valuearray_ext(const Slapi_Attr *a, Slapi_ValueSet *vs,
+             }
+         }
+     }
+-    (vs->va)[vs->num] = NULL;
++    if (vs->va){
++        (vs->va)[vs->num] = NULL;
++    }
+ 
+     PR_ASSERT((vs->sorted == NULL) || (vs->num < VALUESET_ARRAY_SORT_THRESHOLD) || ((vs->num >= VALUESET_ARRAY_SORT_THRESHOLD) && (vs->sorted[0] < vs->num)));
+     return (rc);
+diff --git a/ldap/servers/slapd/vattr.c b/ldap/servers/slapd/vattr.c
+index 13e527188..f7c473ab1 100644
+--- a/ldap/servers/slapd/vattr.c
++++ b/ldap/servers/slapd/vattr.c
+@@ -316,13 +316,19 @@ vattr_context_check(vattr_context *c)
+ static void
+ vattr_context_mark(vattr_context *c)
+ {
+-    c->vattr_context_loop_count += 1;
++    if (c) {
++        c->vattr_context_loop_count += 1;
++    }
+ }
+ 
+ static int
+ vattr_context_unmark(vattr_context *c)
+ {
+-    return (c->vattr_context_loop_count -= 1);
++    if (c) {
++        return (c->vattr_context_loop_count -= 1);
++    } else {
++        return 0;
++    }
+ }
+ 
+ /* modify the context structure on exit from a vattr sp function */
+@@ -385,13 +391,19 @@ vattr_context_grok(vattr_context **c)
+ static void
+ vattr_context_set_loop_msg_displayed(vattr_context **c)
+ {
+-    (*c)->error_displayed = 1;
++    if (c && *c){
++        (*c)->error_displayed = 1;
++    }
+ }
+ 
+ static int
+ vattr_context_is_loop_msg_displayed(vattr_context **c)
+ {
+-    return (*c)->error_displayed;
++    if (c && *c){
++        return (*c)->error_displayed;
++    } else {
++        return 0;
++    }
+ }
+ 
+ /*
+diff --git a/ldap/servers/snmp/main.c b/ldap/servers/snmp/main.c
+index 5bd318df4..95cc26148 100644
+--- a/ldap/servers/snmp/main.c
++++ b/ldap/servers/snmp/main.c
+@@ -21,6 +21,7 @@
+ #include "ldap.h"
+ #include "ldif.h"
+ #include <ctype.h>
++#include <limits.h>
+ #include <errno.h>
+ 
+ static char *agentx_master = NULL;
+@@ -56,16 +57,22 @@ main(int argc, char *argv[])
+         char *s = getenv("DEBUG_SLEEP");
+         if ((s != NULL) && isdigit(*s)) {
+             char *endp = NULL;
+-            long secs;
++            int64_t secs;
+             errno = 0;
+ 
+-            printf("%s pid is %d\n", argv[0], getpid());
+             secs = strtol(s, &endp, 10);
+-            if (*endp != '\0' || errno == ERANGE) {
+-                sleep(10);
+-            } else {
+-                sleep(secs);
++            if ( endp == s ||
++                 *endp != '\0' ||
++                 ((secs == LONG_MIN || secs == LONG_MAX) && errno == ERANGE) ||
++                 secs < 1 )
++            {
++                /* Invalid value, default to 30 seconds */
++                secs = 30;
++            } else if (secs > 3600) {
++                secs = 3600;
+             }
++            printf("%s pid is %d - sleeping for %ld\n", argv[0], getpid(), secs);
++            sleep(secs);
+         }
+     }
+ 
+-- 
+2.13.6
+

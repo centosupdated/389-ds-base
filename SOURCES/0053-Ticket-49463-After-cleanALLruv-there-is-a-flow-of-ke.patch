@@ -1,0 +1,286 @@
+From 0ac68e15a9a4048d3c1ad4519000996cd65fdefb Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Fri, 1 Dec 2017 16:23:11 +0100
+Subject: [PATCH] Ticket 49463 - After cleanALLruv, there is a flow of keep
+ alive DEL
+
+Bug Description:
+	When cleanAllRuv is launched, it spawn cleanAllRuv on all replicas.
+	Each replica will clean its changelog and database RUV AND in addition
+	will DEL the keep alive entry of the target ReplicaID.
+	So for the same entry (keep alive) there will be as many DEL as there are replicas
+
+	This flow of DEL is useless as only one DEL is enough.
+	In addition because of https://pagure.io/389-ds-base/issue/49466, replication may
+	loop on each of those DELs.
+
+Fix Description:
+	The fix is only to prevent the flow of DEL.
+	It adds a flag ('original_task') in the task payload.
+	The server receiving the task (replica_execute_cleanall_ruv_task) flags the
+	task as 'original_task'.
+	In the opposite, the propagated cleanAllRuv (multimaster_extop_cleanruv) does
+	not flag the task as 'original_task'
+	Only original task does the DEL of the keep alive entry.
+	Note the propageted payload (extop) is not changed. In a mixed version
+	environment "old" servers will DEL the keep alive and flow can still happen
+
+https://pagure.io/389-ds-base/issue/49466
+
+Reviewed by: Ludwig Krispenz
+
+Platforms tested: F23
+
+Flag Day: no
+
+Doc impact: no
+---
+ ldap/servers/plugins/replication/repl5.h           | 49 ++++++++++++----------
+ ldap/servers/plugins/replication/repl5_replica.c   | 21 ++++++++++
+ .../plugins/replication/repl5_replica_config.c     | 32 +++++++++++---
+ ldap/servers/plugins/replication/repl_extop.c      |  2 +
+ 4 files changed, 76 insertions(+), 28 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5.h b/ldap/servers/plugins/replication/repl5.h
+index 4e206a0fc..e08fec752 100644
+--- a/ldap/servers/plugins/replication/repl5.h
++++ b/ldap/servers/plugins/replication/repl5.h
+@@ -783,12 +783,37 @@ void multimaster_mtnode_construct_replicas(void);
+ 
+ void multimaster_be_state_change(void *handle, char *be_name, int old_be_state, int new_be_state);
+ 
++#define CLEANRIDSIZ 64 /* maximum number for concurrent CLEANALLRUV tasks */
++
++typedef struct _cleanruv_data
++{
++    Object *repl_obj;
++    Replica *replica;
++    ReplicaId rid;
++    Slapi_Task *task;
++    struct berval *payload;
++    CSN *maxcsn;
++    char *repl_root;
++    Slapi_DN *sdn;
++    char *certify;
++    char *force;
++    PRBool original_task;
++} cleanruv_data;
++
++typedef struct _cleanruv_purge_data
++{
++    int cleaned_rid;
++    const Slapi_DN *suffix_sdn;
++    char *replName;
++    char *replGen;
++} cleanruv_purge_data;
++
+ /* In repl5_replica_config.c */
+ int replica_config_init(void);
+ void replica_config_destroy(void);
+ int get_replica_type(Replica *r);
+ int replica_execute_cleanruv_task_ext(Object *r, ReplicaId rid);
+-void add_cleaned_rid(ReplicaId rid, Replica *r, char *maxcsn, char *forcing);
++void add_cleaned_rid(cleanruv_data *data, char *maxcsn);
+ int is_cleaned_rid(ReplicaId rid);
+ int replica_cleanall_ruv_abort(Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Entry *eAfter, int *returncode, char *returntext, void *arg);
+ void replica_cleanallruv_thread_ext(void *arg);
+@@ -808,29 +833,7 @@ void set_cleaned_rid(ReplicaId rid);
+ void cleanruv_log(Slapi_Task *task, int rid, char *task_type, int sev_level, char *fmt, ...);
+ char *replica_cleanallruv_get_local_maxcsn(ReplicaId rid, char *base_dn);
+ 
+-#define CLEANRIDSIZ 64 /* maximum number for concurrent CLEANALLRUV tasks */
+ 
+-typedef struct _cleanruv_data
+-{
+-    Object *repl_obj;
+-    Replica *replica;
+-    ReplicaId rid;
+-    Slapi_Task *task;
+-    struct berval *payload;
+-    CSN *maxcsn;
+-    char *repl_root;
+-    Slapi_DN *sdn;
+-    char *certify;
+-    char *force;
+-} cleanruv_data;
+-
+-typedef struct _cleanruv_purge_data
+-{
+-    int cleaned_rid;
+-    const Slapi_DN *suffix_sdn;
+-    char *replName;
+-    char *replGen;
+-} cleanruv_purge_data;
+ 
+ /* replutil.c */
+ LDAPControl *create_managedsait_control(void);
+diff --git a/ldap/servers/plugins/replication/repl5_replica.c b/ldap/servers/plugins/replication/repl5_replica.c
+index 77f4f18e4..e75807a62 100644
+--- a/ldap/servers/plugins/replication/repl5_replica.c
++++ b/ldap/servers/plugins/replication/repl5_replica.c
+@@ -2120,6 +2120,7 @@ replica_check_for_tasks(Replica *r, Slapi_Entry *e)
+         char csnstr[CSN_STRSIZE];
+         char *token = NULL;
+         char *forcing;
++        PRBool original_task;
+         char *csnpart;
+         char *ridstr;
+         char *iter = NULL;
+@@ -2151,8 +2152,15 @@ replica_check_for_tasks(Replica *r, Slapi_Entry *e)
+             csn_init_by_string(maxcsn, csnpart);
+             csn_as_string(maxcsn, PR_FALSE, csnstr);
+             forcing = ldap_utf8strtok_r(iter, ":", &iter);
++            original_task = PR_TRUE;
+             if (forcing == NULL) {
+                 forcing = "no";
++            } else if (!strcasecmp(forcing, "yes") || !strcasecmp(forcing, "no")) {
++                /* forcing was correctly set, lets try to read the original task flag */
++                token = ldap_utf8strtok_r(iter, ":", &iter);
++                if (token && !atoi(token)) {
++                    original_task = PR_FALSE;
++                }
+             }
+ 
+             slapi_log_err(SLAPI_LOG_NOTICE, repl_plugin_name, "CleanAllRUV Task - cleanAllRUV task found, "
+@@ -2190,6 +2198,13 @@ replica_check_for_tasks(Replica *r, Slapi_Entry *e)
+                 data->force = slapi_ch_strdup(forcing);
+                 data->repl_root = NULL;
+ 
++                /* This is a corner case, a cleanAllRuv task was interrupted by a shutdown or a crash
++                 * We retrieved from type_replicaCleanRUV if the cleanAllRuv request
++                 * was received from a direct task ADD or if was received via
++                 * the cleanAllRuv extop.
++                 */
++                data->original_task = original_task;
++
+                 thread = PR_CreateThread(PR_USER_THREAD, replica_cleanallruv_thread_ext,
+                                          (void *)data, PR_PRIORITY_NORMAL, PR_GLOBAL_THREAD,
+                                          PR_UNJOINABLE_THREAD, SLAPD_DEFAULT_THREAD_STACKSIZE);
+@@ -2284,6 +2299,12 @@ replica_check_for_tasks(Replica *r, Slapi_Entry *e)
+                     data->sdn = slapi_sdn_dup(r->repl_root);
+                     data->certify = slapi_ch_strdup(certify);
+ 
++                    /* This is a corner case, a cleanAllRuv task was interrupted by a shutdown or a crash
++                     * Let's assum this replica was the original receiver of the task.
++                     * This flag has no impact on Abort cleanAllRuv
++                     */
++                    data->original_task = PR_TRUE;
++
+                     thread = PR_CreateThread(PR_USER_THREAD, replica_abort_task_thread,
+                                              (void *)data, PR_PRIORITY_NORMAL, PR_GLOBAL_THREAD,
+                                              PR_UNJOINABLE_THREAD, SLAPD_DEFAULT_THREAD_STACKSIZE);
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index 005528a41..95b933bb8 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -1573,6 +1573,11 @@ replica_execute_cleanall_ruv_task(Object *r, ReplicaId rid, Slapi_Task *task, co
+     data->repl_root = slapi_ch_strdup(basedn);
+     data->force = slapi_ch_strdup(force_cleaning);
+ 
++    /* It is either a consequence of a direct ADD cleanAllRuv task
++     * or modify of the replica to add nsds5task: cleanAllRuv
++     */
++    data->original_task = PR_TRUE;
++
+     thread = PR_CreateThread(PR_USER_THREAD, replica_cleanallruv_thread,
+                              (void *)data, PR_PRIORITY_NORMAL, PR_GLOBAL_THREAD,
+                              PR_UNJOINABLE_THREAD, SLAPD_DEFAULT_THREAD_STACKSIZE);
+@@ -1702,7 +1707,7 @@ replica_cleanallruv_thread(void *arg)
+     /*
+      *  Add the cleanallruv task to the repl config - so we can handle restarts
+      */
+-    add_cleaned_rid(data->rid, data->replica, csnstr, data->force); /* marks config that we started cleaning a rid */
++    add_cleaned_rid(data, csnstr); /* marks config that we started cleaning a rid */
+     cleanruv_log(data->task, data->rid, CLEANALLRUV_ID, SLAPI_LOG_INFO, "Cleaning rid (%d)...", data->rid);
+     /*
+      *  First, wait for the maxcsn to be covered
+@@ -1878,7 +1883,13 @@ done:
+          */
+         delete_cleaned_rid_config(data);
+         check_replicas_are_done_cleaning(data);
+-        remove_keep_alive_entry(data->task, data->rid, data->repl_root);
++        if (data->original_task) {
++            cleanruv_log(data->task, data->rid, CLEANALLRUV_ID, SLAPI_LOG_INFO, "Original task deletes Keep alive entry (%d).", data->rid);
++            remove_keep_alive_entry(data->task, data->rid, data->repl_root);
++        } else {
++            cleanruv_log(data->task, data->rid, CLEANALLRUV_ID, SLAPI_LOG_INFO, "Propagated task does not delete Keep alive entry (%d).", data->rid);
++        }
++
+         clean_agmts(data);
+         remove_cleaned_rid(data->rid);
+         cleanruv_log(data->task, data->rid, CLEANALLRUV_ID, SLAPI_LOG_INFO, "Successfully cleaned rid(%d).", data->rid);
+@@ -2029,7 +2040,7 @@ check_replicas_are_done_cleaning(cleanruv_data *data)
+                  "Waiting for all the replicas to finish cleaning...");
+ 
+     csn_as_string(data->maxcsn, PR_FALSE, csnstr);
+-    filter = PR_smprintf("(%s=%d:%s:%s)", type_replicaCleanRUV, (int)data->rid, csnstr, data->force);
++    filter = PR_smprintf("(%s=%d:%s:%s:%d)", type_replicaCleanRUV, (int)data->rid, csnstr, data->force, data->original_task ? 1 : 0);
+     while (not_all_cleaned && !is_task_aborted(data->rid) && !slapi_is_shutting_down()) {
+         agmt_obj = agmtlist_get_first_agreement_for_replica(data->replica);
+         if (agmt_obj == NULL) {
+@@ -2502,7 +2513,7 @@ set_cleaned_rid(ReplicaId rid)
+  *  Add the rid and maxcsn to the repl config (so we can resume after a server restart)
+  */
+ void
+-add_cleaned_rid(ReplicaId rid, Replica *r, char *maxcsn, char *forcing)
++add_cleaned_rid(cleanruv_data *cleanruv_data, char *maxcsn)
+ {
+     Slapi_PBlock *pb;
+     struct berval *vals[2];
+@@ -2512,6 +2523,16 @@ add_cleaned_rid(ReplicaId rid, Replica *r, char *maxcsn, char *forcing)
+     char data[CSN_STRSIZE + 10];
+     char *dn;
+     int rc;
++    ReplicaId rid;
++    Replica *r;
++    char *forcing;
++
++    if (data == NULL) {
++        return;
++    }
++    rid = cleanruv_data->rid;
++    r = cleanruv_data->replica;
++    forcing = cleanruv_data->force;
+ 
+     if (r == NULL || maxcsn == NULL) {
+         return;
+@@ -2519,7 +2540,7 @@ add_cleaned_rid(ReplicaId rid, Replica *r, char *maxcsn, char *forcing)
+     /*
+      *  Write the rid & maxcsn to the config entry
+      */
+-    val.bv_len = PR_snprintf(data, sizeof(data), "%d:%s:%s", rid, maxcsn, forcing);
++    val.bv_len = PR_snprintf(data, sizeof(data), "%d:%s:%s:%d", rid, maxcsn, forcing, cleanruv_data->original_task ? 1 : 0);
+     dn = replica_get_dn(r);
+     pb = slapi_pblock_new();
+     mod.mod_op = LDAP_MOD_ADD | LDAP_MOD_BVALUES;
+@@ -2961,6 +2982,7 @@ replica_cleanall_ruv_abort(Slapi_PBlock *pb __attribute__((unused)),
+     data->repl_root = slapi_ch_strdup(base_dn);
+     data->sdn = NULL;
+     data->certify = slapi_ch_strdup(certify_all);
++    data->original_task = PR_TRUE;
+ 
+     thread = PR_CreateThread(PR_USER_THREAD, replica_abort_task_thread,
+                              (void *)data, PR_PRIORITY_NORMAL, PR_GLOBAL_THREAD,
+diff --git a/ldap/servers/plugins/replication/repl_extop.c b/ldap/servers/plugins/replication/repl_extop.c
+index c49c6bd8d..68e2544b4 100644
+--- a/ldap/servers/plugins/replication/repl_extop.c
++++ b/ldap/servers/plugins/replication/repl_extop.c
+@@ -1412,6 +1412,7 @@ multimaster_extop_abort_cleanruv(Slapi_PBlock *pb)
+     data->rid = rid;
+     data->repl_root = slapi_ch_strdup(repl_root);
+     data->certify = slapi_ch_strdup(certify_all);
++    data->original_task = PR_FALSE;
+     /*
+      *  Set the aborted rid and stop the cleaning
+      */
+@@ -1555,6 +1556,7 @@ multimaster_extop_cleanruv(Slapi_PBlock *pb)
+         data->payload = slapi_ch_bvdup(extop_payload);
+         data->force = slapi_ch_strdup(force);
+         data->repl_root = slapi_ch_strdup(repl_root);
++        data->original_task = PR_FALSE;
+ 
+         thread = PR_CreateThread(PR_USER_THREAD, replica_cleanallruv_thread_ext,
+                                  (void *)data, PR_PRIORITY_NORMAL, PR_GLOBAL_THREAD,
+-- 
+2.13.6
+
