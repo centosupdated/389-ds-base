@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.7.5
-Release:          %{?relprefix}18%{?prerel}%{?dist}
+Release:          %{?relprefix}19%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -83,7 +83,7 @@ BuildRequires:    libevent-devel
 BuildRequires:    libtalloc-devel
 BuildRequires:    libtevent-devel
 # For tests!
-BuildRequires:    libcmocka-devel
+#BuildRequires:    libcmocka-devel
 BuildRequires:    doxygen
 
 # this is needed for using semanage from our setup scripts
@@ -190,7 +190,7 @@ Patch40:          0040-Ticket-49470-overflow-in-pblock_get.patch
 Patch41:          0041-Ticket-49471-heap-buffer-overflow-in-ss_unescape.patch
 Patch42:          0042-Ticket-49298-fix-complier-warn.patch
 Patch43:          0043-Ticket-49495-Fix-memory-management-is-vattr.patch
-Patch44:          0044-Ticket-48184-close-connections-at-shutdown-cleanly.patch
+# Patch44:          0044-Ticket-48184-close-connections-at-shutdown-cleanly.patch
 Patch45:          0045-Ticket-49509-Indexing-of-internationalized-matching-.patch
 Patch46:          0046-Ticket-49493-heap-use-after-free-in-csn_as_string.patch
 Patch47:          0047-Ticket-49524-Password-policy-minimum-token-length-fa.patch
@@ -308,7 +308,7 @@ autoreconf -fiv
            --with-systemdsystemconfdir=%{_sysconfdir}/systemd/system \
            --with-perldir=/usr/bin \
            --with-systemdgroupname=%{groupname} $NSSARGS \
-           --with-systemd --enable-cmocka $TCMALLOC_FLAGS $ASAN_FLAGS
+           --with-systemd $TCMALLOC_FLAGS $ASAN_FLAGS
 
 # Generate symbolic info for debuggers
 export XCFLAGS=$RPM_OPT_FLAGS
@@ -354,12 +354,12 @@ popd
 # make sure perl scripts have a proper shebang
 sed -i -e 's|#{{PERL-EXEC}}|#!/usr/bin/perl|' $RPM_BUILD_ROOT%{_datadir}/%{pkgname}/script-templates/template-*.pl
 
-# exclude 32-bit platforms from running tests
-%if %{_arch} != "s390x" && %{_arch} != "s390" && %{_arch} != "i386" && %{_arch} != "ppc"
-%check
-# This checks the code, if it fails it prints why, then re-raises the fail to shortcircuit the rpm build.
-if ! make DESTDIR="$RPM_BUILD_ROOT" check; then cat ./test-suite.log && false; fi
-%endif
+## exclude 32-bit platforms from running tests
+#%if %{_arch} != "s390x" && %{_arch} != "s390" && %{_arch} != "i386" && %{_arch} != "ppc"
+#%check
+## This checks the code, if it fails it prints why, then re-raises the fail to shortcircuit the rpm build#.
+#if ! make DESTDIR="$RPM_BUILD_ROOT" check; then cat ./test-suite.log && false; fi
+#%endif
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -571,6 +571,10 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Tue Apr  3 2018 Matus Honek <mhonek@redhat.com> - 1.3.7.5-19
+- Bump version to 1.3.7.5-19
+- Resolves: Bug 1563107 - IPA server is not responding, all authentication and admin tests failed [rhel-7.5.z]
+
 * Mon Feb 12 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-18
 - Bump version to 1.3.7.5-18
 - Resolves: Bug 1539082 - Fix memory leak
