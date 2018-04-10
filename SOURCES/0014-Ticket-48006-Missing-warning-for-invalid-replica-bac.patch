@@ -1,0 +1,91 @@
+From 73c72aba0ab31f9d16cdfd8879e9da5f3fb985e0 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 17 Oct 2017 12:39:18 -0400
+Subject: [PATCH] Ticket 48006 - Missing warning for invalid replica backoff 
+ configuration
+
+Description:  Add warning if you try to set a min backoff time that is
+              greater than the configured maximum, or the max time that
+              is less than the minimum.
+
+              Also fixed compiler warning in ldbm_config.c
+
+https://pagure.io/389-ds-base/issue/48006
+
+Reviewed by: firstyear(Thanks!)
+
+(cherry picked from commit e123acb6987c75f6d7282b32c4f279b976eb6f5e)
+---
+ .../plugins/replication/repl5_replica_config.c     | 24 ++++++++++++++++++++--
+ ldap/servers/slapd/back-ldbm/ldbm_config.c         |  2 +-
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index f28044c19..22d766143 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -465,7 +465,8 @@ replica_config_modify(Slapi_PBlock *pb,
+                     }
+                 } else if (strcasecmp(config_attr, type_replicaBackoffMin) == 0) {
+                     if (apply_mods) {
+-                        PRUint64 val = atoll(config_attr_value);
++                        uint64_t val = atoll(config_attr_value);
++                        uint64_t max;
+ 
+                         if (val <= 0) {
+                             *returncode = LDAP_UNWILLING_TO_PERFORM;
+@@ -475,11 +476,21 @@ replica_config_modify(Slapi_PBlock *pb,
+                             slapi_log_err(SLAPI_LOG_ERR, repl_plugin_name, "replica_config_modify - %s\n", errortext);
+                             break;
+                         }
++                        max = replica_get_backoff_max(r);
++                        if (val > max){
++                            *returncode = LDAP_UNWILLING_TO_PERFORM;
++                            PR_snprintf(errortext, SLAPI_DSE_RETURNTEXT_SIZE,
++                                        "Attribute %s value (%s) is invalid, must be a number less than the max backoff time (%d).\n",
++                                        config_attr, config_attr_value, (int)max);
++                            slapi_log_err(SLAPI_LOG_ERR, repl_plugin_name, "replica_config_modify - %s\n", errortext);
++                            break;
++                        }
+                         replica_set_backoff_min(r, val);
+                     }
+                 } else if (strcasecmp(config_attr, type_replicaBackoffMax) == 0) {
+                     if (apply_mods) {
+-                        PRUint64 val = atoll(config_attr_value);
++                        uint64_t val = atoll(config_attr_value);
++                        uint64_t min;
+ 
+                         if (val <= 0) {
+                             *returncode = LDAP_UNWILLING_TO_PERFORM;
+@@ -490,6 +501,15 @@ replica_config_modify(Slapi_PBlock *pb,
+                                           errortext);
+                             break;
+                         }
++                        min = replica_get_backoff_min(r);
++                        if (val < min) {
++                            *returncode = LDAP_UNWILLING_TO_PERFORM;
++                            PR_snprintf(errortext, SLAPI_DSE_RETURNTEXT_SIZE,
++                                        "Attribute %s value (%s) is invalid, must be a number more than the min backoff time (%d).\n",
++                                        config_attr, config_attr_value, (int)min);
++                            slapi_log_err(SLAPI_LOG_ERR, repl_plugin_name, "replica_config_modify - %s\n", errortext);
++                            break;
++                        }
+                         replica_set_backoff_max(r, val);
+                     }
+                 } else if (strcasecmp(config_attr, type_replicaPrecisePurge) == 0) {
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_config.c b/ldap/servers/slapd/back-ldbm/ldbm_config.c
+index 2ef4652ce..feb993366 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_config.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_config.c
+@@ -388,7 +388,7 @@ ldbm_config_directory_set(void *arg, void *value, char *errorbuf, int phase, int
+                     goto done;
+                 }
+                 slapi_pblock_destroy(search_pb);
+-                if (NULL == s || '\0' == s || 0 == PL_strcmp(s, "(null)")) {
++                if (NULL == s || '\0' == *s || 0 == PL_strcmp(s, "(null)")) {
+                     slapi_log_err(SLAPI_LOG_ERR,
+                                   "ldbm_config_directory_set", "db directory is not set; check %s in the db config: %s\n",
+                                   CONFIG_DIRECTORY, CONFIG_LDBM_DN);
+-- 
+2.13.6
+

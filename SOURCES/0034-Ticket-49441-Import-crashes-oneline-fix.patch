@@ -1,0 +1,43 @@
+From 2c868707b3ae1a4255ea33610b177f8a98f4a3f3 Mon Sep 17 00:00:00 2001
+From: William Brown <firstyear@redhat.com>
+Date: Tue, 7 Nov 2017 17:09:18 +1000
+Subject: [PATCH] Ticket 49441 - Import crashes - oneline fix
+
+Bug Description:  index.c fails to compile.
+
+Fix Description:  Excess braces due to copy paste issue.
+
+https://pagure.io/389-ds-base/issue/49441
+
+Author: wibrown
+
+Review by: oneline rule
+
+(cherry picked from commit be4d7e5a82c1616317fa52968d2814e3f922254c)
+---
+ ldap/servers/slapd/back-ldbm/index.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/index.c b/ldap/servers/slapd/back-ldbm/index.c
+index a565db87b..587f4d991 100644
+--- a/ldap/servers/slapd/back-ldbm/index.c
++++ b/ldap/servers/slapd/back-ldbm/index.c
+@@ -1778,7 +1778,6 @@ addordel_values(
+         key.flags = DB_DBT_USERMEM;
+                 key.ulen = tmpbuflen;
+         if (slapi_is_loglevel_set(LDAP_DEBUG_TRACE)) {
+-        {
+             char encbuf[BUFSIZ];
+ 
+             slapi_log_err(SLAPI_LOG_TRACE, "addordel_values", "%s_value(\"%s\")\n",
+@@ -1943,7 +1942,6 @@ addordel_values_sv(
+         key.ulen = tmpbuflen;
+ 
+         if (slapi_is_loglevel_set(LDAP_DEBUG_TRACE)) {
+-        {
+             char encbuf[BUFSIZ];
+ 
+             slapi_log_err(SLAPI_LOG_TRACE, "addordel_values_sv", "%s_value(\"%s\")\n",
+-- 
+2.13.6
+
