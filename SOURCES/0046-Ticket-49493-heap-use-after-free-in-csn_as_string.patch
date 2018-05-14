@@ -1,0 +1,155 @@
+From a7a0db402b32dcec7fc93bcbef42174163ae9c12 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Tue, 12 Dec 2017 12:46:37 +0100
+Subject: [PATCH] Ticket 49493 - heap use after free in csn_as_string
+
+Bug: If write_changlog_and_ruv failed teh csn pending list was not properly
+     cleand and references to the prim csn were kept, but the prim csn was reset
+
+Fix: check the return code for the mmr postop plugin and aset error codes properly
+     that will triger cancel_opcsn
+
+Reviewed by: Thierry, thanks
+Tested by: Viktor, thanks
+---
+ ldap/servers/slapd/back-ldbm/ldbm_add.c        | 22 +---------------------
+ ldap/servers/slapd/back-ldbm/ldbm_delete.c     |  4 ++++
+ ldap/servers/slapd/back-ldbm/ldbm_modify.c     |  4 ++++
+ ldap/servers/slapd/back-ldbm/ldbm_modrdn.c     |  4 ++++
+ ldap/servers/slapd/back-ldbm/misc.c            | 18 ++++++++++++++++++
+ ldap/servers/slapd/back-ldbm/proto-back-ldbm.h |  1 +
+ 6 files changed, 32 insertions(+), 21 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_add.c b/ldap/servers/slapd/back-ldbm/ldbm_add.c
+index b7e17ad50..f29945a7e 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_add.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_add.c
+@@ -22,7 +22,6 @@ extern char *hassubordinates;
+ 
+ static void delete_update_entrydn_operational_attributes(struct backentry *ep);
+ 
+-static int set_error(Slapi_PBlock *pb, int retval, int ldap_result_code, char **ldap_result_message);
+ #define ADD_SET_ERROR(rc, error, count)                                            \
+     {                                                                              \
+         (rc) = (error);                                                            \
+@@ -1201,7 +1200,7 @@ ldbm_back_add(Slapi_PBlock *pb)
+ 
+     retval = plugin_call_mmr_plugin_postop(pb, NULL,SLAPI_PLUGIN_BE_TXN_POST_ADD_FN);
+     if (retval) {
+-        set_error(pb, retval, ldap_result_code, &ldap_result_message);
++        ldbm_set_error(pb, retval, &ldap_result_code, &ldap_result_message);
+         goto error_return;
+     }
+ 
+@@ -1471,22 +1470,3 @@ delete_update_entrydn_operational_attributes(struct backentry *ep)
+     slapi_entry_attr_delete(ep->ep_entry, LDBM_ENTRYDN_STR);
+ }
+ 
+-static int
+-set_error(Slapi_PBlock *pb, int retval, int ldap_result_code, char **ldap_result_message)
+-{
+-    int opreturn = 0;
+-    if (!ldap_result_code) {
+-        slapi_pblock_get(pb, SLAPI_RESULT_CODE, &ldap_result_code);
+-    }
+-    if (!ldap_result_code) {
+-        ldap_result_code = LDAP_OPERATIONS_ERROR;
+-        slapi_pblock_set(pb, SLAPI_RESULT_CODE, &ldap_result_code);
+-    }
+-    slapi_pblock_get(pb, SLAPI_PLUGIN_OPRETURN, &opreturn);
+-    if (!opreturn) {
+-        slapi_pblock_set(pb, SLAPI_PLUGIN_OPRETURN, ldap_result_code ? &ldap_result_code : &retval);
+-    }
+-    slapi_pblock_get(pb, SLAPI_PB_RESULT_TEXT, &ldap_result_message);
+-
+-    return opreturn;
+-}
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_delete.c b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+index db463c18c..be0db1bd0 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_delete.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+@@ -1276,6 +1276,10 @@ replace_entry:
+     }
+ 
+     retval = plugin_call_mmr_plugin_postop(pb, NULL,SLAPI_PLUGIN_BE_TXN_POST_DELETE_FN);
++    if (retval) {
++        ldbm_set_error(pb, retval, &ldap_result_code, &ldap_result_message);
++        goto error_return;
++    }
+ 
+ commit_return:
+     /* Release SERIAL LOCK */
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modify.c b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+index 7ee796fd2..cc4319e5f 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modify.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+@@ -867,6 +867,10 @@ ldbm_back_modify(Slapi_PBlock *pb)
+         goto error_return;
+     }
+     retval = plugin_call_mmr_plugin_postop(pb, NULL,SLAPI_PLUGIN_BE_TXN_POST_MODIFY_FN);
++    if (retval) {
++        ldbm_set_error(pb, retval, &ldap_result_code, &ldap_result_message);
++        goto error_return;
++    }
+ 
+     /* Release SERIAL LOCK */
+     retval = dblayer_txn_commit(be, &txn);
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+index 2c0cb074e..93fb77dc9 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+@@ -1211,6 +1211,10 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+         goto error_return;
+     }
+ 	retval = plugin_call_mmr_plugin_postop(pb, NULL,SLAPI_PLUGIN_BE_TXN_POST_MODRDN_FN);
++    if (retval) {
++        ldbm_set_error(pb, retval, &ldap_result_code, &ldap_result_message);
++        goto error_return;
++    }
+ 
+     /* Release SERIAL LOCK */
+     retval = dblayer_txn_commit(be, &txn);
+diff --git a/ldap/servers/slapd/back-ldbm/misc.c b/ldap/servers/slapd/back-ldbm/misc.c
+index df1afdfb1..c52e58a4a 100644
+--- a/ldap/servers/slapd/back-ldbm/misc.c
++++ b/ldap/servers/slapd/back-ldbm/misc.c
+@@ -16,6 +16,24 @@
+ 
+ #include "back-ldbm.h"
+ 
++void
++ldbm_set_error(Slapi_PBlock *pb, int retval, int *ldap_result_code, char **ldap_result_message)
++{
++    int opreturn = 0;
++    if (!(*ldap_result_code)) {
++        slapi_pblock_get(pb, SLAPI_RESULT_CODE, ldap_result_code);
++    }
++    if (!(*ldap_result_code)) {
++        *ldap_result_code = LDAP_OPERATIONS_ERROR;
++        slapi_pblock_set(pb, SLAPI_RESULT_CODE, ldap_result_code);
++    }
++    slapi_pblock_get(pb, SLAPI_PLUGIN_OPRETURN, &opreturn);
++    if (!opreturn) {
++        slapi_pblock_set(pb, SLAPI_PLUGIN_OPRETURN, *ldap_result_code ? ldap_result_code : &retval);
++    }
++    slapi_pblock_get(pb, SLAPI_PB_RESULT_TEXT, ldap_result_message);
++}
++
+ /* Takes a return code supposed to be errno or from lidb
+    which we don't expect to see and prints a handy log message */
+ void
+diff --git a/ldap/servers/slapd/back-ldbm/proto-back-ldbm.h b/ldap/servers/slapd/back-ldbm/proto-back-ldbm.h
+index 0cee3df62..da3eef18b 100644
+--- a/ldap/servers/slapd/back-ldbm/proto-back-ldbm.h
++++ b/ldap/servers/slapd/back-ldbm/proto-back-ldbm.h
+@@ -379,6 +379,7 @@ int ldbm_txn_ruv_modify_context(Slapi_PBlock *pb, modify_context *mc);
+ int get_value_from_string(const char *string, char *type, char **value);
+ int get_values_from_string(const char *string, char *type, char ***valuearray);
+ void normalize_dir(char *dir);
++void ldbm_set_error(Slapi_PBlock *pb, int retval, int *ldap_result_code, char **ldap_result_message);
+ 
+ /*
+  * nextid.c
+-- 
+2.13.6
+

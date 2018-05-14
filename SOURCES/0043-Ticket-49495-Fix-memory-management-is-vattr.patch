@@ -1,0 +1,153 @@
+From 2c56e7dc08a41fc1dfa6a79213e93686f553847c Mon Sep 17 00:00:00 2001
+From: William Brown <firstyear@redhat.com>
+Date: Mon, 11 Dec 2017 15:48:24 +0100
+Subject: [PATCH] Ticket 49495 - Fix memory management is vattr.
+
+Bug Description:  During the fix for
+https://pagure.io/389-ds-base/issue/49436 a issue was exposed
+in how registration of attributes to cos work. With the change
+to handle -> attr link, this exposed that cos treats each attribute
+and template pair as a new type for the handle. As  aresult, this
+caused the sp_list to create a long linked list of M*N entries
+for each attr - template value. Obviously, this is extremely
+slow to traverse during a search!
+
+Fix Description:  Undo part of the SLL next change and convert
+to reference counting. The issue remains that there is a defect
+in how cos handles attribute registration, but this can not be
+resolved without a significant rearchitecture of the code
+related to virtual attributes.
+
+https://pagure.io/389-ds-base/issue/49495
+
+Author: wibrown
+
+Review by: tbordaz, lkrispen (Thanks!)
+---
+ ldap/servers/plugins/cos/cos_cache.c | 28 +++++++++++-----------------
+ ldap/servers/slapd/vattr.c           | 23 +++++++++++++++++++++--
+ 2 files changed, 32 insertions(+), 19 deletions(-)
+
+diff --git a/ldap/servers/plugins/cos/cos_cache.c b/ldap/servers/plugins/cos/cos_cache.c
+index 662dace35..3b3c05783 100644
+--- a/ldap/servers/plugins/cos/cos_cache.c
++++ b/ldap/servers/plugins/cos/cos_cache.c
+@@ -275,7 +275,7 @@ static Slapi_Mutex *start_lock;
+ static Slapi_Mutex *stop_lock;
+ static Slapi_CondVar *something_changed = NULL;
+ static Slapi_CondVar *start_cond = NULL;
+-
++static vattr_sp_handle *vattr_handle = NULL;
+ 
+ /*
+     cos_cache_init
+@@ -314,6 +314,15 @@ cos_cache_init(void)
+         goto out;
+     }
+ 
++    if (slapi_vattrspi_register((vattr_sp_handle **)&vattr_handle,
++                                cos_cache_vattr_get,
++                                cos_cache_vattr_compare,
++                                cos_cache_vattr_types) != 0) {
++        slapi_log_err(SLAPI_LOG_ERR, COS_PLUGIN_SUBSYSTEM, "cos_cache_init - Cannot register as service provider\n");
++        ret = -1;
++        goto out;
++    }
++
+     /* grab the views interface */
+     if (slapi_apib_get_interface(Views_v1_0_GUID, &views_api)) {
+         /* lets be tolerant if views is disabled */
+@@ -847,22 +856,7 @@ cos_dn_defs_cb(Slapi_Entry *e, void *callback_data)
+                                           dnVals[valIndex]->bv_val);
+                 }
+ 
+-                /*
+-                 * Each SP_handle is associated to one and only one vattr.
+-                 * We could consider making this a single function rather
+-                 * than the double-call.
+-                 */
+-
+-                vattr_sp_handle *vattr_handle = NULL;
+-
+-                if (slapi_vattrspi_register((vattr_sp_handle **)&vattr_handle,
+-                                            cos_cache_vattr_get,
+-                                            cos_cache_vattr_compare,
+-                                            cos_cache_vattr_types) != 0) {
+-                    slapi_log_err(SLAPI_LOG_ERR, COS_PLUGIN_SUBSYSTEM, "cos_cache_init - Cannot register as service provider for %s\n", dnVals[valIndex]->bv_val);
+-                } else {
+-                    slapi_vattrspi_regattr((vattr_sp_handle *)vattr_handle, dnVals[valIndex]->bv_val, NULL, NULL);
+-                }
++                slapi_vattrspi_regattr((vattr_sp_handle *)vattr_handle, dnVals[valIndex]->bv_val, NULL, NULL);
+ 
+             } /* if(attrType is cosAttribute) */
+ 
+diff --git a/ldap/servers/slapd/vattr.c b/ldap/servers/slapd/vattr.c
+index 432946c79..13e527188 100644
+--- a/ldap/servers/slapd/vattr.c
++++ b/ldap/servers/slapd/vattr.c
+@@ -1544,6 +1544,7 @@ struct _vattr_sp_handle
+     vattr_sp *sp;
+     struct _vattr_sp_handle *next; /* So we can link them together in the map */
+     void *hint;                    /* Hint to the SP */
++    uint64_t rc;
+ };
+ 
+ /* Calls made by Service Providers */
+@@ -1770,7 +1771,7 @@ is a separate thing in the insterests of stability.
+ 
+  */
+ 
+-#define VARRT_MAP_HASHTABLE_SIZE 10
++#define VARRT_MAP_HASHTABLE_SIZE 32
+ 
+ /* Attribute map oject */
+ /* Needs to contain: a linked list of pointers to provider handles handles,
+@@ -1867,7 +1868,10 @@ vattr_map_entry_free(vattr_map_entry *vae)
+     vattr_sp_handle *list_entry = vae->sp_list;
+     while (list_entry != NULL) {
+         vattr_sp_handle *next_entry = list_entry->next;
+-        slapi_ch_free((void **)&list_entry);
++        if (slapi_atomic_decr_64(&(list_entry->rc), __ATOMIC_RELAXED) == 0) {
++            /* Only free on RC 0 */
++            slapi_ch_free((void **)&list_entry);
++        }
+         list_entry = next_entry;
+     }
+     slapi_ch_free_string(&(vae->type_name));
+@@ -2280,6 +2284,17 @@ to handle the calls on it, but return nothing */
+  *
+  * Better idea, is that regattr should just take the fn pointers
+  * and callers never *see* the sp_handle structure at all.
++ *
++ * This leaves us with some quirks today. First: if you have plugin A
++ * and B, A registers attr 1 and B 1 and 2, it's possible that if you
++ * register A1 first, then B1, you have B->A in next. Then when you
++ * register B2, because we take 0==result from map_lookup, we add sp
++ * "as is" to the map. This means that B2 now has the same next to A1
++ * handle. This won't add a bug, because A1 won't be able to service the
++ * attr, but it could cause some head scratching ...
++ *
++ * Again, to fix this, the whole vattr external interface needs a
++ * redesign ... :(
+  */
+ 
+ int
+@@ -2304,11 +2319,15 @@ vattr_map_sp_insert(char *type_to_add, vattr_sp_handle *sp, void *hint)
+         if (found) {
+             return 0;
+         }
++        /* Increase the ref count of the sphandle */
++        slapi_atomic_incr_64(&(sp->rc), __ATOMIC_RELAXED);
+         /* We insert the SP handle into the linked list at the head */
+         sp->next = map_entry->sp_list;
+         map_entry->sp_list = sp;
+     } else {
+         /* If not, add it */
++        /* Claim a reference on the sp ... */
++        slapi_atomic_incr_64(&(sp->rc), __ATOMIC_RELAXED);
+         map_entry = vattr_map_entry_new(type_to_add, sp, hint);
+         if (NULL == map_entry) {
+             return ENOMEM;
+-- 
+2.13.6
+

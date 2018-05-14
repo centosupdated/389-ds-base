@@ -1,0 +1,47 @@
+From 23a82820bce65653f96450fcc410706fa555fbfd Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 16 Oct 2017 10:44:29 -0400
+Subject: [PATCH] Ticket 48235 - remove memberof lock (cherry-pick error)
+
+Description: Fix cherry-pick error
+
+https://pagure.io/389-ds-base/issue/48235
+
+Reviewed by: mreynolds(one line commit rule)
+
+(cherry picked from commit 3eb443b0ee11f3cf642ebfbcd135868a72ce39da)
+---
+ ldap/servers/plugins/memberof/memberof.c | 3 ---
+ ldap/servers/plugins/memberof/memberof.h | 2 --
+ 2 files changed, 5 deletions(-)
+
+diff --git a/ldap/servers/plugins/memberof/memberof.c b/ldap/servers/plugins/memberof/memberof.c
+index a23c52abe..bae242c81 100644
+--- a/ldap/servers/plugins/memberof/memberof.c
++++ b/ldap/servers/plugins/memberof/memberof.c
+@@ -2828,9 +2828,6 @@ memberof_fixup_task_thread(void *arg)
+         }
+     }
+ 
+-    /* get the memberOf operation lock */
+-    memberof_lock();
+-
+     /* do real work */
+     rc = memberof_fix_memberof(&configCopy, task, td);
+ 
+diff --git a/ldap/servers/plugins/memberof/memberof.h b/ldap/servers/plugins/memberof/memberof.h
+index ba64e9dfa..cf028453c 100644
+--- a/ldap/servers/plugins/memberof/memberof.h
++++ b/ldap/servers/plugins/memberof/memberof.h
+@@ -88,8 +88,6 @@ int memberof_config(Slapi_Entry *config_e, Slapi_PBlock *pb);
+ void memberof_copy_config(MemberOfConfig *dest, MemberOfConfig *src);
+ void memberof_free_config(MemberOfConfig *config);
+ MemberOfConfig *memberof_get_config(void);
+-void memberof_lock(void);
+-void memberof_unlock(void);
+ void memberof_rlock_config(void);
+ void memberof_wlock_config(void);
+ void memberof_unlock_config(void);
+-- 
+2.13.6
+

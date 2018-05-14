@@ -1,0 +1,34 @@
+From 293361f34d935080c1d8d0e73b4355b48faebe2a Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Tue, 27 Feb 2018 13:56:14 +0100
+Subject: [PATCH] Ticket 49161 - memberof fails if group is moved into scope
+
+if the DEL part of the replace of memberof fails because it does not exist
+just add the new memberof values
+
+Reviwed by: Mark, thanks
+---
+ ldap/servers/plugins/memberof/memberof.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/ldap/servers/plugins/memberof/memberof.c b/ldap/servers/plugins/memberof/memberof.c
+index fcfa7817d..2f46167dc 100644
+--- a/ldap/servers/plugins/memberof/memberof.c
++++ b/ldap/servers/plugins/memberof/memberof.c
+@@ -1710,6 +1710,13 @@ memberof_modop_one_replace_r(Slapi_PBlock *pb, MemberOfConfig *config, int mod_o
+                 replace_mod.mod_values = replace_val;
+             }
+             rc = memberof_add_memberof_attr(mods, op_to, config->auto_add_oc);
++            if (rc == LDAP_NO_SUCH_ATTRIBUTE) {
++                /* the memberof values to be replaced do not exist
++                 * just add the new values */
++                mods[0] = mods[1];
++                mods[1] = NULL;
++                rc = memberof_add_memberof_attr(mods, op_to, config->auto_add_oc);
++            }
+         }
+     }
+ 
+-- 
+2.13.6
+

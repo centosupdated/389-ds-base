@@ -1,0 +1,101 @@
+From dd12327d1523f3ff9d6ae8b44b640fb9d0d2d53b Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 19 Feb 2018 10:44:36 -0500
+Subject: [PATCH] Ticket 49296 - Fix race condition in connection code with 
+ anonymous limits
+
+Bug Description:  When a connection first comes in we set the anonymous
+                  resource limits (if set) before we do anything else.  The
+                  way we check if the connection is "new" was flawed.  It
+                  assumed the connection was new if no operations were
+                  completed yet, but there was a small window between sending
+                  the result and setting that the operation completed in the
+                  connection struct.
+
+                  So on a connection that binds and then does a search, when
+                  the server sends the bind result the client sends the search,
+                  but the search op/activity can be picked up before we set
+                  c_opscompleted.  This opens a window where the code thinks
+                  the search op is the first op(new connection), and it incorrectly
+                  sets the anonymous limits for the bind dn.
+
+Fix description:  Do not use c_opscompleted to determine if a connection is new,
+                  instead use a new flag to set the connection "initialized",
+                  which prevents the race condition.
+
+https://pagure.io/389-ds-base/issue/49296
+
+Reviewed by: firstyear(Thanks!)
+
+(cherry picked from commit 0d5214d08e6b5b39fb9d5ef5cf3d8834574954f1)
+---
+ ldap/servers/slapd/connection.c | 12 +++++++++++-
+ ldap/servers/slapd/slap.h       |  7 +++----
+ 2 files changed, 14 insertions(+), 5 deletions(-)
+
+diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
+index 5d2b64ed2..5ca32a333 100644
+--- a/ldap/servers/slapd/connection.c
++++ b/ldap/servers/slapd/connection.c
+@@ -217,6 +217,7 @@ connection_cleanup(Connection *conn)
+     conn->c_connid = 0;
+     conn->c_opsinitiated = 0;
+     conn->c_opscompleted = 0;
++    conn->c_anonlimits_set = 0;
+     conn->c_threadnumber = 0;
+     conn->c_refcnt = 0;
+     conn->c_idlesince = 0;
+@@ -1549,7 +1550,9 @@ connection_threadmain()
+                     g_decr_active_threadcnt();
+                     return;
+                 }
+-                if (pb_conn->c_opscompleted == 0) {
++
++                PR_EnterMonitor(pb_conn->c_mutex);
++                if (pb_conn->c_anonlimits_set == 0) {
+                     /*
+                      * We have a new connection, set the anonymous reslimit idletimeout
+                      * if applicable.
+@@ -1568,7 +1571,14 @@ connection_threadmain()
+                         }
+                     }
+                     slapi_ch_free_string(&anon_dn);
++                    /*
++                     * Set connection as initialized to avoid setting anonymous limits
++                     * multiple times on the same connection
++                     */
++                    pb_conn->c_anonlimits_set = 1;
+                 }
++                PR_ExitMonitor(pb_conn->c_mutex);
++
+                 if (connection_call_io_layer_callbacks(pb_conn)) {
+                     slapi_log_err(SLAPI_LOG_ERR, "connection_threadmain",
+                                   "Could not add/remove IO layers from connection\n");
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index 9b10aa19e..03355f5fe 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -1616,6 +1616,7 @@ typedef struct conn
+     PRUint64 c_maxthreadsblocked;    /* # of operations blocked by maxthreads */
+     int c_opsinitiated;              /* # ops initiated/next op id      */
+     PRInt32 c_opscompleted;          /* # ops completed          */
++    uint64_t c_anonlimits_set;       /* default anon limits are set */
+     PRInt32 c_threadnumber;          /* # threads used in this conn    */
+     int c_refcnt;                    /* # ops refering to this conn    */
+     PRMonitor *c_mutex;              /* protect each conn structure; need to be re-entrant */
+@@ -1623,10 +1624,8 @@ typedef struct conn
+     time_t c_idlesince;              /* last time of activity on conn  */
+     int c_idletimeout;               /* local copy of idletimeout */
+     int c_idletimeout_handle;        /* the resource limits handle */
+-    Conn_private *c_private;         /* data which is not shared outside*/
+-                                     /* connection.c           */
+-    int c_flags;                     /* Misc flags used only for SSL   */
+-                                     /* status currently               */
++    Conn_private *c_private;         /* data which is not shared outside connection.c */
++    int c_flags;                     /* Misc flags used only for SSL status currently */
+     int c_needpw;                    /* need new password           */
+     CERTCertificate *c_client_cert;  /* Client's Cert          */
+     PRFileDesc *c_prfd;              /* NSPR 2.1 FileDesc          */
+-- 
+2.13.6
+

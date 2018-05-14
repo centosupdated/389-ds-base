@@ -1,0 +1,84 @@
+From 11cea14acfc11d0328013b61a3e1396e97dfe577 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Tue, 14 Nov 2017 16:29:03 +0100
+Subject: [PATCH] Ticket 49410 - opened connection can remain no longer poll,
+ like hanging
+
+Bug Description:
+	Some opened connection are no longer poll.
+	Those connections has 'gettingber' toggle set although there is
+	no more worker thread reading it.
+	The reason they have gettingber set is that the last
+	operation had 'persistent search' flag. With such flag
+	gettingber is not reset.
+	persistent flag is set even when no persistent search/sync_repl
+	was received on the connection.
+	The problem is that the flag is tested on the wrong operation.
+	The tested operation can be
+		- the first operation when the connection entered in turbo mode
+		- the previous operation if several ops PDUs were read on the network
+		- accessing random memory
+
+	In theory testing the flag can lead to sigsev even
+	if it never crash
+
+Fix Description:
+	The fix is to use the operation that is in the pblock
+	In such case pb_op is no longer used, so we can get rid of it.
+	In addition make pb_conn a local variable where it is used
+
+https://pagure.io/389-ds-base/issue/49410
+
+Reviewed by: Ludwig Krispenz, Mark Reynolds
+
+Platforms tested: F26
+
+Flag Day: no
+
+Doc impact: no
+---
+ ldap/servers/slapd/connection.c | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
+index 24a7a1c05..3f19b9765 100644
+--- a/ldap/servers/slapd/connection.c
++++ b/ldap/servers/slapd/connection.c
+@@ -1498,8 +1498,6 @@ connection_threadmain()
+     int maxthreads = 0;
+     int enable_nunc_stans = 0;
+     long bypasspollcnt = 0;
+-    Connection *pb_conn = NULL;
+-    Operation *pb_op = NULL;
+ 
+     enable_nunc_stans = config_get_enable_nunc_stans();
+ #if defined(hpux)
+@@ -1520,6 +1518,8 @@ connection_threadmain()
+         }
+ 
+         if (!thread_turbo_flag && !more_data) {
++	    Connection *pb_conn = NULL;
++
+             /* If more data is left from the previous connection_read_operation,
+                we should finish the op now.  Client might be thinking it's
+                done sending the request and wait for the response forever.
+@@ -1530,7 +1530,6 @@ connection_threadmain()
+              * Connection wait for new work provides the conn and op for us.
+              */
+             slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+-            slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
+ 
+             switch (ret) {
+             case CONN_NOWORK:
+@@ -1786,7 +1785,7 @@ connection_threadmain()
+         /* total number of ops for the server */
+         slapi_counter_increment(ops_completed);
+         /* If this op isn't a persistent search, remove it */
+-        if (pb_op->o_flags & OP_FLAG_PS) {
++        if (op->o_flags & OP_FLAG_PS) {
+             PR_EnterMonitor(conn->c_mutex);
+             connection_release_nolock(conn); /* psearch acquires ref to conn - release this one now */
+             PR_ExitMonitor(conn->c_mutex);
+-- 
+2.13.6
+
