@@ -1,0 +1,34 @@
+From 189c3ce4d5b5c9341a60d4056dad26133d9607ca Mon Sep 17 00:00:00 2001
+From: William Brown <firstyear@redhat.com>
+Date: Fri, 17 Nov 2017 11:43:36 +1000
+Subject: [PATCH] Ticket 49298 - fix complier warn
+
+Bug Description:  Extra argument to error log in dse.c
+
+Fix Description:  Remove extra argument.
+
+https://pagure.io/389-ds-base/issue/49298
+
+Author: wibrown
+
+Review by: oneline rule.
+---
+ ldap/servers/slapd/dse.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/dse.c b/ldap/servers/slapd/dse.c
+index 653009f53..662e91aa7 100644
+--- a/ldap/servers/slapd/dse.c
++++ b/ldap/servers/slapd/dse.c
+@@ -613,7 +613,7 @@ dse_check_file(char *filename, char *backupname)
+             return 1;
+         } else {
+             slapi_log_err(SLAPI_LOG_INFO, "dse_check_file",
+-                          "The config %s has zero length. Attempting restore ... \n", filename, rc);
++                          "The config %s has zero length. Attempting restore ... \n", filename);
+             rc = PR_Delete(filename);
+         }
+     } else {
+-- 
+2.13.6
+

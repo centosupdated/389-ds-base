@@ -1,0 +1,43 @@
+From 4569da8f2c55d54a34f31312ee5756c70a7f463c Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 19 Oct 2017 17:33:10 -0400
+Subject: [PATCH] Ticket 49408 - Server allows to set any nsds5replicaid in the
+ existing replica entry
+
+Description:  There was no value validation for replica ID.  Now there is.
+
+https://pagure.io/389-ds-base/issue/49408
+
+Reviewed by: tbordaz(Thanks!)
+
+(cherry picked from commit 296f0abb78b7ec82580d039d9c505506f6ce07be)
+---
+ ldap/servers/plugins/replication/repl5_replica_config.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index 22d766143..7477a292c 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -411,6 +411,18 @@ replica_config_modify(Slapi_PBlock *pb,
+                     slapi_ch_free_string(&new_repl_type);
+                     new_repl_type = slapi_ch_strdup(config_attr_value);
+                 } else if (strcasecmp(config_attr, attr_replicaId) == 0) {
++                    char *endp = NULL;
++                    int64_t rid = 0;
++                    errno = 0;
++                    rid = strtoll(config_attr_value, &endp, 10);
++                    if (*endp != '\0' || rid > 65535 || rid < 1 || errno == ERANGE) {
++                        *returncode = LDAP_UNWILLING_TO_PERFORM;
++                        PR_snprintf(errortext, SLAPI_DSE_RETURNTEXT_SIZE,
++                            "Attribute %s value (%s) is invalid, must be a number between 1 and 65535.\n",
++                            config_attr, config_attr_value);
++                        slapi_log_err(SLAPI_LOG_ERR, repl_plugin_name, "replica_config_modify - %s\n", errortext);
++                        break;
++                    }
+                     slapi_ch_free_string(&new_repl_id);
+                     new_repl_id = slapi_ch_strdup(config_attr_value);
+                 } else if (strcasecmp(config_attr, attr_flags) == 0) {
+-- 
+2.13.6
+
