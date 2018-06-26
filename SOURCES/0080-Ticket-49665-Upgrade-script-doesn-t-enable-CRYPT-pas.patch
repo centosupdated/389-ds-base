@@ -1,0 +1,79 @@
+From 1c077cff1ce49f5380192325a6947c623019c365 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 9 May 2018 16:39:23 -0400
+Subject: [PATCH] Ticket 49665 - Upgrade script doesn't enable CRYPT password
+ storage plug-in
+
+Description:  There is no upgrade script to add the new CRYPT plugins, this
+              fix adds the script.
+
+https://pagure.io/389-ds-base/issue/49665
+
+Reviewed by: vashirov(Thanks!)
+
+(cherry picked from commit 91dc832411a1bb6e8bf62bb72c36777ddc63770f)
+---
+ Makefile.am                                        |  1 +
+ .../admin/src/scripts/50cryptpwdstorageplugin.ldif | 38 ++++++++++++++++++++++
+ 2 files changed, 39 insertions(+)
+ create mode 100644 ldap/admin/src/scripts/50cryptpwdstorageplugin.ldif
+
+diff --git a/Makefile.am b/Makefile.am
+index 055d480aa..4f62a899b 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -950,6 +950,7 @@ update_DATA = ldap/admin/src/scripts/exampleupdate.pl \
+ 	ldap/admin/src/scripts/50retroclprecedence.ldif \
+ 	ldap/admin/src/scripts/50rootdnaccesscontrolplugin.ldif \
+ 	ldap/admin/src/scripts/50pbkdf2pwdstorageplugin.ldif \
++	ldap/admin/src/scripts/50cryptpwdstorageplugin.ldif \
+ 	ldap/admin/src/scripts/50contentsync.ldif \
+ 	ldap/admin/src/scripts/60upgradeschemafiles.pl \
+ 	ldap/admin/src/scripts/60upgradeconfigfiles.pl \
+diff --git a/ldap/admin/src/scripts/50cryptpwdstorageplugin.ldif b/ldap/admin/src/scripts/50cryptpwdstorageplugin.ldif
+new file mode 100644
+index 000000000..0a4a50776
+--- /dev/null
++++ b/ldap/admin/src/scripts/50cryptpwdstorageplugin.ldif
+@@ -0,0 +1,38 @@
++dn: cn=CRYPT-MD5,cn=Password Storage Schemes,cn=plugins,cn=config
++objectClass: top
++objectClass: nsSlapdPlugin
++cn: CRYPT-MD5
++nsslapd-pluginPath: libpwdstorage-plugin
++nsslapd-pluginInitfunc: crypt_md5_pwd_storage_scheme_init
++nsslapd-pluginType: pwdstoragescheme
++nsslapd-pluginEnabled: on
++nsslapd-pluginId: ID
++nsslapd-pluginVersion: PACKAGE_VERSION
++nsslapd-pluginVendor: VENDOR
++nsslapd-pluginDescription: DESC
++
++dn: cn=CRYPT-SHA256,cn=Password Storage Schemes,cn=plugins,cn=config
++objectClass: top
++objectClass: nsSlapdPlugin
++cn: CRYPT-SHA256
++nsslapd-pluginPath: libpwdstorage-plugin
++nsslapd-pluginInitfunc: crypt_sha256_pwd_storage_scheme_init
++nsslapd-pluginType: pwdstoragescheme
++nsslapd-pluginEnabled: on
++nsslapd-pluginId: ID
++nsslapd-pluginVersion: PACKAGE_VERSION
++nsslapd-pluginVendor: VENDOR
++nsslapd-pluginDescription: DESC
++
++dn: cn=CRYPT-SHA512,cn=Password Storage Schemes,cn=plugins,cn=config
++objectClass: top
++objectClass: nsSlapdPlugin
++cn: CRYPT-SHA512
++nsslapd-pluginPath: libpwdstorage-plugin
++nsslapd-pluginInitfunc: crypt_sha512_pwd_storage_scheme_init
++nsslapd-pluginType: pwdstoragescheme
++nsslapd-pluginEnabled: on
++nsslapd-pluginId: ID
++nsslapd-pluginVersion: PACKAGE_VERSION
++nsslapd-pluginVendor: VENDOR
++nsslapd-pluginDescription: DESC
+-- 
+2.13.6
+

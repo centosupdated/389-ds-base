@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.7.5
-Release:          %{?relprefix}21%{?prerel}%{?dist}
+Release:          %{?relprefix}24%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -224,6 +224,19 @@ Patch74:          0074-Ticket-49566-ds-replcheck-needs-to-work-with-hidden-.patc
 Patch75:          0075-Ticket-49460-replica_write_ruv-log-a-failure-even-wh.patch  
 Patch76:          0076-Ticket-49631-same-csn-generated-twice.patch
 Patch77:          0077-CVE-2018-1089-Crash-from-long-search-filter.patch
+Patch78:          0078-Ticket-49649.patch
+Patch79:          0079-Ticket-49665-Upgrade-script-doesn-t-enable-PBKDF2-pa.patch
+Patch80:          0080-Ticket-49665-Upgrade-script-doesn-t-enable-CRYPT-pas.patch
+Patch81:          0081-Ticket-49671-Readonly-replicas-should-not-write-inte.patch
+Patch82:          0082-Ticket-49696-replicated-operations-should-be-seriali.patch
+Patch83:          0083-Ticket-48184-clean-up-and-delete-connections-at-shut.patch
+Patch84:          0084-Ticket-49576-Update-ds-replcheck-for-new-conflict-en.patch
+Patch85:          0085-Ticket-49576-Add-support-of-deletedattribute-in-ds-r.patch
+Patch86:          0086-Ticket-49726-DS-only-accepts-RSA-and-Fortezza-cipher.patch
+Patch87:          0087-Ticket-48184-clean-up-and-delete-connections-at-shut.patch
+Patch88:          0088-Ticket-49736-Hardening-of-active-connection-list.patch
+Patch89:          0089-Ticket-49652-DENY-aci-s-are-not-handled-properly.patch
+Patch90:          0090-Ticket-49576-ds-replcheck-fix-certificate-directory-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -246,7 +259,6 @@ BuildRequires:    libtevent-devel
 BuildRequires:    systemd-devel
 %if %{use_asan}
 Requires:    libasan
-Requires:    llvm
 %endif
 
 
@@ -276,7 +288,6 @@ Development Libraries and headers for the 389 Directory Server base package.
 Summary:          SNMP Agent for 389 Directory Server
 Group:            System Environment/Daemons
 Requires:         %{name} = %{version}-%{release}
-# upgrade path from monolithic %{name} (including -libs & -devel) to %{name} + %{name}-snmp
 Obsoletes:        %{name} <= 1.3.6.0
 
 %description      snmp
@@ -580,6 +591,24 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Wed Jun 13 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-24
+- Bump version to 1.3.7.5-24
+- Resolves: Bug 1580257 - Fix certificate directory verification
+
+* Fri Jun 1 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-23
+- Bump version to 1.3.7.5-23
+- Resolves: Bug 1581588 - ACI deny rules do not work correctly
+- Resolves: Bug 1582747 - DS only accepts RSA and Fortezza cipher families
+
+* Mon May 21 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-22
+- Bump version to 1.3.5.7-22
+- Resolves: Bug 1563079 - adjustment of csn_generator can fail so next generated csn can be equal to the most recent one received
+- Resolves: Bug 1579702 - Replication stops working when MemberOf plugin is enabled on hub and consumer
+- Resolves: Bug 1579698 - replicated operations should be serialized
+- Resolves: Bug 1579700 - Upgrade script doesn't enable PBKDF password storage plug-in
+- Resolves: Bug 1580257 - ds-replcheck LDIF comparision fails when checking for conflicts
+- Resolves: Bug 1580523 - ns-slapd segfaults with ERR - connection_release_nolock_ext - conn=0 fd=0 Attempt to release connection that is not acquired
+
 * Thu Apr 5 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-21
 - Bump version to 1.3.7.5-21
 - Resolves: Bug 1559818 - EMBARGOED CVE-2018-1089 389-ds-base: ns-slapd crash via large filter value in ldapsearch
