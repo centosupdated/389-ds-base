@@ -1,0 +1,76 @@
+From 1f3e1ad55f72a885e27db41be28ce1037ff0ce93 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Fri, 1 Jun 2018 16:12:40 +0200
+Subject: [PATCH] Ticket 49736 - Hardening of active connection list
+
+Bug Description:
+	In case of a bug in the management of the connection refcnt
+	it can happen that there are several attempts to move a connection
+	out of the active list.
+
+	It triggers a crash because when derefencing c->c_prev.
+	c_prev is never NULL on the active list
+
+Fix Description:
+	The fix tests if the connection is already out of the active list.
+	If such case, it just returns.
+
+	A potential issue that is not addressed by this fix is:
+	Thread A and Thread B are using 'c' but c->refcnt=1 (it should be 2)
+	Thread A "closes" 'c', 'c' is move out of active list (free) because of refcnt=0
+	A new connection happens selecting the free connection 'c', moving it to the active list.
+	Thread C is using 'c' from the new connection c->refcnt=1
+	Thread B "closes" 'c', 'c' is moved out of the active list.
+	-> new operation coming on 'c' will not be detected
+	-> Thread C will likely crash when sending result
+
+https://pagure.io/389-ds-base/issue/49736
+
+Reviewed by: Mark Reynolds (thanks!)
+
+Platforms tested: F26
+
+Flag Day: no
+
+Doc impact: no
+
+(cherry picked from commit b0e05806232b781eed3ff102485045a358d7659b)
+---
+ ldap/servers/slapd/conntable.c | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/ldap/servers/slapd/conntable.c b/ldap/servers/slapd/conntable.c
+index 114871d17..cb68a1119 100644
+--- a/ldap/servers/slapd/conntable.c
++++ b/ldap/servers/slapd/conntable.c
+@@ -243,6 +243,27 @@ connection_table_move_connection_out_of_active_list(Connection_Table *ct, Connec
+     int c_sd; /* for logging */
+     /* we always have previous element because list contains a dummy header */;
+     PR_ASSERT(c->c_prev);
++    if (c->c_prev == NULL) {
++        /* c->c_prev is set when the connection is moved ON the active list
++         * So this connection is already OUT of the active list
++         *
++         * Not sure how to recover from here.
++         * Considering c->c_prev is NULL we can assume refcnt is now 0
++         * and connection_cleanup was already called.
++         * If it is not the case, then consequences are:
++         *  - Leak some memory (connext, unsent page result entries, various buffers)
++         *  - hanging connection (fd not closed)
++         * A option would be to call connection_cleanup here.
++         *
++         * The logged message helps to know how frequently the problem exists
++         */
++        slapi_log_err(SLAPI_LOG_CRIT,
++                      "connection_table_move_connection_out_of_active_list",
++                      "conn %d is already OUT of the active list (refcnt is %d)\n",
++                      c->c_sd, c->c_refcnt);
++
++        return 0;
++    }
+ 
+ #ifdef FOR_DEBUGGING
+     slapi_log_err(SLAPI_LOG_DEBUG, "connection_table_move_connection_out_of_active_list", "Moving connection out of active list\n");
+-- 
+2.17.0
+
