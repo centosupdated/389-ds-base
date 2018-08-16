@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.7.5
-Release:          %{?relprefix}24%{?prerel}%{?dist}
+Release:          %{?relprefix}25%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -237,6 +237,8 @@ Patch87:          0087-Ticket-48184-clean-up-and-delete-connections-at-shut.patc
 Patch88:          0088-Ticket-49736-Hardening-of-active-connection-list.patch
 Patch89:          0089-Ticket-49652-DENY-aci-s-are-not-handled-properly.patch
 Patch90:          0090-Ticket-49576-ds-replcheck-fix-certificate-directory-.patch
+Patch91:          0091-Ticket-49765-Async-operations-can-hang-when-the-serv.patch
+Patch92:          0092-Ticket-49765-compiler-warning.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -591,6 +593,10 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Tue Jul 3 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-25
+- Bump version to 1.3.7.5-25
+- Resolves: Bug 1597530 - Async operations can hang when the server is running nunc-stans
+
 * Wed Jun 13 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-24
 - Bump version to 1.3.7.5-24
 - Resolves: Bug 1580257 - Fix certificate directory verification
