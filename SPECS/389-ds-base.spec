@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.7.5
-Release:          %{?relprefix}25%{?prerel}%{?dist}
+Release:          %{?relprefix}28%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -239,6 +239,12 @@ Patch89:          0089-Ticket-49652-DENY-aci-s-are-not-handled-properly.patch
 Patch90:          0090-Ticket-49576-ds-replcheck-fix-certificate-directory-.patch
 Patch91:          0091-Ticket-49765-Async-operations-can-hang-when-the-serv.patch
 Patch92:          0092-Ticket-49765-compiler-warning.patch
+Patch93:          0093-Ticket-49893-disable-nunc-stans-by-default.patch
+Patch94:          0094-Ticket-49890-ldapsearch-with-server-side-sort-crashe.patch
+Patch95:          0095-Ticket-49742-Fine-grained-password-policy-can-impact.patch
+Patch96:          0096-Bug-1623247-Crash-in-vslapd_log_emergency_error.patch
+Patch97:          0097-Ticket-49768-Under-network-intensive-load-persistent.patch
+Patch98:          0098-Ticket-49932-Crash-in-delete_passwdPolicy-when-persi.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -593,6 +599,21 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Thu Sep 13 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-28
+- Bump version to 1.3.7.5-28
+- Resolves: Bug 1628676 - 389-ds-base: race condition on reference counter leads to DoS using persistent search
+- Resolves: Bug 1628677 - Crash in delete_passwdPolicy when persistent search connections are terminated unexpectedly 
+
+* Wed Aug 29 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-27
+- Bump version to 1.3.7.5-27
+- Resolves: Bug 1623247 - Crash in vslapd_log_emergency_error
+
+* Tue Aug 14 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-26
+- Bump version to 1.3.7.5-26
+- Resolves: Bug 1615924 - Fine grained password policy can impact search performance
+- Resolves: Bug 1614836 - Disable nunc-stans by default
+- Resolves: Bug 1614861 - ldapsearch with server side sort crashes the ldap server
+
 * Tue Jul 3 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-25
 - Bump version to 1.3.7.5-25
 - Resolves: Bug 1597530 - Async operations can hang when the server is running nunc-stans
