@@ -1,0 +1,137 @@
+From 1013a1bfe0882d213f48e900ab89e00651188489 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 9 Aug 2018 15:27:59 -0400
+Subject: [PATCH] Ticket 49890 : ldapsearch with server side sort crashes the 
+ ldap server
+
+Bug Description:
+        Server side sort with a specified matching rule trigger a crash
+
+Fix Description:
+        Check if the we are able to index the provided value.
+        If we are not then slapd_qsort returns an error (LDAP_OPERATION_ERROR)
+
+https://pagure.io/389-ds-base/issue/49890
+
+Reviewed by: mreynolds
+
+Platforms tested: F27
+
+Flag Day: no
+
+Doc impact: no
+
+(cherry picked from commit c989e18f7a3da060b16d39919b920b6b2a19a0ac)
+---
+ dirsrvtests/tests/suites/syntax/mr_test.py | 59 ++++++++++++++++++++++
+ ldap/servers/slapd/back-ldbm/sort.c        | 14 +++++
+ 2 files changed, 73 insertions(+)
+ create mode 100644 dirsrvtests/tests/suites/syntax/mr_test.py
+
+diff --git a/dirsrvtests/tests/suites/syntax/mr_test.py b/dirsrvtests/tests/suites/syntax/mr_test.py
+new file mode 100644
+index 000000000..57061222a
+--- /dev/null
++++ b/dirsrvtests/tests/suites/syntax/mr_test.py
+@@ -0,0 +1,59 @@
++import logging
++import pytest
++import os
++import ldap
++from lib389.dbgen import dbgen
++from lib389._constants import *
++from lib389.topologies import topology_st as topo
++from lib389._controls import SSSRequestControl
++
++DEBUGGING = os.getenv("DEBUGGING", default=False)
++if DEBUGGING:
++    logging.getLogger(__name__).setLevel(logging.DEBUG)
++else:
++    logging.getLogger(__name__).setLevel(logging.INFO)
++log = logging.getLogger(__name__)
++
++
++def test_sss_mr(topo):
++    """Test matching rule/server side sort does not crash DS
++
++    :id: 48c73d76-1694-420f-ab55-187135f2d260
++    :setup: Standalone Instance
++    :steps:
++        1. Add sample entries to the database
++        2. Perform search using server side control (uid:2.5.13.3)
++    :expectedresults:
++        1. Success
++        2. Success
++    """
++
++    log.info("Creating LDIF...")
++    ldif_dir = topo.standalone.get_ldif_dir()
++    ldif_file = os.path.join(ldif_dir, 'mr-crash.ldif')
++    dbgen(topo.standalone, 5, ldif_file, DEFAULT_SUFFIX)
++
++    log.info("Importing LDIF...")
++    topo.standalone.stop()
++    assert topo.standalone.ldif2db(DEFAULT_BENAME, None, None, None, ldif_file)
++    topo.standalone.start()
++
++    log.info('Search using server side sorting using undefined mr in the attr...')
++    sort_ctrl = SSSRequestControl(True, ['uid:2.5.13.3'])
++    controls = [sort_ctrl]
++    msg_id = topo.standalone.search_ext(DEFAULT_SUFFIX, ldap.SCOPE_SUBTREE,
++                                        "objectclass=*", serverctrls=controls)
++    try:
++        rtype, rdata, rmsgid, response_ctrl = topo.standalone.result3(msg_id)
++    except ldap.OPERATIONS_ERROR:
++        pass
++
++    log.info("Test PASSED")
++
++
++if __name__ == '__main__':
++    # Run isolated
++    # -s for DEBUG mode
++    CURRENT_FILE = os.path.realpath(__file__)
++    pytest.main(["-s", CURRENT_FILE])
++
+diff --git a/ldap/servers/slapd/back-ldbm/sort.c b/ldap/servers/slapd/back-ldbm/sort.c
+index 5b84d87f3..70ac60803 100644
+--- a/ldap/servers/slapd/back-ldbm/sort.c
++++ b/ldap/servers/slapd/back-ldbm/sort.c
+@@ -546,6 +546,16 @@ compare_entries_sv(ID *id_a, ID *id_b, sort_spec *s, baggage_carrier *bc, int *e
+             /* Now copy it, so the second call doesn't crap on it */
+             value_a = slapi_ch_bvecdup(temp_value); /* Really, we'd prefer to not call the chXXX variant...*/
+             matchrule_values_to_keys(this_one->mr_pb, actual_value_b, &value_b);
++
++            if ((actual_value_a && !value_a) ||
++                (actual_value_b && !value_b)) {
++                ber_bvecfree(actual_value_a);
++                ber_bvecfree(actual_value_b);
++                CACHE_RETURN(&inst->inst_cache, &a);
++                CACHE_RETURN(&inst->inst_cache, &b);
++                *error = 1;
++                return 0;
++            }
+             if (actual_value_a)
+                 ber_bvecfree(actual_value_a);
+             if (actual_value_b)
+@@ -717,6 +727,8 @@ recurse:
+                A[i] >= A[lo] for higuy <= i <= hi */
+ 
+             do {
++                if (error)
++                    return LDAP_OPERATIONS_ERROR;
+                 loguy++;
+             } while (loguy <= hi && compare_entries_sv(loguy, lo, s, bc, &error) <= 0);
+ 
+@@ -724,6 +736,8 @@ recurse:
+                either loguy > hi or A[loguy] > A[lo] */
+ 
+             do {
++                if (error)
++                    return LDAP_OPERATIONS_ERROR;
+                 higuy--;
+             } while (higuy > lo && compare_entries_sv(higuy, lo, s, bc, &error) >= 0);
+ 
+-- 
+2.17.1
+

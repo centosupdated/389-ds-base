@@ -1,0 +1,65 @@
+From 2136ba8dd18e72bfbe037517c10187bfe695628f Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Thu, 24 May 2018 15:36:34 +0200
+Subject: [PATCH] Ticket 49768 - Under network intensive load persistent search
+ can erronously decrease connection refcnt
+
+Bug Description:
+	If a connection enters in turbo mode (because of high traffic) or
+	a worker reads several requests in the read buffer (more_data), the thread
+	keeps processing connection.
+	In that condition it should not decrease the refcnt.
+	In case the operation is a persistent search, it decreases systematically
+	the refcnt.
+	So refcnt can become lower than the actual number of threads active on the connection.
+
+	Most of the time it can create messages like
+		Attempt to release connection that is not acquired
+	In some rare case, if the a connection is out of the active list but a remaining thread
+	tries to remove it again it can lead to a crash
+
+Fix Description:
+	The fix consist, when processing a PS, to decrease the refcnt at the condition
+	the connection is not in turbo mode or in more_data.
+
+https://pagure.io/389-ds-base/issue/49768
+
+Reviewed by: Mark Reynolds
+
+Platforms tested: F26
+
+Flag Day: no
+
+Doc impact: no
+---
+ ldap/servers/slapd/connection.c | 14 +++++++++++---
+ 1 file changed, 11 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
+index c54e7c26c..1dbb49f06 100644
+--- a/ldap/servers/slapd/connection.c
++++ b/ldap/servers/slapd/connection.c
+@@ -1811,9 +1811,17 @@ connection_threadmain()
+         slapi_counter_increment(ops_completed);
+         /* If this op isn't a persistent search, remove it */
+         if (op->o_flags & OP_FLAG_PS) {
+-            PR_EnterMonitor(conn->c_mutex);
+-            connection_release_nolock(conn); /* psearch acquires ref to conn - release this one now */
+-            PR_ExitMonitor(conn->c_mutex);
++            /* Release the connection (i.e. decrease refcnt) at the condition
++             * this thread will not loop on it.
++             * If we are in turbo mode (dedicated to that connection) or
++             * more_data (continue reading buffered req) this thread
++             * continues to hold the connection
++             */
++            if (!thread_turbo_flag && !more_data) {
++                PR_EnterMonitor(conn->c_mutex);
++                connection_release_nolock(conn); /* psearch acquires ref to conn - release this one now */
++                PR_ExitMonitor(conn->c_mutex);
++            }
+             /* ps_add makes a shallow copy of the pb - so we
+                  * can't free it or init it here - just set operation to NULL.
+                  * ps_send_results will call connection_remove_operation_ext to free it
+-- 
+2.17.1
+
