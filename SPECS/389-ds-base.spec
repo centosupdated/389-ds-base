@@ -38,8 +38,8 @@
 
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
-Version:          1.3.7.5
-Release:          %{?relprefix}28%{?prerel}%{?dist}
+Version:          1.3.8.4
+Release:          %{?relprefix}15%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -83,7 +83,7 @@ BuildRequires:    libevent-devel
 BuildRequires:    libtalloc-devel
 BuildRequires:    libtevent-devel
 # For tests!
-#BuildRequires:    libcmocka-devel
+BuildRequires:    libcmocka-devel
 BuildRequires:    doxygen
 
 # this is needed for using semanage from our setup scripts
@@ -102,6 +102,7 @@ Requires:         perl-Mozilla-LDAP
 # this is needed to setup SSL if you are not using the
 # administration server package
 Requires:         nss-tools
+Requires:         nss >= 3.34
 
 # these are not found by the auto-dependency method
 # they are required to support the mandatory LDAP SASL mechs
@@ -134,8 +135,7 @@ Requires:         systemd-libs
 Requires:         svrcore >= 4.1.3
 Requires:         python-ldap
 
-# upgrade path from monolithic % {name} (including -libs & -devel) to % {name} + % {name}-snmp
-Obsoletes:        %{name} <= 1.3.5.4
+Obsoletes:        %{name} <= 1.3.7.10
 
 %if %{use_tcmalloc}
 BuildRequires:    gperftools-devel
@@ -146,105 +146,16 @@ Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}%{?p
 # 389-ds-git.sh should be used to generate the source tarball from git
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
-Patch00:          0000-Ticket-49305-Need-to-wrap-atomic-calls.patch
-Patch01:          0001-Ticket-49305-Need-to-wrap-atomic-calls.patch
-Patch02:          0002-Ticket-49385-Fix-coverity-warnings.patch 
-Patch03:          0003-Ticket-49180-errors-log-filled-with-attrlist_replace.patch
-Patch04:          0004-Ticket-49388-repl-monitor-matches-null-string-many-t.patch
-Patch05:          0005-Ticket-49389-unable-to-retrieve-specific-cosAttribut.patch
-Patch06:          0006-Ticket-49320-Activating-already-active-role-returns-.patch
-Patch07:          0007-Ticket-48235-Remove-memberOf-global-lock.patch
-Patch08:          0008-Ticket-48235-remove-memberof-lock-cherry-pick-error.patch
-Patch09:          0009-Ticket-49394-slapi_pblock_get-may-leave-unchanged-th.patch
-Patch10:          0010-Ticket-49402-Adding-a-database-entry-with-the-same-d.patch
-Patch11:          0011-Ticket-49064-RFE-allow-to-enable-MemberOf-plugin-in-.patch
-Patch12:          0012-Ticket-49378-server-init-fails.patch
-Patch13:          0013-Ticket-49392-memavailable-not-available.patch
-Patch14:          0014-Ticket-48006-Missing-warning-for-invalid-replica-bac.patch
-Patch15:          0015-Ticket-49408-Server-allows-to-set-any-nsds5replicaid.patch
-Patch16:          0016-Ticket-49408-Server-allows-to-set-any-nsds5replicaid.patch
-Patch17:          0017-Ticket-48681-Use-of-uninitialized-value-in-string-ne.patch
-Patch18:          0018-Ticket-49374-server-fails-to-start-because-maxdisksi.patch
-Patch19:          0019-Ticket-48681-Use-of-uninitialized-value-in-string-ne.patch
-Patch20:          0020-Ticket-49401-improve-valueset-sorted-performance-on-.patch
-Patch21:          0021-Ticket-49401-Fix-compiler-incompatible-pointer-types.patch
-Patch22:          0022-Ticket-48894-harden-valueset_array_to_sorted_quick-v.patch
-Patch23:          0023-Ticket-49424-Resolve-csiphash-alignment-issues.patch
-Patch24:          0024-Ticket-49436-double-free-in-COS-in-some-conditions.patch
-Patch25:          0025-Ticket-48393-Improve-replication-config-validation.patch  
-Patch26:          0026-Ticket-49439-cleanallruv-is-not-logging-information.patch
-Patch27:          0027-Ticket-48393-fix-copy-and-paste-error.patch
-Patch28:          0028-Ticket-49038-remove-legacy-replication-change-cleanu.patch
-Patch29:          0029-Ticket-49454-SSL-Client-Authentication-breaks-in-FIP.patch
-Patch30:          0030-Ticket-49435-Fix-NS-race-condition-on-loaded-test-sy.patch
-Patch31:          0031-Ticket-49410-opened-connection-can-remain-no-longer-.patch
-Patch32:          0032-Ticket-49443-scope-one-searches-in-1.3.7-give-incorr.patch
-Patch33:          0033-Ticket-49441-Import-crashes-with-large-indexed-binar.patch
-Patch34:          0034-Ticket-49441-Import-crashes-oneline-fix.patch
-Patch35:          0035-Ticket-49377-Incoming-BER-too-large-with-TLS-on-plai.patch
-Patch36:          0036-Ticket-48118-At-startup-changelog-can-be-erronously-.patch
-Patch37:          0037-Ticket-48118-fix-compiler-warning-for-incorrect-retu.patch
-Patch38:          0038-Ticket-49298-Correct-error-codes-with-config-restore.patch
-Patch39:          0039-Ticket-49474-sasl-allow-mechs-does-not-operate-corre.patch
-Patch40:          0040-Ticket-49470-overflow-in-pblock_get.patch
-Patch41:          0041-Ticket-49471-heap-buffer-overflow-in-ss_unescape.patch
-Patch42:          0042-Ticket-49298-fix-complier-warn.patch
-Patch43:          0043-Ticket-49495-Fix-memory-management-is-vattr.patch
-Patch44:          0044-Ticket-48184-close-connections-at-shutdown-cleanly.patch
-Patch45:          0045-Ticket-49509-Indexing-of-internationalized-matching-.patch
-Patch46:          0046-Ticket-49493-heap-use-after-free-in-csn_as_string.patch
-Patch47:          0047-Ticket-49524-Password-policy-minimum-token-length-fa.patch
-Patch48:          0048-Ticket-49446-cleanallruv-should-ignore-cleaned-repli.patch
-Patch49:          0049-Ticket-49413-Changelog-trimming-ignores-disabled-rep.patch
-Patch50:          0050-Ticket-49278-GetEffectiveRights-gives-false-negative.patch
-Patch51:          0051-Ticket-49531-coverity-issues-fix-memory-leaks.patch
-Patch52:          0052-Ticket-49529-Fix-Coverity-warnings-invalid-deference.patch
-Patch53:          0053-Ticket-49463-After-cleanALLruv-there-is-a-flow-of-ke.patch
-Patch54:          0054-Ticket-49532-coverity-issues-fix-compiler-warnings-c.patch
-Patch55:          0055-Ticket-49523-memberof-schema-violation-error-message.patch
-Patch56:          0056-Ticket-49534-Fix-coverity-issues-and-regression.patch
-Patch57:          0057-Ticket-49370-Add-all-the-password-policy-defaults-to.patch
-Patch58:          0058-Ticket-49541-repl-config-should-not-allow-rid-65535-.patch
-Patch59:          0059-CVE-2017-15134-crash-in-slapi_filter_sprintf.patch
-Patch60:          0060-Ticket-49534-Fix-coverity-regression.patch
-Patch61:          0061-Ticket-49541-Replica-ID-config-validation-fix.patch
-Patch62:          0062-Ticket-49370-Crash-when-using-a-global-and-local-pw.patch
-Patch63:          0063-Ticket-49557-Add-config-option-for-checking-CRL-on-o.patch
-Patch64:          0064-Ticket-49560-nsslapd-extract-pemfiles-should-be-enab.patch
-Patch65:          0065-Ticket-bz1525628-invalid-password-migration-causes-u.patch
-Patch66:          0066-Ticket-49545-final-substring-extended-filter-search-.patch
-Patch67:          0067-Ticket-49551-v3-correct-handling-of-numsubordinates-.patch
-Patch68:          0068-Ticket-49551-fix-memory-leak-found-by-coverity.patch
-Patch69:          0069-Ticket-48184-revert-previous-patch-around-nunc-stans.patch
-Patch70:          0070-Ticket-49619-adjustment-of-csn_generator-can-fail-so.patch
-Patch71:          0071-Ticket-49161-memberof-fails-if-group-is-moved-into-s.patch
-Patch72:          0072-Ticket-49296-Fix-race-condition-in-connection-code-w.patch
-Patch73:          0073-Ticket-49540-Indexing-task-is-reported-finished-too-.patch
-Patch74:          0074-Ticket-49566-ds-replcheck-needs-to-work-with-hidden-.patch
-Patch75:          0075-Ticket-49460-replica_write_ruv-log-a-failure-even-wh.patch  
-Patch76:          0076-Ticket-49631-same-csn-generated-twice.patch
-Patch77:          0077-CVE-2018-1089-Crash-from-long-search-filter.patch
-Patch78:          0078-Ticket-49649.patch
-Patch79:          0079-Ticket-49665-Upgrade-script-doesn-t-enable-PBKDF2-pa.patch
-Patch80:          0080-Ticket-49665-Upgrade-script-doesn-t-enable-CRYPT-pas.patch
-Patch81:          0081-Ticket-49671-Readonly-replicas-should-not-write-inte.patch
-Patch82:          0082-Ticket-49696-replicated-operations-should-be-seriali.patch
-Patch83:          0083-Ticket-48184-clean-up-and-delete-connections-at-shut.patch
-Patch84:          0084-Ticket-49576-Update-ds-replcheck-for-new-conflict-en.patch
-Patch85:          0085-Ticket-49576-Add-support-of-deletedattribute-in-ds-r.patch
-Patch86:          0086-Ticket-49726-DS-only-accepts-RSA-and-Fortezza-cipher.patch
-Patch87:          0087-Ticket-48184-clean-up-and-delete-connections-at-shut.patch
-Patch88:          0088-Ticket-49736-Hardening-of-active-connection-list.patch
-Patch89:          0089-Ticket-49652-DENY-aci-s-are-not-handled-properly.patch
-Patch90:          0090-Ticket-49576-ds-replcheck-fix-certificate-directory-.patch
-Patch91:          0091-Ticket-49765-Async-operations-can-hang-when-the-serv.patch
-Patch92:          0092-Ticket-49765-compiler-warning.patch
-Patch93:          0093-Ticket-49893-disable-nunc-stans-by-default.patch
-Patch94:          0094-Ticket-49890-ldapsearch-with-server-side-sort-crashe.patch
-Patch95:          0095-Ticket-49742-Fine-grained-password-policy-can-impact.patch
-Patch96:          0096-Bug-1623247-Crash-in-vslapd_log_emergency_error.patch
-Patch97:          0097-Ticket-49768-Under-network-intensive-load-persistent.patch
-Patch98:          0098-Ticket-49932-Crash-in-delete_passwdPolicy-when-persi.patch
+Patch00:          0000-Ticket-49830-Import-fails-if-backend-name-is-default.patch
+Patch01:          0001-Ticket-48818-For-a-replica-bindDNGroup-should-be-fet.patch
+Patch02:          0002-Ticket-49546-Fix-issues-with-MIB-file.patch
+Patch03:          0003-Ticket-49840-ds-replcheck-command-returns-traceback-.patch
+Patch04:          0004-Ticket-49893-disable-nunc-stans-by-default.patch
+Patch05:          0005-Ticket-49890-ldapsearch-with-server-side-sort-crashe.patch
+Patch06:          0006-Bug-1614820-Crash-in-vslapd_log_emergency_error.patch
+Patch07:          0007-Ticket-49932-Crash-in-delete_passwdPolicy-when-persi.patch
+Patch08:          0008-Bug-1624004-potential-denial-of-service-attack.patch
+Patch09:          0009-Bug-1624004-fix-regression-in-empty-attribute-list.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -267,6 +178,7 @@ BuildRequires:    libtevent-devel
 BuildRequires:    systemd-devel
 %if %{use_asan}
 Requires:    libasan
+Requires:    llvm
 %endif
 
 
@@ -296,7 +208,7 @@ Development Libraries and headers for the 389 Directory Server base package.
 Summary:          SNMP Agent for 389 Directory Server
 Group:            System Environment/Daemons
 Requires:         %{name} = %{version}-%{release}
-Obsoletes:        %{name} <= 1.3.6.0
+Obsoletes:        %{name} <= 1.3.7.10
 
 %description      snmp
 SNMP Agent for the 389 Directory Server base package.
@@ -336,7 +248,7 @@ autoreconf -fiv
            --with-systemdsystemconfdir=%{_sysconfdir}/systemd/system \
            --with-perldir=/usr/bin \
            --with-systemdgroupname=%{groupname} $NSSARGS \
-           --with-systemd $TCMALLOC_FLAGS $ASAN_FLAGS
+           --with-systemd --enable-cmocka $TCMALLOC_FLAGS $ASAN_FLAGS
 
 # Generate symbolic info for debuggers
 export XCFLAGS=$RPM_OPT_FLAGS
@@ -382,10 +294,10 @@ popd
 # make sure perl scripts have a proper shebang
 sed -i -e 's|#{{PERL-EXEC}}|#!/usr/bin/perl|' $RPM_BUILD_ROOT%{_datadir}/%{pkgname}/script-templates/template-*.pl
 
-## exclude 32-bit platforms from running tests
+# exclude 32-bit platforms from running tests
 %if %{_arch} != "s390x" && %{_arch} != "s390" && %{_arch} != "i386" && %{_arch} != "ppc"
 %check
-## This checks the code, if it fails it prints why, then re-raises the fail to shortcircuit the rpm build#.
+# This checks the code, if it fails it prints why, then re-raises the fail to shortcircuit the rpm build.
 if ! make DESTDIR="$RPM_BUILD_ROOT" check; then cat ./test-suite.log && false; fi
 %endif
 
@@ -407,16 +319,15 @@ if [ -n "$DEBUGPOSTTRANS" ] ; then
    output2=${DEBUGPOSTTRANS}.upgrade
 fi
 
-# Soft static allocation for UID and GID
+# Create dirsrv user and group (if needed)
 USERNAME="dirsrv"
-ALLOCATED_UID=389
 GROUPNAME="dirsrv"
-ALLOCATED_GID=389
 HOMEDIR="/usr/share/dirsrv"
-
-getent group $GROUPNAME >/dev/null || /usr/sbin/groupadd -f -g $ALLOCATED_GID -r $GROUPNAME
+if ! getent group $GROUPNAME >/dev/null ; then
+    /usr/sbin/groupadd -f -r $GROUPNAME
+fi
 if ! getent passwd $USERNAME >/dev/null ; then
-    /usr/sbin/useradd -r -u $ALLOCATED_UID -g $GROUPNAME -d $HOMEDIR -s /sbin/nologin -c "user for 389-ds-base" $USERNAME
+    /usr/sbin/useradd -r -g $GROUPNAME -d $HOMEDIR -s /sbin/nologin -c "user for 389-ds-base" $USERNAME
 fi
 
 # Reload our sysctl before we restart (if we can)
@@ -489,7 +400,6 @@ fi
 %systemd_postun_with_restart %{pkgname}-snmp.service
 
 %files
-%defattr(-,root,root,-)
 %doc LICENSE LICENSE.GPLv3+ LICENSE.openssl
 %dir %{_sysconfdir}/%{pkgname}
 %dir %{_sysconfdir}/%{pkgname}/schema
@@ -564,7 +474,6 @@ fi
 %exclude %{_unitdir}/%{pkgname}-snmp.service
 
 %files devel
-%defattr(-,root,root,-)
 %doc LICENSE LICENSE.GPLv3+ LICENSE.openssl README.devel
 %{_includedir}/%{pkgname}
 %{_libdir}/%{pkgname}/libslapd.so
@@ -576,7 +485,6 @@ fi
 %{_libdir}/pkgconfig/*
 
 %files libs
-%defattr(-,root,root,-)
 %doc LICENSE LICENSE.GPLv3+ LICENSE.openssl README.devel
 %dir %{_libdir}/%{pkgname}
 %{_libdir}/%{pkgname}/libslapd.so.*
@@ -586,7 +494,6 @@ fi
 %{_libdir}/%{pkgname}/libldaputil.so.*
 
 %files snmp
-%defattr(-,root,root,-)
 %doc LICENSE LICENSE.GPLv3+ LICENSE.openssl README.devel
 %config(noreplace)%{_sysconfdir}/%{pkgname}/config/ldap-agent.conf
 %{_sbindir}/ldap-agent*
@@ -594,64 +501,79 @@ fi
 %{_unitdir}/%{pkgname}-snmp.service
 
 %files tests
-%defattr(-,root,root,-)
 %doc LICENSE LICENSE.GPLv3+
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
-* Thu Sep 13 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-28
-- Bump version to 1.3.7.5-28
-- Resolves: Bug 1628676 - 389-ds-base: race condition on reference counter leads to DoS using persistent search
-- Resolves: Bug 1628677 - Crash in delete_passwdPolicy when persistent search connections are terminated unexpectedly 
+* Wed Sep 19 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-15
+- Bump version to 1.3.8.4-15
+- Resolves: Bug 1624004 - Fix regression in last patch
 
-* Wed Aug 29 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-27
-- Bump version to 1.3.7.5-27
-- Resolves: Bug 1623247 - Crash in vslapd_log_emergency_error
+* Tue Sep 18 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-14
+- Bump version to 1.3.8.4-14
+- Resolves: Bug 1624004 - potential denial of service attack
 
-* Tue Aug 14 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-26
-- Bump version to 1.3.7.5-26
-- Resolves: Bug 1615924 - Fine grained password policy can impact search performance
-- Resolves: Bug 1614836 - Disable nunc-stans by default
-- Resolves: Bug 1614861 - ldapsearch with server side sort crashes the ldap server
+* Fri Aug 31 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-13
+- Bump version to 1.3.8.4-13
+- Resolves: Bug 1623949 - Crash in delete_passwdPolicy when persistent search connections are terminated unexpectedly
 
-* Tue Jul 3 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-25
-- Bump version to 1.3.7.5-25
-- Resolves: Bug 1597530 - Async operations can hang when the server is running nunc-stans
+* Thu Aug 23 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-12
+- Bump version to 1.3.8.4-12
+- Resolves: Bug 1616412 - filter optimization fix causes regression(fix reverted)
 
-* Wed Jun 13 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-24
-- Bump version to 1.3.7.5-24
-- Resolves: Bug 1580257 - Fix certificate directory verification
+* Thu Aug 23 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-11
+- Bump version to 1.3.8.4-11
+- Resolves: Bug 1614820 - Server crash through modify command with large DN
 
-* Fri Jun 1 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-23
-- Bump version to 1.3.7.5-23
-- Resolves: Bug 1581588 - ACI deny rules do not work correctly
-- Resolves: Bug 1582747 - DS only accepts RSA and Fortezza cipher families
+* Fri Aug 10 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-10
+- Bump verison to 1.3.8.4-10
+- Resolves: Bug 1614501 - Disable nunc-stans by default
+- Resolves: Bug 1607078 - ldapsearch with server side sort crashes the ldap server
 
-* Mon May 21 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-22
-- Bump version to 1.3.5.7-22
-- Resolves: Bug 1563079 - adjustment of csn_generator can fail so next generated csn can be equal to the most recent one received
-- Resolves: Bug 1579702 - Replication stops working when MemberOf plugin is enabled on hub and consumer
-- Resolves: Bug 1579698 - replicated operations should be serialized
-- Resolves: Bug 1579700 - Upgrade script doesn't enable PBKDF password storage plug-in
-- Resolves: Bug 1580257 - ds-replcheck LDIF comparision fails when checking for conflicts
-- Resolves: Bug 1580523 - ns-slapd segfaults with ERR - connection_release_nolock_ext - conn=0 fd=0 Attempt to release connection that is not acquired
+* Tue Jul 24 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-9
+- Bump version to 1.3.8.4-9
+- Resolves: Bug 1594484 - setup-ds.pl not able to handle/create the user "dirsrv" if there is an already existing user with the UID/GID 389 on the machine.
 
-* Thu Apr 5 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-21
-- Bump version to 1.3.7.5-21
-- Resolves: Bug 1559818 - EMBARGOED CVE-2018-1089 389-ds-base: ns-slapd crash via large filter value in ldapsearch
+* Mon Jul 23 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-8
+- Bump version to 1.3.8.4-8
+- Resolves: Bug 1594484 - setup-ds.pl not able to handle/create the user "dirsrv" if there is an already existing user with the UID/GID 389 on the machine.
 
-* Wed Apr 4 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-20
-- Bump version to 1.3.7.5-20
-- Resolves: Bug 1563079 - adjustment of csn_generator can fail so next generated csn can be equal to the most recent one received 
-- Resolves: Bug 1559764 - memberof fails if group is moved into scope
-- Resolves: Bug 1554720 - "Truncated search results" pop-up appears in user details in WebUI 
-- Resolves: Bug 1553605 - ipa-server-install fails with Error: Upgrade failed with no such entry
-- Resolves: Bug 1559760 - ds-replcheck: add -W option to ask for the password from stdin instead of passing it on command line
-- Resolves: Bug 1559464 - replica_write_ruv log a failure even when it succeeds
+* Mon Jul 16 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-7
+- Bump version to 1.3.8.4-7
+- Resolves: Bug 1595766 - backout this fix for now because it breaks FreeIPA (removed patch file all together)
 
-* Tue Apr 3 2018 Matus Honek <mhonek@redhat.com> - 1.3.7.5-19
-- Bump version to 1.3.7.5-19
-- Resolves: Bug 1563107 - IPA server is not responding, all authentication and admin tests failed [rhel-7.5.z]
+* Mon Jul 16 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-6
+- Bump version to 1.3.8.4-6
+- Resolves: Bug 1595766 - backout this fix for now because it breaks FreeIPA
+
+* Mon Jul 16 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-5
+- Bump version to 1.3.8.4-5
+- Resolves: Bug 1595766 - CVE-2018-10871 389-ds-base: replication and the Retro Changelog plugin store plaintext password by default
+
+* Mon Jul 16 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-4
+- Bump version to 1.3.8.4-4
+- Resolves: Bug 1597384 - Async operations can hang when the server is running nunc-stans
+- Resolves: Bug 1598186 - A search with the scope "one" returns a non-matching entry
+- Resolves: Bug 1598718 - import fails if backend name is "default" 
+- Resolves: Bug 1598478 - If a replica is created with a bindDNGroup, this group is taken into account only after bindDNGroupCheckInterval seconds
+- Resolves: Bug 1525256 - Invalid SNMP MIB for 389 DS
+- Resolves: Bug 1597518 - ds-replcheck command returns traceback errors against ldif files having garbage content when run in offline mode
+
+* Mon Jun 25 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-3
+- Bump version to 1.3.8.4-3
+- Resolves: Bug 1594484 - setup-ds.pl not able to handle/create the user "dirsrv" if there is an already existing user with the UID/GID 389 on the machine.
+
+* Mon Jun 25 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-2
+- Bump version to 1.3.8.4-2
+- Resolves: Bug 1594484 - setup-ds.pl not able to handle/create the user "dirsrv" if there is an already existing user with the UID/GID 389 on the machine.
+
+* Thu Jun 21 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-1
+- Bump version to 1.3.8.4-1
+- Resolves: Bug 1560653 - Rebase 389-ds-base in RHEL 7.6 to 1.3.8
+
+* Thu May 24 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.2-1
+- Bump version to 1.3.8.2-1
+- Resolves: Bug 1560653 - Rebase 389-ds-base in RHEL 7.6 to 1.3.8
 
 * Mon Feb 12 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.7.5-18
 - Bump version to 1.3.7.5-18

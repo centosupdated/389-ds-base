@@ -1,17 +1,17 @@
-From 9d2aa18fb5c48a11300d2309df89213bbdb614e1 Mon Sep 17 00:00:00 2001
+From 59071a77774c530f0ab570dda27e23a021d23972 Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
-Date: Thu, 23 Aug 2018 13:43:36 -0400
-Subject: [PATCH 1/2] Bug 1623247 - Crash in vslapd_log_emergency_error
+Date: Thu, 23 Aug 2018 10:09:58 -0400
+Subject: [PATCH] Bug 1614820 - Crash in vslapd_log_emergency_error
 
-    Description: We were not locking the error log fd before closing and reopening
-                 the log file.  This could cause a crash when multiple threads are
-                 trying to log tothe errors log.
+Description: We were not locking the error log fd before closing and reopening
+             the log file.  This could cause a crash when multiple threads are
+             trying to log tothe errors log.
 ---
  ldap/servers/slapd/log.c | 22 ++++++++++++++++------
  1 file changed, 16 insertions(+), 6 deletions(-)
 
 diff --git a/ldap/servers/slapd/log.c b/ldap/servers/slapd/log.c
-index 998efaef3..90ce6ac0a 100644
+index 2e4ee03a8..7dd71541b 100644
 --- a/ldap/servers/slapd/log.c
 +++ b/ldap/servers/slapd/log.c
 @@ -2231,11 +2231,11 @@ vslapd_log_emergency_error(LOGFD fp, const char *msg, int locked)
@@ -54,7 +54,7 @@ index 998efaef3..90ce6ac0a 100644
          log__error_emergency("Insufficent buffer capacity to fit timestamp and message!", 1, 0);
          return -1;
      }
-@@ -4447,6 +4447,13 @@ log__error_emergency(const char *errstr, int reopen, int locked)
+@@ -4486,6 +4486,13 @@ log__error_emergency(const char *errstr, int reopen, int locked)
      if (!reopen) {
          return;
      }
@@ -68,7 +68,7 @@ index 998efaef3..90ce6ac0a 100644
      if (NULL != loginfo.log_error_fdes) {
          LOG_CLOSE(loginfo.log_error_fdes);
      }
-@@ -4455,7 +4462,10 @@ log__error_emergency(const char *errstr, int reopen, int locked)
+@@ -4494,7 +4501,10 @@ log__error_emergency(const char *errstr, int reopen, int locked)
          PRErrorCode prerr = PR_GetError();
          syslog(LOG_ERR, "Failed to reopen errors log file, " SLAPI_COMPONENT_NAME_NSPR " error %d (%s)\n", prerr, slapd_pr_strerror(prerr));
      } else {

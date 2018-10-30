@@ -1,4 +1,4 @@
-From 911038990df1357f452b0e38309261faf1de898f Mon Sep 17 00:00:00 2001
+From 83949e7e4f3370f48ea5c5fabdb9af04e3d11c75 Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
 Date: Wed, 8 Aug 2018 17:19:27 -0400
 Subject: [PATCH] Ticket 49893 - disable nunc-stans by default
@@ -15,10 +15,10 @@ Reviewed by: ?
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/ldap/servers/slapd/libglobs.c b/ldap/servers/slapd/libglobs.c
-index 3bd5c1826..f8741028d 100644
+index 12f6ec396..56b67b79b 100644
 --- a/ldap/servers/slapd/libglobs.c
 +++ b/ldap/servers/slapd/libglobs.c
-@@ -1681,7 +1681,7 @@ FrontendConfig_init(void)
+@@ -1683,7 +1683,7 @@ FrontendConfig_init(void)
      cfg->maxbersize = SLAPD_DEFAULT_MAXBERSIZE;
      cfg->logging_backend = slapi_ch_strdup(SLAPD_INIT_LOGGING_BACKEND_INTERNAL);
      cfg->rootdn = slapi_ch_strdup(SLAPD_DEFAULT_DIRECTORY_MANAGER);

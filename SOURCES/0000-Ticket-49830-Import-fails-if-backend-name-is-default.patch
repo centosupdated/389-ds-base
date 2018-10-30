@@ -1,0 +1,190 @@
+From da5a1bbb4e4352b8df10c84572441d47217b6c2c Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 6 Jul 2018 11:37:56 -0400
+Subject: [PATCH] Ticket 49830 - Import fails if backend name is "default"
+
+Bug Description:  The server was previously reserving the backend
+                  name "default".  If you tried to import on a
+                  backend with this name the import would skip all
+                  child entries
+
+Fix Description:  Change the default backend name to something
+                  obscure, instead of "default".
+
+                  Also improved lib389's dbgen to generate the
+                  correct "dc" attribute value in the root node.
+
+https://pagure.io/389-ds-base/issue/49830
+
+Reviewed by: spichugi(Thanks!)
+
+(cherry picked from commit 8fa838a4ffd4d0c15ae51cb21f246bb1f2dea2a1)
+---
+ .../tests/suites/import/regression_test.py    | 46 +++++++++++++++++++
+ ldap/servers/slapd/defbackend.c               |  4 +-
+ ldap/servers/slapd/mapping_tree.c             |  7 ++-
+ ldap/servers/slapd/slap.h                     |  3 ++
+ src/lib389/lib389/dbgen.py                    | 13 +++++-
+ 5 files changed, 66 insertions(+), 7 deletions(-)
+
+diff --git a/dirsrvtests/tests/suites/import/regression_test.py b/dirsrvtests/tests/suites/import/regression_test.py
+index ad51721a1..d83d00323 100644
+--- a/dirsrvtests/tests/suites/import/regression_test.py
++++ b/dirsrvtests/tests/suites/import/regression_test.py
+@@ -23,6 +23,52 @@ TEST_SUFFIX1 = "dc=importest1,dc=com"
+ TEST_BACKEND1 = "importest1"
+ TEST_SUFFIX2 = "dc=importest2,dc=com"
+ TEST_BACKEND2 = "importest2"
++TEST_DEFAULT_SUFFIX = "dc=default,dc=com"
++TEST_DEFAULT_NAME = "default"
++
++
++def test_import_be_default(topo):
++    """ Create a backend using the name "default". previously this name was
++    used int
++
++    :id: 8e507beb-e917-4330-8cac-1ff0eee10508
++    :feature: Import
++    :setup: Standalone instance
++    :steps:
++        1. Create a test suffix using the be name of "default"
++        2. Create an ldif for the "default" backend
++        3. Import ldif
++        4. Verify all entries were imported
++    :expectedresults:
++        1. Success
++        2. Success
++        3. Success
++        4. Success
++    """
++    log.info('Adding suffix:{} and backend: {}...'.format(TEST_DEFAULT_SUFFIX,
++                                                          TEST_DEFAULT_NAME))
++    backends = Backends(topo.standalone)
++    backends.create(properties={BACKEND_SUFFIX: TEST_DEFAULT_SUFFIX,
++                                BACKEND_NAME: TEST_DEFAULT_NAME})
++
++    log.info('Create LDIF file and import it...')
++    ldif_dir = topo.standalone.get_ldif_dir()
++    ldif_file = os.path.join(ldif_dir, 'default.ldif')
++    dbgen(topo.standalone, 5, ldif_file, TEST_DEFAULT_SUFFIX)
++
++    log.info('Stopping the server and running offline import...')
++    topo.standalone.stop()
++    assert topo.standalone.ldif2db(TEST_DEFAULT_NAME, None, None,
++                                   None, ldif_file)
++    topo.standalone.start()
++
++    log.info('Verifying entry count after import...')
++    entries = topo.standalone.search_s(TEST_DEFAULT_SUFFIX,
++                                       ldap.SCOPE_SUBTREE,
++                                       "(objectclass=*)")
++    assert len(entries) > 1
++
++    log.info('Test PASSED')
+ 
+ 
+ def test_del_suffix_import(topo):
+diff --git a/ldap/servers/slapd/defbackend.c b/ldap/servers/slapd/defbackend.c
+index aa709da87..b0465e297 100644
+--- a/ldap/servers/slapd/defbackend.c
++++ b/ldap/servers/slapd/defbackend.c
+@@ -23,8 +23,6 @@
+ /*
+  * ---------------- Macros ---------------------------------------------------
+  */
+-#define DEFBACKEND_TYPE "default"
+-
+ #define DEFBACKEND_OP_NOT_HANDLED 0
+ #define DEFBACKEND_OP_HANDLED 1
+ 
+@@ -65,7 +63,7 @@ defbackend_init(void)
+     /*
+      * create a new backend
+      */
+-    defbackend_backend = slapi_be_new(DEFBACKEND_TYPE, DEFBACKEND_TYPE, 1 /* Private */, 0 /* Do Not Log Changes */);
++    defbackend_backend = slapi_be_new(DEFBACKEND_TYPE, DEFBACKEND_NAME, 1 /* Private */, 0 /* Do Not Log Changes */);
+     if ((rc = slapi_pblock_set(pb, SLAPI_BACKEND, defbackend_backend)) != 0) {
+         errmsg = "slapi_pblock_set SLAPI_BACKEND failed";
+         goto cleanup_and_return;
+diff --git a/ldap/servers/slapd/mapping_tree.c b/ldap/servers/slapd/mapping_tree.c
+index 472a2f6aa..834949a67 100644
+--- a/ldap/servers/slapd/mapping_tree.c
++++ b/ldap/servers/slapd/mapping_tree.c
+@@ -748,7 +748,7 @@ mapping_tree_entry_add(Slapi_Entry *entry, mapping_tree_node **newnodep)
+         be_names = (char **)slapi_ch_calloc(1, sizeof(char *));
+         be_states = (int *)slapi_ch_calloc(1, sizeof(int));
+ 
+-        tmp_backend_name = (char *)slapi_ch_strdup("default"); /* "NULL_CONTAINER" */
++        tmp_backend_name = (char *)slapi_ch_strdup(DEFBACKEND_NAME); /* "NULL_CONTAINER" */
+         (be_names)[be_list_count] = tmp_backend_name;
+ 
+         /* set backend as started by default */
+@@ -2250,7 +2250,10 @@ slapi_mapping_tree_select_all(Slapi_PBlock *pb, Slapi_Backend **be_list, Slapi_E
+         if (ret != LDAP_SUCCESS) {
+             /* flag we have problems at least on part of the tree */
+             flag_partial_result = 1;
+-        } else if ((((!slapi_sdn_issuffix(sdn, slapi_mtn_get_dn(node)) && !slapi_sdn_issuffix(slapi_mtn_get_dn(node), sdn))) || ((node_list == mapping_tree_root) && node->mtn_private && (scope != LDAP_SCOPE_BASE))) && (!be || strncmp(be->be_name, "default", 8))) {
++        } else if ((((!slapi_sdn_issuffix(sdn, slapi_mtn_get_dn(node)) && !slapi_sdn_issuffix(slapi_mtn_get_dn(node), sdn))) ||
++                    ((node_list == mapping_tree_root) && node->mtn_private && (scope != LDAP_SCOPE_BASE))) &&
++                    (!be || strncmp(be->be_name, DEFBACKEND_NAME, 8)))
++        {
+             if (be && !be_isdeleted(be)) {
+                 /* wrong backend or referall, ignore it */
+                 slapi_log_err(SLAPI_LOG_ARGS, "slapi_mapping_tree_select_all",
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index 7378c2d2a..eb97cdcc4 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -45,6 +45,9 @@ static char ptokPBE[34] = "Internal (Software) Token        ";
+ #define SLAPD_EXEMODE_DBVERIFY        12
+ #define SLAPD_EXEMODE_UPGRADEDNFORMAT 13
+ 
++#define DEFBACKEND_TYPE "default"
++#define DEFBACKEND_NAME "DirectoryServerDefaultBackend"
++
+ #define LDAP_SYSLOG
+ #include <syslog.h>
+ #define RLIM_TYPE int
+diff --git a/src/lib389/lib389/dbgen.py b/src/lib389/lib389/dbgen.py
+index a0cda9430..68455b480 100644
+--- a/src/lib389/lib389/dbgen.py
++++ b/src/lib389/lib389/dbgen.py
+@@ -113,8 +113,13 @@ usercertificate;binary:: MIIBvjCCASegAwIBAgIBAjANBgkqhkiG9w0BAQQFADAnMQ8wDQYD
+ DBGEN_HEADER = """dn: {SUFFIX}
+ objectClass: top
+ objectClass: domain
++<<<<<<< HEAD
+ dc: example
+ aci: (target=ldap:///{SUFFIX})(targetattr=*)(version 3.0; acl "acl1"; allow(write) userdn = "ldap:///self";) 
++=======
++dc: {RDN}
++aci: (target=ldap:///{SUFFIX})(targetattr=*)(version 3.0; acl "acl1"; allow(write) userdn = "ldap:///self";)
++>>>>>>> 8fa838a4f... Ticket 49830 - Import fails if backend name is "default"
+ aci: (target=ldap:///{SUFFIX})(targetattr=*)(version 3.0; acl "acl2"; allow(write) groupdn = "ldap:///cn=Directory Administrators, {SUFFIX}";)
+ aci: (target=ldap:///{SUFFIX})(targetattr=*)(version 3.0; acl "acl3"; allow(read, search, compare) userdn = "ldap:///anyone";)
+ 
+@@ -145,7 +150,7 @@ ou: Payroll
+ 
+ """
+ 
+-def dbgen(instance, number, ldif_file, suffix):
++def dbgen(instance, number, ldif_file, suffix, pseudol10n=False):
+     familyname_file = os.path.join(instance.ds_paths.data_dir, 'dirsrv/data/dbgen-FamilyNames')
+     givename_file = os.path.join(instance.ds_paths.data_dir, 'dirsrv/data/dbgen-GivenNames')
+     familynames = []
+@@ -156,7 +161,11 @@ def dbgen(instance, number, ldif_file, suffix):
+         givennames = [n.strip() for n in f]
+ 
+     with open(ldif_file, 'w') as output:
+-        output.write(DBGEN_HEADER.format(SUFFIX=suffix))
++        rdn = suffix.split(",", 1)[0].split("=", 1)[1]
++        output.write(DBGEN_HEADER.format(SUFFIX=suffix, RDN=rdn))
++        for ou in DBGEN_OUS:
++            ou = pseudolocalize(ou) if pseudol10n else ou
++            output.write(DBGEN_OU_TEMPLATE.format(SUFFIX=suffix, OU=ou))
+         for i in range(0, number):
+             # Pick a random ou
+             ou = random.choice(DBGEN_OUS)
+-- 
+2.17.1
+
