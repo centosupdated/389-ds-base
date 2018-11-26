@@ -1,0 +1,62 @@
+From a7ee52bd4b0bce82402a581ee16659ebb2f8d96e Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Wed, 24 Oct 2018 15:31:25 +0200
+Subject: [PATCH 1/2] Ticket 49967 - entry cache corruption after failed MODRDN
+
+Bug Description:
+	During a MODRDN the DN cache is updated to replace
+	source DN with the target DN (modrdn_rename_entry_update_indexes)
+	If later a failure occurs (for example if BETXN_POSTOP fails) and
+	the txn is aborted, the target DN (for the specific entryID) remains
+	in the DN cache.
+
+	If the entry is returned in a search, to build the DN there is
+	a lookup of the DN cache with the entryID. It retrieves the target DN
+	rather than the source DN
+
+Fix Description:
+	In case of failure of the operation, the entry (from the entryID)
+	need to be cleared from the DN cache
+
+https://pagure.io/389-ds-base/issue/49967
+
+Reviewed by: Mark Reynolds
+
+Platforms tested: F27
+
+Flag Day: no
+
+Doc impact: no
+
+(cherry picked from commit ab4af68ef49fcdc5f2f6d0c1f5c7b9a5333b1bee)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_modrdn.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+index 71e2a8fe0..e2e9d1b46 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+@@ -1400,6 +1400,19 @@ common_return:
+                 }
+             }
+         }
++
++        if (ec && retval) {
++            /* if the operation failed, the destination entry does not exist
++             * but it has been added in dncache during cache_add_tentative
++             * we need to remove it. Else a retrieval from ep_id can give the wrong DN
++             */
++            struct backdn *bdn = dncache_find_id(&inst->inst_dncache, ec->ep_id);
++            slapi_log_err(SLAPI_LOG_CACHE, "ldbm_back_modrdn",
++                                      "operation failed, the target entry is cleared from dncache (%s)\n", slapi_entry_get_dn(ec->ep_entry));
++            CACHE_REMOVE(&inst->inst_dncache, bdn);
++            CACHE_RETURN(&inst->inst_dncache, &bdn);
++        }
++
+         /* remove the new entry from the cache if the op failed -
+            otherwise, leave it in */
+         if (ec && inst) {
+-- 
+2.17.2
+

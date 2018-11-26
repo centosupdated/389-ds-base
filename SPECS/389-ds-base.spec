@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.8.4
-Release:          %{?relprefix}15%{?prerel}%{?dist}
+Release:          %{?relprefix}18%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -156,6 +156,9 @@ Patch06:          0006-Bug-1614820-Crash-in-vslapd_log_emergency_error.patch
 Patch07:          0007-Ticket-49932-Crash-in-delete_passwdPolicy-when-persi.patch
 Patch08:          0008-Bug-1624004-potential-denial-of-service-attack.patch
 Patch09:          0009-Bug-1624004-fix-regression-in-empty-attribute-list.patch
+Patch10:          0010-Ticket-49968-Confusing-CRITICAL-message-list_candida.patch
+Patch11:          0011-Ticket-49967-entry-cache-corruption-after-failed-MOD.patch
+Patch12:          0012-Ticket-49958-extended-search-fail-to-match-entries.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -309,8 +312,7 @@ output=/dev/null
 output2=/dev/null
 # reload to pick up any changes to systemd files
 /bin/systemctl daemon-reload >$output 2>&1 || :
-# reload to pick up any shared lib changes
-/sbin/ldconfig
+
 # find all instances
 instances="" # instances that require a restart after upgrade
 ninst=0 # number of instances found in total
@@ -505,6 +507,18 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Oct 29 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-18
+- Bump version to 1.3.8.4-18
+- Resolves: Bug 1638516 - CRIT - list_candidates - NULL idl was recieved from filter_candidates_ex
+
+* Mon Oct 29 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-17
+- Bump version to 1.3.8.4-17
+- Resolves: Bug 1643875 - ns-slapd: crash in entrycache_add_int
+
+* Tue Oct 16 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-16
+- Bump version to 1.3.8.4-16
+- Resolves: Bug 1638513 - Message: "CRIT - list_candidates - NULL idl was recieved from filter_candidates_ext." should not be critical
+
 * Wed Sep 19 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-15
 - Bump version to 1.3.8.4-15
 - Resolves: Bug 1624004 - Fix regression in last patch
