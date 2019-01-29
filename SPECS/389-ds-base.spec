@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.8.4
-Release:          %{?relprefix}18%{?prerel}%{?dist}
+Release:          %{?relprefix}22%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -159,6 +159,13 @@ Patch09:          0009-Bug-1624004-fix-regression-in-empty-attribute-list.patch
 Patch10:          0010-Ticket-49968-Confusing-CRITICAL-message-list_candida.patch
 Patch11:          0011-Ticket-49967-entry-cache-corruption-after-failed-MOD.patch
 Patch12:          0012-Ticket-49958-extended-search-fail-to-match-entries.patch
+Patch13:          0013-Ticket-49915-Master-ns-slapd-had-100-CPU-usage-after.patch
+Patch14:          0014-Ticket-49950-PassSync-not-setting-pwdLastSet-attribu.patch
+Patch15:          0015-Ticket-49915-fix-compiler-warnings.patch
+Patch16:          0016-Ticket-49915-fix-compiler-warnings-2nd.patch
+Patch17:          0017-Ticket-49618-Increase-cachememsize-and-dncachememsize.patch
+Patch21:          0018-Ticket-50020-during-MODRDN-referential-integrity-can.patch
+
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -507,6 +514,24 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Dec 17 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-22
+- Bump version to 1.3.8.4-22
+- Resolves: Bug 1660120 - certmap fails when Issuer DN has comma in name
+
+* Mon Dec 17 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-21
+- Bump version to 1.3.8.4-21
+- Resolves: Bug 1659510 - during MODRDN referential integrity can fail erronously while updating large groups
+- Resolves: Bug 1659936 - After RHEL 7.6 HTB update, unable to set nsslapd-cachememsize (RHDS 10) to custom value
+
+* Tue Dec 4 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-20
+- Bump version to 1.3.8.4-20
+- Resolves: Bug 1645197 - Fix compiler warnings
+
+* Tue Dec 4 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-19
+- Bump version to 1.3.8.4-19
+- Resolves: Bug 1653820 - PassSync not setting pwdLastSet attribute in Active Directory after Pw update from LDAP sync for normal user
+- Resolves: Bug 1645197 - on-line re-initialization hangs
+
 * Mon Oct 29 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-18
 - Bump version to 1.3.8.4-18
 - Resolves: Bug 1638516 - CRIT - list_candidates - NULL idl was recieved from filter_candidates_ex
