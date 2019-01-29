@@ -1,0 +1,354 @@
+From 6d67faa0de58cb0b66fc72d43f24b1c9669f88f8 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Mon, 3 Sep 2018 15:36:52 +0200
+Subject: [PATCH] Ticket 49915 - Master ns-slapd had 100% CPU usage after
+ starting replication and replication cannot finish
+
+Bug Description:
+	During a total initialization the supplier builds a candidate list of the entries to send.
+	Because of https://fedorahosted.org/389/ticket/48755, the candidate list relies on parentid attribute.
+	All entries, except tombstones and suffix itself, have parentid.
+	There is an assumption that the first found key (i.e. '=1') contains the suffix children.
+	So when it finally finds the suffix key it adds its children to a leftover list rather to the candidate list.
+	Later idl_new_range_fetch loops for ever trying to add suffix children from leftover to candidate list.
+
+Fix Description:
+	The fix consist to store the suffix_id (if it does not exist already) in the parentid index (with the key '=0').
+	Then get it to detect the suffix key from the index in idl_new_range_fetch.
+
+https://pagure.io/389-ds-base/issue/49915
+
+Reviewed by: Ludwig Krispenz, William Brown (thanks !)
+
+Platforms tested: F27
+
+Flag Day: no
+
+Doc impact: no
+---
+ .../plugins/replication/repl5_tot_protocol.c  |  48 ++++++++
+ ldap/servers/slapd/back-ldbm/dblayer.c        |   8 ++
+ ldap/servers/slapd/back-ldbm/idl_new.c        |  34 +++++-
+ ldap/servers/slapd/back-ldbm/index.c          | 114 ++++++++++++++++++
+ ldap/servers/slapd/slapi-plugin.h             |  10 +-
+ 5 files changed, 209 insertions(+), 5 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_tot_protocol.c b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+index ee3c9dcb0..1dbbe694f 100644
+--- a/ldap/servers/plugins/replication/repl5_tot_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+@@ -283,6 +283,53 @@ repl5_tot_waitfor_async_results(callback_data *cb_data)
+     }
+ }
+ 
++/* This routine checks that the entry id of the suffix is
++ * stored in the parentid index
++ * The entry id of the suffix is stored with the equality key 0 (i.e. '=0')
++ * It first checks if the key '=0' exists. If it does not exists or if the first value
++ * stored with that key, does not match the suffix entryid (stored in the suffix entry
++ * from id2entry.db then it updates the value
++ */
++static void
++check_suffix_entryID(Slapi_Backend *be, Slapi_Entry *suffix)
++{
++    u_int32_t entryid;
++    char *entryid_str;
++    struct _back_info_index_key bck_info;
++
++    /* we are using a specific key in parentid to store the suffix entry id: '=0' */
++    bck_info.index = SLAPI_ATTR_PARENTID;
++    bck_info.key = "0";
++
++    /* First try to retrieve from parentid index the suffix entryID */
++    if (slapi_back_get_info(be, BACK_INFO_INDEX_KEY, (void **) &bck_info)) {
++        slapi_log_err(SLAPI_LOG_REPL, "check_suffix_entryID", "Total update: fail to retrieve suffix entryID. Let's try to write it\n");
++    }
++
++    /* Second retrieve the suffix entryid from the suffix entry itself */
++    entryid_str = slapi_entry_attr_get_charptr(suffix, "entryid");
++    if (entryid_str == NULL) {
++        char *dn;
++        dn = slapi_entry_get_ndn(suffix);
++        slapi_log_err(SLAPI_LOG_ERR, "check_suffix_entryID", "Unable to retrieve entryid of the suffix entry %s\n", dn ? dn : "<unknown>");
++        slapi_ch_free_string(&entryid_str);
++        return;
++    }
++    entryid = (u_int32_t) atoi(entryid_str);
++    slapi_ch_free_string(&entryid_str);
++
++    if (!bck_info.key_found || bck_info.id != entryid) {
++        /* The suffix entryid is not present in parentid index
++         *  or differs from what is in id2entry (entry 'suffix')
++         * So write it to the parentid so that the range index used
++         * during total init will know the entryid of the suffix
++         */
++        bck_info.id = entryid;
++        if (slapi_back_set_info(be, BACK_INFO_INDEX_KEY, (void **) &bck_info)) {
++            slapi_log_err(SLAPI_LOG_ERR, "check_suffix_entryID", "Total update: fail to register suffix entryid, continue assuming suffix is the first entry\n");
++        }
++    }
++}
+ 
+ /*
+  * Completely refresh a replica. The basic protocol interaction goes
+@@ -467,6 +514,7 @@ retry:
+         replica_subentry_check(area_sdn, rid);
+ 
+         /* Send the subtree of the suffix in the order of parentid index plus ldapsubentry and nstombstone. */
++        check_suffix_entryID(be, suffix);
+         slapi_search_internal_set_pb(pb, slapi_sdn_get_dn(area_sdn),
+                                      LDAP_SCOPE_SUBTREE, "(parentid>=1)", NULL, 0, ctrls, NULL,
+                                      repl_get_plugin_identity(PLUGIN_MULTIMASTER_REPLICATION), OP_FLAG_BULK_IMPORT);
+diff --git a/ldap/servers/slapd/back-ldbm/dblayer.c b/ldap/servers/slapd/back-ldbm/dblayer.c
+index e84cb7695..fa931ccbf 100644
+--- a/ldap/servers/slapd/back-ldbm/dblayer.c
++++ b/ldap/servers/slapd/back-ldbm/dblayer.c
+@@ -7295,6 +7295,10 @@ ldbm_back_get_info(Slapi_Backend *be, int cmd, void **info)
+         *(int *)info = entryrdn_get_switch();
+         break;
+     }
++    case BACK_INFO_INDEX_KEY : {
++        rc = get_suffix_key(be, (struct _back_info_index_key *)info);
++        break;
++    }
+     default:
+         break;
+     }
+@@ -7311,6 +7315,10 @@ ldbm_back_set_info(Slapi_Backend *be, int cmd, void *info)
+     }
+ 
+     switch (cmd) {
++    case BACK_INFO_INDEX_KEY : {
++        rc = set_suffix_key(be, (struct _back_info_index_key *)info);
++        break;
++    }
+     default:
+         break;
+     }
+diff --git a/ldap/servers/slapd/back-ldbm/idl_new.c b/ldap/servers/slapd/back-ldbm/idl_new.c
+index 4e28e3fc2..102265c47 100644
+--- a/ldap/servers/slapd/back-ldbm/idl_new.c
++++ b/ldap/servers/slapd/back-ldbm/idl_new.c
+@@ -320,6 +320,9 @@ typedef struct _range_id_pair
+  * In the total update (bulk import), an entry requires its ancestors already added.
+  * To guarantee it, the range search with parentid is used with setting the flag
+  * SLAPI_OP_RANGE_NO_IDL_SORT in operator.
++ * In bulk import the range search is parentid>=1 to retrieve all the entries
++ * But we need to order the IDL with the parents first => retrieve the suffix entry ID
++ * to store the children
+  *
+  * If the flag is set,
+  * 1. the IDList is not sorted by the ID.
+@@ -366,6 +369,23 @@ idl_new_range_fetch(
+     if (NULL == flag_err) {
+         return NULL;
+     }
++    if (operator & SLAPI_OP_RANGE_NO_IDL_SORT) {
++            struct _back_info_index_key bck_info;
++            int rc;
++            /* We are doing a bulk import
++             * try to retrieve the suffix entry id from the index
++             */
++
++            bck_info.index = SLAPI_ATTR_PARENTID;
++            bck_info.key = "0";
++
++            if (rc = slapi_back_get_info(be, BACK_INFO_INDEX_KEY, (void **)&bck_info)) {
++                slapi_log_err(SLAPI_LOG_WARNING, "idl_new_range_fetch", "Total update: fail to retrieve suffix entryID, continue assuming it is the first entry\n");
++            }
++            if (bck_info.key_found) {
++                suffix = bck_info.id;
++            }
++    }
+ 
+     if (NEW_IDL_NOOP == *flag_err) {
+         return NULL;
+@@ -455,7 +475,7 @@ idl_new_range_fetch(
+             *flag_err = LDAP_TIMELIMIT_EXCEEDED;
+             goto error;
+         }
+-        if (operator&SLAPI_OP_RANGE_NO_IDL_SORT) {
++        if (operator & SLAPI_OP_RANGE_NO_IDL_SORT) {
+             key = (ID)strtol((char *)cur_key.data + 1, (char **)NULL, 10);
+         }
+         while (PR_TRUE) {
+@@ -487,9 +507,13 @@ idl_new_range_fetch(
+             /* note the last id read to check for dups */
+             lastid = id;
+             /* we got another ID, add it to our IDL */
+-            if (operator&SLAPI_OP_RANGE_NO_IDL_SORT) {
+-                if (count == 0) {
+-                    /* First time.  Keep the suffix ID. */
++            if (operator & SLAPI_OP_RANGE_NO_IDL_SORT) {
++                if ((count == 0) && (suffix == 0)) {
++                    /* First time.  Keep the suffix ID. 
++                     * note that 'suffix==0' mean we did not retrieve the suffix entry id
++                     * from the parentid index (key '=0'), so let assume the first
++                     * found entry is the one from the suffix
++                     */
+                     suffix = key;
+                     idl_rc = idl_append_extend(&idl, id);
+                 } else if ((key == suffix) || idl_id_is_in_idlist(idl, key)) {
+@@ -615,9 +639,11 @@ error:
+     }
+     if (operator&SLAPI_OP_RANGE_NO_IDL_SORT) {
+         size_t remaining = leftovercnt;
++
+         while(remaining > 0) {
+             for (size_t i = 0; i < leftovercnt; i++) {
+                 if (leftover[i].key > 0 && idl_id_is_in_idlist(idl, leftover[i].key) != 0) {
++                    /* if the leftover key has its parent in the idl */
+                     idl_rc = idl_append_extend(&idl, leftover[i].id);
+                     if (idl_rc) {
+                         slapi_log_err(SLAPI_LOG_ERR, "idl_new_range_fetch",
+diff --git a/ldap/servers/slapd/back-ldbm/index.c b/ldap/servers/slapd/back-ldbm/index.c
+index 222f64dff..dea6e9a3e 100644
+--- a/ldap/servers/slapd/back-ldbm/index.c
++++ b/ldap/servers/slapd/back-ldbm/index.c
+@@ -1236,6 +1236,120 @@ error:
+     return ret;
+ }
+ 
++/* This routine add in a given index (parentid)
++ * the key/value = '=0'/<suffix entryID>
++ * Input: 
++ *      info->key contains the key to lookup (i.e. '0')
++ *      info->index index name used to retrieve syntax and db file
++ *      info->id  the entryID of the suffix
++ */
++int
++set_suffix_key(Slapi_Backend *be, struct _back_info_index_key *info)
++{
++    struct ldbminfo *li;
++    int rc;
++    back_txn txn;
++    Slapi_Value *sv_key[2];
++    Slapi_Value tmpval;
++
++    if (info->index== NULL || info->key == NULL) {
++        slapi_log_err(SLAPI_LOG_ERR, "set_suffix_key", "Invalid index %s or key %s\n",
++                info->index ? info->index : "NULL",
++                info->key ? info->key : "NULL");
++        return -1;
++    }
++    
++    /* Start a txn */
++    li = (struct ldbminfo *)be->be_database->plg_private;
++    dblayer_txn_init(li, &txn);
++    if (rc = dblayer_txn_begin(be, txn.back_txn_txn, &txn)) {
++        slapi_log_err(SLAPI_LOG_ERR, "set_suffix_key", "Fail to update %s index with  %s/%d (key/ID): txn begin fails\n",
++                  info->index, info->key, info->id);
++        return rc;
++    }
++
++    sv_key[0] = &tmpval;
++    sv_key[1] = NULL;
++    slapi_value_init_string(sv_key[0], info->key);
++
++    if (rc = index_addordel_values_sv(be, info->index, sv_key, NULL, info->id, BE_INDEX_ADD, &txn)) {
++        value_done(sv_key[0]);
++        dblayer_txn_abort(be, &txn);
++        slapi_log_err(SLAPI_LOG_ERR, "set_suffix_key", "Fail to update %s index with  %s/%d (key/ID): index_addordel_values_sv fails\n",
++                  info->index, info->key, info->id);
++        return rc;
++    }
++
++    value_done(sv_key[0]);
++    if (rc = dblayer_txn_commit(be, &txn)) {
++        slapi_log_err(SLAPI_LOG_ERR, "set_suffix_key", "Fail to update %s index with  %s/%d (key/ID): commit fails\n",
++                  info->index, info->key, info->id);
++        return rc;
++    }
++
++    return 0;
++}
++/* This routine retrieves from a given index (parentid)
++ * the key/value = '=0'/<suffix entryID>
++ * Input: 
++ *      info->key contains the key to lookup (i.e. '0')
++ *      info->index index name used to retrieve syntax and db file
++ * Output
++ *      info->id It returns the first id that is found for the key.
++ *               If the key is not found, or there is no value for the key
++ *               it contains '0'
++ *      info->key_found  Boolean that says if the key leads to a valid ID in info->id
++ */
++int
++get_suffix_key(Slapi_Backend *be, struct _back_info_index_key *info)
++{
++    struct berval bv;
++    int err;
++    IDList *idl = NULL;
++    ID id;
++    int rc = 0;
++
++    if (info->index== NULL || info->key == NULL) {
++        slapi_log_err(SLAPI_LOG_ERR, "get_suffix_key", "Invalid index %s or key %s\n",
++                info->index ? info->index : "NULL",
++                info->key ? info->key : "NULL");
++        return -1;
++    }
++
++    /* This is the key to retrieve */
++    bv.bv_val = info->key;
++    bv.bv_len = strlen(bv.bv_val);
++
++    /* Assuming we are not going to find the key*/
++    info->key_found = PR_FALSE;
++    id = 0;
++    idl = index_read(be, info->index, indextype_EQUALITY, &bv, NULL, &err);
++
++    if (idl == NULL) {
++        if (err != 0 && err != DB_NOTFOUND) {
++            slapi_log_err(SLAPI_LOG_ERR, "get_suffix_key", "Fail to read key %s (err=%d)\n",
++                    info->key ? info->key : "NULL",
++                    err);
++            rc = err;
++        }
++    } else {
++        /* info->key was found */
++        id = idl_firstid(idl);
++        if (id != NOID) {
++            info->key_found = PR_TRUE;
++        } else {
++            /* there is no ID in that key, make it as it was not found */
++            id = 0;
++        }
++        idl_free(&idl);
++    }
++
++    /* now set the returned id */
++    info->id = id;
++
++    return rc;
++}
++
+ IDList *
+ index_range_read_ext(
+     Slapi_PBlock *pb,
+diff --git a/ldap/servers/slapd/slapi-plugin.h b/ldap/servers/slapd/slapi-plugin.h
+index 0646cdfdd..4b75654e7 100644
+--- a/ldap/servers/slapd/slapi-plugin.h
++++ b/ldap/servers/slapd/slapi-plugin.h
+@@ -7763,9 +7763,17 @@ enum
+     BACK_INFO_CRYPT_DECRYPT_VALUE, /* Ctrl: clcrypt_decrypt_value */
+     BACK_INFO_DIRECTORY,           /* Get the directory path */
+     BACK_INFO_LOG_DIRECTORY,       /* Get the txn log directory */
+-    BACK_INFO_IS_ENTRYRDN          /* Get the flag for entryrdn */
++    BACK_INFO_IS_ENTRYRDN,         /* Get the flag for entryrdn */
++    BACK_INFO_INDEX_KEY            /* Get the status of a key in an index */
+ };
+ 
++struct _back_info_index_key
++{
++    char *index;              /* input: name of the index (parentid) */
++    char *key;                /* input: searched key (0) with equality -> '=0' */
++    PRBool key_found;         /* output: TRUE if '=0' is found in the index */
++    u_int32_t id;             /* output: if key_found it is the first value (suffix entryID) */
++};
+ struct _back_info_crypt_init
+ {
+     char *dn;                  /* input -- entry to store nsSymmetricKey */
+-- 
+2.17.2
+

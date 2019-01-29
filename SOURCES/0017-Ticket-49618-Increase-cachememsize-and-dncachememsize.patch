@@ -1,0 +1,51 @@
+From 60c0e7dfb30fbd8100d45e79d11141956f51656f Mon Sep 17 00:00:00 2001
+From: Simon Pichugin <spichugi@redhat.com>
+Date: Fri, 14 Dec 2018 17:34:34 +0100
+Subject: [PATCH] Issue 49618 - Increase cachememsize and dncachememsize
+ variable sizes
+
+Description: nssapld-cachememsize is reverted to a smaller value
+if the cap is reached. Increase it to UINT64.
+
+https://pagure.io/389-ds-base/issue/49618
+
+Reviewed by: tbordaz, mreynolds (Thanks!)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_config.c          | 2 +-
+ ldap/servers/slapd/back-ldbm/ldbm_instance_config.c | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_config.c b/ldap/servers/slapd/back-ldbm/ldbm_config.c
+index 4e1a94341..144c5efc5 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_config.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_config.c
+@@ -2118,7 +2118,7 @@ ldbm_config_get(void *arg, config_info *config, char *buf)
+         break;
+     case CONFIG_TYPE_SIZE_T:
+         val = (size_t)config->config_get_fn(arg);
+-        sprintf(buf, "%lu", (long unsigned int)val);
++        sprintf(buf, "%" PRIu32, (uint32_t)val);
+         break;
+     case CONFIG_TYPE_UINT64:
+         val = (uint64_t)((uintptr_t)config->config_get_fn(arg));
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c b/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
+index 643628c85..5eac1c1df 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_instance_config.c
+@@ -366,11 +366,11 @@ ldbm_instance_config_require_index_set(void *arg,
+  *----------------------------------------------------------------------*/
+ static config_info ldbm_instance_config[] = {
+     {CONFIG_INSTANCE_CACHESIZE, CONFIG_TYPE_LONG, "-1", &ldbm_instance_config_cachesize_get, &ldbm_instance_config_cachesize_set, CONFIG_FLAG_ALWAYS_SHOW | CONFIG_FLAG_ALLOW_RUNNING_CHANGE},
+-    {CONFIG_INSTANCE_CACHEMEMSIZE, CONFIG_TYPE_SIZE_T, DEFAULT_CACHE_SIZE_STR, &ldbm_instance_config_cachememsize_get, &ldbm_instance_config_cachememsize_set, CONFIG_FLAG_ALWAYS_SHOW | CONFIG_FLAG_ALLOW_RUNNING_CHANGE},
++    {CONFIG_INSTANCE_CACHEMEMSIZE, CONFIG_TYPE_UINT64, DEFAULT_CACHE_SIZE_STR, &ldbm_instance_config_cachememsize_get, &ldbm_instance_config_cachememsize_set, CONFIG_FLAG_ALWAYS_SHOW | CONFIG_FLAG_ALLOW_RUNNING_CHANGE},
+     {CONFIG_INSTANCE_READONLY, CONFIG_TYPE_ONOFF, "off", &ldbm_instance_config_readonly_get, &ldbm_instance_config_readonly_set, CONFIG_FLAG_ALWAYS_SHOW | CONFIG_FLAG_ALLOW_RUNNING_CHANGE},
+     {CONFIG_INSTANCE_REQUIRE_INDEX, CONFIG_TYPE_ONOFF, "off", &ldbm_instance_config_require_index_get, &ldbm_instance_config_require_index_set, CONFIG_FLAG_ALWAYS_SHOW | CONFIG_FLAG_ALLOW_RUNNING_CHANGE},
+     {CONFIG_INSTANCE_DIR, CONFIG_TYPE_STRING, NULL, &ldbm_instance_config_instance_dir_get, &ldbm_instance_config_instance_dir_set, CONFIG_FLAG_ALWAYS_SHOW},
+-    {CONFIG_INSTANCE_DNCACHEMEMSIZE, CONFIG_TYPE_SIZE_T, DEFAULT_DNCACHE_SIZE_STR, &ldbm_instance_config_dncachememsize_get, &ldbm_instance_config_dncachememsize_set, CONFIG_FLAG_ALWAYS_SHOW | CONFIG_FLAG_ALLOW_RUNNING_CHANGE},
++    {CONFIG_INSTANCE_DNCACHEMEMSIZE, CONFIG_TYPE_UINT64, DEFAULT_DNCACHE_SIZE_STR, &ldbm_instance_config_dncachememsize_get, &ldbm_instance_config_dncachememsize_set, CONFIG_FLAG_ALWAYS_SHOW | CONFIG_FLAG_ALLOW_RUNNING_CHANGE},
+     {NULL, 0, NULL, NULL, NULL, 0}};
+ 
+ void
+-- 
+2.17.2
+
