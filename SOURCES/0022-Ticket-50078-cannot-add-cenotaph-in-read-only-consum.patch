@@ -1,0 +1,108 @@
+From 7b4cb7aebdf5264e12e4ffad96fd21b3d7d2a14f Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Tue, 11 Dec 2018 11:06:44 +0100
+Subject: [PATCH] Ticket 50078 - cannot add cenotaph in read only consumer
+
+Bug: For modrdn operations a cenotaph entry is created to be used in later conflict
+     resolution procedures, this is done by an internal add operation and
+     fails on hubs and consumers
+
+Fix: Add the "bypass referral" flag to the internal add operation to allow it
+
+Reviewed by: Thierry, thanks
+---
+ dirsrvtests/tests/tickets/ticket50078_test.py | 68 +++++++++++++++++++
+ ldap/servers/plugins/replication/urp.c        |  2 +-
+ 2 files changed, 69 insertions(+), 1 deletion(-)
+ create mode 100644 dirsrvtests/tests/tickets/ticket50078_test.py
+
+diff --git a/dirsrvtests/tests/tickets/ticket50078_test.py b/dirsrvtests/tests/tickets/ticket50078_test.py
+new file mode 100644
+index 000000000..3f6c5ec2d
+--- /dev/null
++++ b/dirsrvtests/tests/tickets/ticket50078_test.py
+@@ -0,0 +1,68 @@
++import pytest
++from lib389.utils import *
++from lib389.topologies import topology_m1h1c1
++from lib389.idm.user import UserAccounts
++
++from lib389._constants import (DEFAULT_SUFFIX, REPLICA_RUV_FILTER, defaultProperties,
++                              REPLICATION_BIND_DN, REPLICATION_BIND_PW, REPLICATION_BIND_METHOD,
++                              REPLICATION_TRANSPORT, SUFFIX, RA_NAME, RA_BINDDN, RA_BINDPW,
++                              RA_METHOD, RA_TRANSPORT_PROT, SUFFIX)
++
++logging.getLogger(__name__).setLevel(logging.DEBUG)
++log = logging.getLogger(__name__)
++
++TEST_USER = "test_user"
++
++def test_ticket50078(topology_m1h1c1):
++    """
++    Test that for a MODRDN operation the cenotaph entry is created on
++    a hub or consumer.
++    """
++
++    M1 = topology_m1h1c1.ms["master1"]
++    H1 = topology_m1h1c1.hs["hub1"]
++    C1 = topology_m1h1c1.cs["consumer1"]
++    #
++    # Test replication is working
++    #
++    if M1.testReplication(DEFAULT_SUFFIX, topology_m1h1c1.cs["consumer1"]):
++        log.info('Replication is working.')
++    else:
++        log.fatal('Replication is not working.')
++        assert False
++
++    ua = UserAccounts(M1, DEFAULT_SUFFIX)
++    ua.create(properties={
++            'uid': "%s%d" % (TEST_USER, 1),
++            'cn' : "%s%d" % (TEST_USER, 1),
++            'sn' : 'user',
++            'uidNumber' : '1000',
++            'gidNumber' : '2000',
++            'homeDirectory' : '/home/testuser'
++            })
++
++    user = ua.get('%s1' % TEST_USER)
++    log.info("  Rename the test entry %s..." % user)
++    user.rename('uid=test_user_new')
++
++    # wait until replication is in sync
++    if M1.testReplication(DEFAULT_SUFFIX, topology_m1h1c1.cs["consumer1"]):
++        log.info('Replication is working.')
++    else:
++        log.fatal('Replication is not working.')
++        assert False
++
++    # check if cenotaph was created on hub and consumer
++    ents = H1.search_s(DEFAULT_SUFFIX, ldap.SCOPE_SUBTREE, filterstr="(&(objectclass=nstombstone)(cenotaphid=*))")
++    assert len(ents) == 1
++
++    ents = C1.search_s(DEFAULT_SUFFIX, ldap.SCOPE_SUBTREE, filterstr="(&(objectclass=nstombstone)(cenotaphid=*))")
++    assert len(ents) == 1
++
++
++
++if __name__ == '__main__':
++    # Run isolated
++    # -s for DEBUG mode
++    CURRENT_FILE = os.path.realpath(__file__)
++    pytest.main("-s %s" % CURRENT_FILE)
+diff --git a/ldap/servers/plugins/replication/urp.c b/ldap/servers/plugins/replication/urp.c
+index 11c5da7cf..37fe77379 100644
+--- a/ldap/servers/plugins/replication/urp.c
++++ b/ldap/servers/plugins/replication/urp.c
+@@ -911,7 +911,7 @@ urp_fixup_add_cenotaph (Slapi_PBlock *pb, char *sessionid, CSN *opcsn)
+                                     cenotaph,
+                                     NULL,
+                                     repl_get_plugin_identity(PLUGIN_MULTIMASTER_REPLICATION),
+-                                    OP_FLAG_REPL_FIXUP|OP_FLAG_NOOP|OP_FLAG_CENOTAPH_ENTRY);
++                                    OP_FLAG_REPL_FIXUP|OP_FLAG_NOOP|OP_FLAG_CENOTAPH_ENTRY|SLAPI_OP_FLAG_BYPASS_REFERRALS);
+     slapi_add_internal_pb(add_pb);
+     slapi_pblock_get(add_pb, SLAPI_PLUGIN_INTOP_RESULT, &ret);
+ 
+-- 
+2.17.2
+
