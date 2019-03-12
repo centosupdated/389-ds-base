@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.8.4
-Release:          %{?relprefix}22%{?prerel}%{?dist}
+Release:          %{?relprefix}23%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -164,8 +164,12 @@ Patch14:          0014-Ticket-49950-PassSync-not-setting-pwdLastSet-attribu.patc
 Patch15:          0015-Ticket-49915-fix-compiler-warnings.patch
 Patch16:          0016-Ticket-49915-fix-compiler-warnings-2nd.patch
 Patch17:          0017-Ticket-49618-Increase-cachememsize-and-dncachememsize.patch
-Patch21:          0018-Ticket-50020-during-MODRDN-referential-integrity-can.patch
-
+Patch18:          0018-Ticket-50020-during-MODRDN-referential-integrity-can.patch
+Patch19:          0019-Ticket-49543-fix-certmap-dn-comparison.patch
+Patch20:          0020-Ticket-50117-after-certain-failed-import-operation-i.patch
+Patch21:          0021-Ticket-49540-Fix-compiler-warning-in-ldif2ldbm.patch
+Patch22:          0022-Ticket-50078-cannot-add-cenotaph-in-read-only-consum.patch
+Patch23:          0023-Ticket-50177-import-task-should-not-be-deleted-too-r.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -394,7 +398,6 @@ if [ $1 -eq 0 ]; then # Final removal
 fi
 
 %postun
-/sbin/ldconfig
 if [ $1 = 0 ]; then # Final removal
     rm -rf /var/run/%{pkgname}
 fi
@@ -514,6 +517,12 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Wed Feb 6 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-23
+- Bump version to 1.3.8.4-23
+- Resolves: Bug 1672173 - import task should not be deleted after import finishes to be able to query the status
+- Resolves: Bug 1672177 - after certain failed import operation, impossible to replay an import operation.
+- Resolves: Bug 1672179 - cannot add cenotaph in read only consumer 
+
 * Mon Dec 17 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-22
 - Bump version to 1.3.8.4-22
 - Resolves: Bug 1660120 - certmap fails when Issuer DN has comma in name
