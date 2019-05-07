@@ -42,10 +42,13 @@ ExcludeArch: i686
 # set PIE flag
 %global _hardened_build 1
 
+# RHEL minor version
+%global minor 10
+
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.0.20
-Release:          %{?relprefix}7%{?prerel}%{?dist}
+Release:          %{?relprefix}%{minor}%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -162,7 +165,7 @@ Requires:         perl-Archive-Tar
 
 Obsoletes:        %{name} <= 1.3.5.4
 
-Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}.tar.bz2
+Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}-%{minor}.tar.bz2
 # 389-ds-git.sh should be used to generate the source tarball from git
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
@@ -265,7 +268,7 @@ BuildArch:        noarch
 Group:            Development/Libraries
 Requires: openssl
 Requires: iproute
-Requires: python%{python3_pkgversion}
+Requires: platform-python
 Requires: python%{python3_pkgversion}-pytest
 Requires: python%{python3_pkgversion}-ldap
 Requires: python%{python3_pkgversion}-six
@@ -291,9 +294,9 @@ Requires:         python%{python3_pkgversion}-lib389
 A cockpit UI Plugin for configuring and administering the 389 Directory Server
 
 %prep
-%autosetup -p1 -v -n %{name}-%{version}%{?prerel}
+%autosetup -p1 -v -n %{name}-%{version}-%{minor}%{?prerel}
 %if %{bundle_jemalloc}
-%setup -q -n %{name}-%{version}%{?prerel} -T -D -b 3
+%setup -q -n %{name}-%{version}-%{minor}%{?prerel} -T -D -b 3
 %endif
 cp %{SOURCE2} README.devel
 
@@ -353,10 +356,10 @@ pushd ./src/lib389
 popd
 # argparse-manpage dynamic man pages have hardcoded man v1 in header,
 # need to change it to v8
-sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}%{?prerel}/src/lib389/man/dsconf.8
-sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}%{?prerel}/src/lib389/man/dsctl.8
-sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}%{?prerel}/src/lib389/man/dsidm.8
-sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}%{?prerel}/src/lib389/man/dscreate.8
+sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/src/lib389/man/dsconf.8
+sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/src/lib389/man/dsctl.8
+sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/src/lib389/man/dsidm.8
+sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/src/lib389/man/dscreate.8
 
 # Generate symbolic info for debuggers
 export XCFLAGS=$RPM_OPT_FLAGS
@@ -376,7 +379,7 @@ find %{buildroot}%{_datadir}/cockpit/389-console -type d | sed -e "s@%{buildroot
 find %{buildroot}%{_datadir}/cockpit/389-console -type f | sed -e "s@%{buildroot}@@" >> cockpit.list
 
 # Copy in our docs from doxygen.
-cp -r %{_builddir}/%{name}-%{version}%{?prerel}/man/man3 $RPM_BUILD_ROOT/%{_mandir}/man3
+cp -r %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/man/man3 $RPM_BUILD_ROOT/%{_mandir}/man3
 
 # lib389
 pushd src/lib389
@@ -402,8 +405,8 @@ sed -i -e 's|#{{PERL-EXEC}}|#!/usr/bin/perl|' $RPM_BUILD_ROOT%{_datadir}/%{pkgna
 %if %{bundle_jemalloc}
 pushd ../%{jemalloc_name}-%{jemalloc_ver}
 make DESTDIR="$RPM_BUILD_ROOT" install_lib install_bin
-cp -pa COPYING ../%{name}-%{version}%{?prerel}/COPYING.jemalloc
-cp -pa README ../%{name}-%{version}%{?prerel}/README.jemalloc
+cp -pa COPYING ../%{name}-%{version}-%{minor}%{?prerel}/COPYING.jemalloc
+cp -pa README ../%{name}-%{version}-%{minor}%{?prerel}/README.jemalloc
 popd
 %endif
 
@@ -767,6 +770,18 @@ exit 0
 %doc README.md
 
 %changelog
+* Wed Apr 24 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.0.20-10
+- Bump version to 1.4.0.20-10
+- Resolves: Bug 1690024 - rebase lib389 to pull in all the dscreate fixes
+
+* Wed Apr 10 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.0.20-9
+- Bump version to 1.4.0.20-9
+- Resolves: Bug 1690024 - ipa role-mod DatabaseError changing cn (missing commit from last release)
+
+* Tue Mar 19 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.0.20-8
+- Bump version to 1.4.0.20-8
+- Resolves: Bug 1690024 - ipa role-mod DatabaseError changing cn (entry cache corruption)
+
 * Fri Feb 01 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.0.20-7
 - Bump version to 1.4.0.20-7
 - Resolves: Bug 1671735 - dscreate interactive fails when the suffix contains spaces 
