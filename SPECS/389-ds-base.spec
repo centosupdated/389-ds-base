@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.8.4
-Release:          %{?relprefix}23%{?prerel}%{?dist}
+Release:          %{?relprefix}25%{?prerel}.1%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -170,6 +170,12 @@ Patch20:          0020-Ticket-50117-after-certain-failed-import-operation-i.patc
 Patch21:          0021-Ticket-49540-Fix-compiler-warning-in-ldif2ldbm.patch
 Patch22:          0022-Ticket-50078-cannot-add-cenotaph-in-read-only-consum.patch
 Patch23:          0023-Ticket-50177-import-task-should-not-be-deleted-too-r.patch
+Patch24:          0024-Ticket-50396-Crash-in-PAM-plugin-when-user-does-not-.patch
+Patch26:          0026-Ticket-50329-2nd-Possible-Security-Issue-DOS-due-to-.patch
+Patch25:          0025-Issue-50426-nsSSL3Ciphers-is-limited-to-1024-charact.patch
+Patch27:          0027-BZ1518320-entry-cache-crash-fix.patch
+Patch28:          0028-BZ1518320-entry-cache-crash-fix.patch
+Patch29:          0029-BZ1518320-entry-cache-crash-fix-cherry-pick-error.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -517,6 +523,20 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Wed Jul 3 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-25.1
+- Bump version to 1.3.8.4-25.1
+- Resolves: Bug 1718689 - dse.ldif strip-off string after 1023 character (missing patch file)
+
+* Fri Jun 21 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-25
+- Bump version to 1.3.8.4-25
+- Resolves: Bug 1722828 - referint update should discard any changes if mep update fails
+- Resolves: Bug 1718689 - dse.ldif strip-off string after 1023 character
+- Resolves: Bug 1719720 - CVE-2019-3883 389-ds-base: DoS via hanging secured connections
+
+* Wed Jun 19 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-24
+- Bump version to 1.3.8.4-24
+- Resolves: Bug 1718184 - segfault when using pam passthru and addn plugins together
+
 * Wed Feb 6 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-23
 - Bump version to 1.3.8.4-23
 - Resolves: Bug 1672173 - import task should not be deleted after import finishes to be able to query the status
