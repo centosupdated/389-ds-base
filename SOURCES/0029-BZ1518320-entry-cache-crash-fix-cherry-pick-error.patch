@@ -1,0 +1,26 @@
+From 3edb83ca607bdf091cf46035b8e09e10b781f48a Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 21 Jun 2019 11:40:57 -0400
+Subject: [PATCH] BZ1518320 - entry cache crash fix cherry-pick error
+
+---
+ configure.ac | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/configure.ac b/configure.ac
+index ea528ff2b..91d6d398b 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -72,6 +72,9 @@ AC_FUNC_STRFTIME
+ AC_FUNC_VPRINTF
+ AC_CHECK_FUNCS([endpwent ftruncate getcwd gethostbyname inet_ntoa localtime_r memmove memset mkdir munmap putenv rmdir setrlimit socket strcasecmp strchr strcspn strdup strerror strncasecmp strpbrk strrchr strstr strtol tzset])
+ 
++# These functions are *required* without option.
++AC_CHECK_FUNCS([clock_gettime], [], AC_MSG_ERROR([unable to locate required symbol clock_gettime]))
++
+ # This will detect if we need to add the LIBADD_DL value for us.
+ LT_LIB_DLLOAD
+ 
+-- 
+2.21.0
+
