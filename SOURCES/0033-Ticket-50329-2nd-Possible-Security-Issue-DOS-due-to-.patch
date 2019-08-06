@@ -1,4 +1,4 @@
-From 4383a6cb666bc79feb9ca0ee62dda0520955d286 Mon Sep 17 00:00:00 2001
+From 335f2a35433a949fc30101655a40940bc6ecec12 Mon Sep 17 00:00:00 2001
 From: Thierry Bordaz <tbordaz@redhat.com>
 Date: Wed, 15 May 2019 17:46:14 +0200
 Subject: [PATCH] Ticket 50329 - (2nd) Possible Security Issue: DOS due to
@@ -29,10 +29,10 @@ Doc impact: no
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
-index c77e1f15c..b1d41c858 100644
+index 4841a8a5c..afe0fb737 100644
 --- a/ldap/servers/slapd/daemon.c
 +++ b/ldap/servers/slapd/daemon.c
-@@ -3191,7 +3191,7 @@ configure_pr_socket(PRFileDesc **pr_socket, int secure, int local)
+@@ -3193,7 +3193,7 @@ configure_pr_socket(PRFileDesc **pr_socket, int secure, int local)
  
      if (secure) {
          pr_socketoption.option = PR_SockOpt_Nonblocking;

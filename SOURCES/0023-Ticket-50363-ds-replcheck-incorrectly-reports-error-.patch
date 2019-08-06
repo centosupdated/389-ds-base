@@ -1,0 +1,49 @@
+From 86bbfb42aa03a7dd1ea0a9faa130d3cdb31aab5e Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 13 May 2019 10:03:58 -0400
+Subject: [PATCH] Ticket 50363 - ds-replcheck incorrectly reports error out of
+ order multi-valued attributes
+
+Bug Description:  If for some reason an entry's multi-valued attribute
+                  values are in different orders on different replicas
+                  the tool reports this as an inconsistency when it is
+                  not.
+
+Fix Description:  For both offline & online processing sort each entry's
+                  multi-valued attribute values.
+
+https://pagure.io/389-ds-base/issue/50363
+
+Reviewed by: firstyear & mhonek (Thanks!!)
+---
+ ldap/admin/src/scripts/ds-replcheck | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/admin/src/scripts/ds-replcheck b/ldap/admin/src/scripts/ds-replcheck
+index 57748b09f..a9411cb4f 100755
+--- a/ldap/admin/src/scripts/ds-replcheck
++++ b/ldap/admin/src/scripts/ds-replcheck
+@@ -110,7 +110,7 @@ def convert_entries(entries):
+ 
+     for entry in entries:
+         new_entry = Entry(entry)
+-        new_entry.data = {k.lower(): v for k, v in list(new_entry.data.items())}
++        new_entry.data = {k.lower(): sorted(v) for k, v in list(new_entry.data.items())}
+         if new_entry.dn.endswith("cn=mapping tree,cn=config"):
+             '''Skip replica entry (ldapsearch brings this in because the filter
+             we use triggers an internal operation to return the config entry - so
+@@ -381,6 +381,11 @@ def ldif_search(LDIF, dn):
+     # Keep track of entry index - we use this later when searching the LDIF again
+     result['idx'] = count
+ 
++    # Sort all the multi-valued attributes
++    for k, v in data.items():
++        v.sort()
++        data[k] = v
++
+     result['glue'] = None
+     if found_conflict and found_subentry and found_tombstone is False:
+         result['entry'] = None
+-- 
+2.17.2
+

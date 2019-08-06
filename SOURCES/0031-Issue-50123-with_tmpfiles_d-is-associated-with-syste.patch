@@ -1,0 +1,34 @@
+From 957145f661d074aaca1a7aa325fa6943dda80b0c Mon Sep 17 00:00:00 2001
+From: Viktor Ashirov <vashirov@redhat.com>
+Date: Thu, 9 May 2019 15:01:22 +0200
+Subject: [PATCH] Issue 50123 - with_tmpfiles_d is associated with systemd
+
+Bug Description:
+Tests fail on 1.3.9 because of the missing tmpfiles_d
+in defaults.inf
+
+Fix Description:
+Add tmpfiles_d to defaults.inf
+
+Fixes https://pagure.io/389-ds-base/issue/50123
+
+Reviewed by: mreynolds (Thanks!)
+---
+ ldap/admin/src/defaults.inf.in | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ldap/admin/src/defaults.inf.in b/ldap/admin/src/defaults.inf.in
+index eff88f238..91486c8e3 100644
+--- a/ldap/admin/src/defaults.inf.in
++++ b/ldap/admin/src/defaults.inf.in
+@@ -38,6 +38,7 @@ pid_file = @localstatedir@/run/dirsrv/slapd-{instance_name}.pid
+ inst_dir = @serverdir@/slapd-{instance_name}
+ plugin_dir = @serverplugindir@
+ system_schema_dir = @systemschemadir@
++tmpfiles_d = @with_tmpfiles_d@
+ 
+ ; These values can be altered in an installation of ds
+ user = dirsrv
+-- 
+2.17.2
+

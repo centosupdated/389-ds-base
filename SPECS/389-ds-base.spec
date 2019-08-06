@@ -38,8 +38,8 @@
 
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
-Version:          1.3.8.4
-Release:          %{?relprefix}25%{?prerel}.1%{?dist}
+Version:          1.3.9.1
+Release:          %{?relprefix}10%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -143,39 +143,42 @@ Requires:         gperftools-libs
 %endif
 
 Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}%{?prerel}.tar.bz2
-# 389-ds-git.sh should be used to generate the source tarball from git
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
-Patch00:          0000-Ticket-49830-Import-fails-if-backend-name-is-default.patch
-Patch01:          0001-Ticket-48818-For-a-replica-bindDNGroup-should-be-fet.patch
-Patch02:          0002-Ticket-49546-Fix-issues-with-MIB-file.patch
-Patch03:          0003-Ticket-49840-ds-replcheck-command-returns-traceback-.patch
-Patch04:          0004-Ticket-49893-disable-nunc-stans-by-default.patch
-Patch05:          0005-Ticket-49890-ldapsearch-with-server-side-sort-crashe.patch
-Patch06:          0006-Bug-1614820-Crash-in-vslapd_log_emergency_error.patch
-Patch07:          0007-Ticket-49932-Crash-in-delete_passwdPolicy-when-persi.patch
-Patch08:          0008-Bug-1624004-potential-denial-of-service-attack.patch
-Patch09:          0009-Bug-1624004-fix-regression-in-empty-attribute-list.patch
-Patch10:          0010-Ticket-49968-Confusing-CRITICAL-message-list_candida.patch
-Patch11:          0011-Ticket-49967-entry-cache-corruption-after-failed-MOD.patch
-Patch12:          0012-Ticket-49958-extended-search-fail-to-match-entries.patch
-Patch13:          0013-Ticket-49915-Master-ns-slapd-had-100-CPU-usage-after.patch
-Patch14:          0014-Ticket-49950-PassSync-not-setting-pwdLastSet-attribu.patch
-Patch15:          0015-Ticket-49915-fix-compiler-warnings.patch
-Patch16:          0016-Ticket-49915-fix-compiler-warnings-2nd.patch
-Patch17:          0017-Ticket-49618-Increase-cachememsize-and-dncachememsize.patch
-Patch18:          0018-Ticket-50020-during-MODRDN-referential-integrity-can.patch
-Patch19:          0019-Ticket-49543-fix-certmap-dn-comparison.patch
-Patch20:          0020-Ticket-50117-after-certain-failed-import-operation-i.patch
-Patch21:          0021-Ticket-49540-Fix-compiler-warning-in-ldif2ldbm.patch
-Patch22:          0022-Ticket-50078-cannot-add-cenotaph-in-read-only-consum.patch
-Patch23:          0023-Ticket-50177-import-task-should-not-be-deleted-too-r.patch
-Patch24:          0024-Ticket-50396-Crash-in-PAM-plugin-when-user-does-not-.patch
-Patch26:          0026-Ticket-50329-2nd-Possible-Security-Issue-DOS-due-to-.patch
-Patch25:          0025-Issue-50426-nsSSL3Ciphers-is-limited-to-1024-charact.patch
-Patch27:          0027-BZ1518320-entry-cache-crash-fix.patch
-Patch28:          0028-BZ1518320-entry-cache-crash-fix.patch
-Patch29:          0029-BZ1518320-entry-cache-crash-fix-cherry-pick-error.patch
+Patch00:          0000-Ticket-50236-memberOf-should-be-more-robust.patch
+Patch01:          0001-Ticket-50238-Failed-modrdn-can-corrupt-entry-cache.patch
+Patch02:          0002-Ticket-50232-export-creates-not-importable-ldif-file.patch
+Patch03:          0003-Ticket-50234-one-level-search-returns-not-matching-e.patch
+Patch04:          0004-Issue-50091-shadowWarning-is-not-generated-if-passwo.patch
+Patch05:          0005-Ticket-50091-shadowWarning-is-not-generated-if-passw.patch
+Patch06:          0006-Ticket-50260-backend-txn-plugins-can-corrupt-entry-c.patch
+Patch07:          0007-Ticket-50077-Do-not-automatically-turn-automember-po.patch
+Patch08:          0008-Ticket-50282-OPERATIONS-ERROR-when-trying-to-delete-.patch
+Patch09:          0009-Ticket-49561-MEP-plugin-upon-direct-op-failure-will-.patch
+Patch10:          0010-Ticket-50260-Invalid-cache-flushing-improvements.patch
+Patch11:          0011-Ticket-50265-the-warning-about-skew-time-could-last-.patch
+Patch12:          0012-Ticket-50063-Crash-after-attempting-to-restore-a-sin.patch
+Patch13:          0013-Ticket-49946-upgrade-of-389-ds-base-could-remove-rep.patch
+Patch14:          0014-Ticket-49873-Contention-on-virtual-attribute-lookup.patch
+Patch15:          0015-Ticket-49958-extended-search-fail-to-match-entries.patch
+Patch16:          0016-Ticket-50028-ds-replcheck-y-option-throws-usage-erro.patch
+#Patch17:          0017-Ticket-50329-Possible-Security-Issue-DOS-due-to-iobl.patch
+Patch18:          0018-Ticket-49990-Increase-the-default-FD-limits.patch
+Patch19:          0019-Ticket-50053-Subtree-password-policy-overrides-a-use.patch
+Patch20:          0020-Ticket-49866-Add-passwordSendExpiringTime-to-objectc.patch
+Patch21:          0021-Ticket-50013-Log-warn-instead-of-ERR-when-aci-target.patch
+Patch22:          0022-Ticket-49997-RFE-ds-replcheck-could-validate-suffix-.patch
+Patch23:          0023-Ticket-50363-ds-replcheck-incorrectly-reports-error-.patch
+Patch24:          0024-Ticket-50370-CleanAllRUV-task-crashing-during-server.patch
+Patch25:          0025-Ticket-50378-ACI-s-with-IPv4-and-IPv6-bind-rules-do-.patch
+Patch26:          0026-Ticket-50396-Crash-in-PAM-plugin-when-user-does-not-.patch
+Patch27:          0027-Ticket-50393-maxlogsperdir-accepting-negative-values.patch
+Patch28:          0028-Issue-49754-Instance-created-using-dscreate-can-t-be.patch
+Patch29:          0029-Ticket-50413-ds-replcheck-Always-display-the-Result-.patch
+Patch30:          0030-Ticket-50389-ns-slapd-craches-while-two-threads-are-.patch
+Patch31:          0031-Issue-50123-with_tmpfiles_d-is-associated-with-syste.patch
+Patch32:          0032-Issue-50426-nsSSL3Ciphers-is-limited-to-1024-charact.patch
+Patch33:          0033-Ticket-50329-2nd-Possible-Security-Issue-DOS-due-to-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -340,13 +343,18 @@ fi
 
 # Create dirsrv user and group (if needed)
 USERNAME="dirsrv"
+ALLOCATED_UID=389
 GROUPNAME="dirsrv"
+ALLOCATED_GID=389
 HOMEDIR="/usr/share/dirsrv"
-if ! getent group $GROUPNAME >/dev/null ; then
-    /usr/sbin/groupadd -f -r $GROUPNAME
-fi
+
+getent group $GROUPNAME >/dev/null || /usr/sbin/groupadd -f -g $ALLOCATED_GID -r $GROUPNAME
 if ! getent passwd $USERNAME >/dev/null ; then
-    /usr/sbin/useradd -r -g $GROUPNAME -d $HOMEDIR -s /sbin/nologin -c "user for 389-ds-base" $USERNAME
+    if ! getent passwd $ALLOCATED_UID >/dev/null ; then
+      /usr/sbin/useradd -r -u $ALLOCATED_UID -g $GROUPNAME -d $HOMEDIR -s /sbin/nologin -c "user for 389-ds-base" $USERNAME
+    else
+      /usr/sbin/useradd -r -g $GROUPNAME -d $HOMEDIR -s /sbin/nologin -c "user for 389-ds-base" $USERNAME
+    fi
 fi
 
 # Reload our sysctl before we restart (if we can)
@@ -523,43 +531,97 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
-* Wed Jul 3 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-25.1
-- Bump version to 1.3.8.4-25.1
-- Resolves: Bug 1718689 - dse.ldif strip-off string after 1023 character (missing patch file)
+* Thu Jun 13 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-10
+- Bump version to 1.3.9.1-10
+- Resolves: Bug 1668457 - CVE-2019-3883 389-ds-base: DoS via hanging secured connections
 
-* Fri Jun 21 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-25
-- Bump version to 1.3.8.4-25
-- Resolves: Bug 1722828 - referint update should discard any changes if mep update fails
-- Resolves: Bug 1718689 - dse.ldif strip-off string after 1023 character
-- Resolves: Bug 1719720 - CVE-2019-3883 389-ds-base: DoS via hanging secured connections
+* Fri Jun 7 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-9
+- Bump version to 1.3.9.1-9
+- Resolves: Bug 1713361 - Update defaults.inf (fix missing first commit)
+- Resolves: Bug 1716267 - dse.ldif strip-off string after 1023 character 
 
-* Wed Jun 19 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-24
-- Bump version to 1.3.8.4-24
-- Resolves: Bug 1718184 - segfault when using pam passthru and addn plugins together
+* Wed Jun 5 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-8
+- Bump version to 1.3.9.1-8
+- Resolves: Bug 1702740 - ns-slapd craches on IPA Servers throughout the customer's topology
+- Resolves: Bug 1715091 - ds-replcheck does not always print a Result summary
+- Resolves: Bug 1713361 - Update defaults.inf
+- Resolves: Bug 1708215 - maxlogsperdir accepting negative values
+- Resolves: Bug 1701092 - segfault when using pam passthru and addn plugins together
 
-* Wed Feb 6 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-23
-- Bump version to 1.3.8.4-23
-- Resolves: Bug 1672173 - import task should not be deleted after import finishes to be able to query the status
-- Resolves: Bug 1672177 - after certain failed import operation, impossible to replay an import operation.
-- Resolves: Bug 1672179 - cannot add cenotaph in read only consumer 
+* Thu May 16 2019  Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-7
+- Bump version to 1.3.9.1-7
+- Resolves: Bug 1704314 - [abrt] [faf] 389-ds-base: objset_find(): /usr/sbin/ns-slapd killed by 11 
+- Resolves: Bug 1629055 - ds-replcheck unreliable, showing false positives
+- Resolves: Bug 1710848 - ACI's with IPv4 and IPv6 bind rules do not work for IPv6 clients
 
-* Mon Dec 17 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-22
-- Bump version to 1.3.8.4-22
-- Resolves: Bug 1660120 - certmap fails when Issuer DN has comma in name
+* Fri May 10 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-6
+- Bump version to 1.3.9.1-6
+- Resolves: Bug 1705125 - ipa-replica-install with 389-ds-base-1.3.9.1-5.el7
+- Resolves: Bug 1643772 - ds-replcheck should validate suffix exists and it's replicated
+- Resolves: Bug 1647133 - Log warn instead of ERR when aci target does not exist.
+- Resolves: Bug 1639192 - Request to add passwordSendExpiringTime in password policy objectclass
 
-* Mon Dec 17 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-21
-- Bump version to 1.3.8.4-21
-- Resolves: Bug 1659510 - during MODRDN referential integrity can fail erronously while updating large groups
-- Resolves: Bug 1659936 - After RHEL 7.6 HTB update, unable to set nsslapd-cachememsize (RHDS 10) to custom value
+* Mon Apr 29 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-5
+- Bump version to 1.3.9.1-5
+- Resolves: Bug 1630513 - Customer requesting -y option for ds-replcheck 
+- Resolves: Bug 1668457 - CVE-2019-3883 389-ds-base: DoS via hanging secured connections
+- Resolves: Bug 1695014 - Clarify the ability to change the NOFILE limit
+- Resolves: Bug 1615155 - extended search fails to match entries
+- Resolves: Bug 1652984 - Subtree password policy overrides a user-defined password policy
 
-* Tue Dec 4 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-20
-- Bump version to 1.3.8.4-20
-- Resolves: Bug 1645197 - Fix compiler warnings
+* Fri Mar 29 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-4
+- Bump version to 1.3.9.1-4
+- Resolves: Bug 1601241 - ns-slapd - Crash when using bak2db.pl to restore a single database.
+- Resolves: Bug 1623935 - upgrade of 389-ds-base could remove replication agreements.
+- Resolves: Bug 1627846 - Contention on virtual attribute lookup (parts 2 & 3)
 
-* Tue Dec 4 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-19
-- Bump version to 1.3.8.4-19
-- Resolves: Bug 1653820 - PassSync not setting pwdLastSet attribute in Active Directory after Pw update from LDAP sync for normal user
-- Resolves: Bug 1645197 - on-line re-initialization hangs
+* Fri Mar 22 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-3
+- Bump version to 1.3.9.1-3
+- Resolves: Bug 1651279 - The dirsrv user is no longer created with uid 389
+- Resolves: Bug 1542469 - Why does the mep_origination entry toggle from tombstone/not_tombstone 
+- Resolves: Bug 1689313 - OPERATIONS ERROR when trying to delete a group with automember members
+- Resolves: Bug 1673472 - the warning about skew time could last forever.
+- Resolves: Bug 1680245 - Error in memberof-plugin cause failures in ipa group-mod
+- Resolves: Bug 1482596 - referint update should discard any changes if mep update fails
+
+* Fri Mar 15 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-2
+- Bump version to 1.3.9.1-2
+- Resolves: Bug 1417340 - entry cache is not cleaned up if an operation is aborted
+- Resolves: Bug 1603140 - Export produces a non-importable ldif file
+- Resolves: Bug 1518320 - ns-slapd: crash in entrycache_add_int
+- Resolves: Bug 1680245 - Error in memberof-plugin cause failures in ipa group-mod
+- Resolves: Bug 1589144 - shadowWarning is not generated if passwordWarning is lower than 86400 seconds (1 day)
+
+* Wed Feb 20 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-1
+* Bump version to 1.3.9.1-1
+- Resolves: Bug 1438144 - [RFE] Include autounmembering feature in IPA
+- Resolves: Bug 1645359 - Rebase 389-ds-base in RHEL 7.7 to 1.3.9
+- Resolves: Bug 1561769 - [RFE] revise the "transient error" message in a replication agreement's last update status
+- Resolves: Bug 1563999 - Is it possible for Directory server to reject the current password only?
+- Resolves: Bug 1597202 - PassSync not setting pwdLastSet attribute in Active Directory after Pw update from LDAP sync for normal user
+- Resolves: Bug 1601241 - ns-slapd - Crash when using bak2db.pl to restore a single database
+- Resolves: Bug 1629055 - ds-replcheck unreliable, showing false positives
+- Resolves: Bug 1630513 - Customer requesting -y option for ds-replcheck
+- Resolves: Bug 1639192 - Request to add passwordSendExpiringTime in password policy objectclass
+- Resolves: Bug 1643587 - default of "nsslapd-errorlog-maxlogsperdir: 1" causing huge log files
+- Resolves: Bug 1643772 - ds-replcheck should validate suffix exists and it's replicated
+- Resolves: Bug 1647133 - Log warn instead of ERR when aci target does not exist.
+- Resolves: Bug 1653163 - certmap fails when Issuer DN has comma in name
+- Resolves: Bug 1602001 - cannot add cenotaph in read only consumer
+- Resolves: Bug 1589144 - shadowWarning is not generated if passwordWarning is lower than 86400 seconds (1 day)
+- Resolves: Bug 1600631 - In repicated topology a single-valued attribute can diverge
+- Resolves: Bug 1626375 - on-line re-initialization hangs
+- Resolves: Bug 1627846 - Contention on virtual attribute lookup
+- Resolves: Bug 1642838 - after certain failed import operation, impossible to replay an import operation
+- Resolves: Bug 1647099 - audit logs does not capture the operation where nsslapd-lookthroughlimit is modified 
+- Resolves: Bug 1648922 - during MODRDN referential integrity can fail erronously while updating large groups
+- Resolves: Bug 1652984 - Subtree password policy overrides a user-defined password policy
+- Resolves: Bug 1663829 - import task should not be deleted after import finishes to be able to query the status.
+- Resolves: Bug 1623935 - upgrade of 389-ds-base could remove replication agreements
+- Resolves: Bug 1622049 - db2bak.pl does not work with LDAPS, but ok with STARTTLS
+- Resolves: Bug 1633488 - fixup-memberof.pl -D cn=<> -w - -b <> -P LDAP fails with ldap_start_tls error
+- Resolves: Bug 1451460 - error messages during ldif2db after enabling encryption on an attribute
+- Resolves: Bug 1627512 - After RHEL 7.6 HTB update, unable to set nsslapd-cachememsize (RHDS 10) to custom value
 
 * Mon Oct 29 2018 Mark Reynolds <mreynolds@redhat.com> - 1.3.8.4-18
 - Bump version to 1.3.8.4-18

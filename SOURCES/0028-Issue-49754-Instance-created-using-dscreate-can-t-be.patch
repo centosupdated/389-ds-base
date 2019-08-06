@@ -1,0 +1,36 @@
+From 1e31c091f4a62d09fe8e2fbd1fda2d67ccbe8508 Mon Sep 17 00:00:00 2001
+From: Viktor Ashirov <vashirov@redhat.com>
+Date: Thu, 23 May 2019 15:38:16 +0200
+Subject: [PATCH] Issue 49754 -  Instance created using dscreate can't be
+ upgraded
+
+Bug Description:
+On 1.3.9 remove_ds_instance() is destructive and deletes
+/usr/lib64/dirsrv together with perl modules and 389-ds-base libs.
+
+Fix Description:
+Backport defaults.inf changes for inst_dir
+
+Relates: https://pagure.io/389-ds-base/issue/49754
+
+Reviewed by: mreynolds (Thanks!)
+---
+ ldap/admin/src/defaults.inf.in | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/admin/src/defaults.inf.in b/ldap/admin/src/defaults.inf.in
+index 8565ff7a0..eff88f238 100644
+--- a/ldap/admin/src/defaults.inf.in
++++ b/ldap/admin/src/defaults.inf.in
+@@ -35,7 +35,7 @@ config_dir = @instconfigdir@/slapd-{instance_name}
+ local_state_dir = @localstatedir@
+ run_dir = @localstatedir@/run/dirsrv
+ pid_file = @localstatedir@/run/dirsrv/slapd-{instance_name}.pid
+-inst_dir = @serverdir@
++inst_dir = @serverdir@/slapd-{instance_name}
+ plugin_dir = @serverplugindir@
+ system_schema_dir = @systemschemadir@
+ 
+-- 
+2.17.2
+

@@ -1,4 +1,4 @@
-From bc9ae5a810b8024e7ab1179f492c425793e0ddcf Mon Sep 17 00:00:00 2001
+From c2637e437d5b9fa33410856d2059c2921a90fdac Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
 Date: Fri, 7 Jun 2019 09:21:31 -0400
 Subject: [PATCH] Issue 50426 - nsSSL3Ciphers is limited to 1024 characters
@@ -182,5 +182,5 @@ index b8eba2da4..ed054db44 100644
                  cert = NULL;
                  freeConfigEntry(&e);
 -- 
-2.21.0
+2.17.2
 

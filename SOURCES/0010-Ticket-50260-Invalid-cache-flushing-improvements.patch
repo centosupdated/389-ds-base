@@ -1,0 +1,290 @@
+From e07605531f978f6767c9b1cc947c0012ff6c83e3 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Sun, 17 Mar 2019 13:09:07 -0400
+Subject: [PATCH 3/4] Ticket 50260 - Invalid cache flushing improvements
+
+Description:  The original version of the fix only checked if backend
+              transaction "post" operation plugins failed, but it did
+              not check for errors from the backend transaction "pre"
+              operation plugin.  To address this we flush invalid
+              entries whenever any error occurs.
+
+              We were also not flushing invalid cache entries when
+              modrdn errors occurred.  Modrdns only make changes to
+              the DN hashtable inside the entry cache, but we were only
+              checking the ID hashtable.  So we also need to check the
+              DN hashtable in the entry cache for invalid entries.
+
+https://pagure.io/389-ds-base/issue/50260
+
+Reviewed by: firstyear & tbordaz(Thanks!!)
+
+(cherry picked from commit 33fbced25277b88695bfba7262e606380e9d891f)
+---
+ dirsrvtests/tests/suites/betxns/betxn_test.py | 23 ++++++----
+ ldap/servers/slapd/back-ldbm/cache.c          | 42 ++++++++++++++++++-
+ ldap/servers/slapd/back-ldbm/ldbm_add.c       |  9 ++--
+ ldap/servers/slapd/back-ldbm/ldbm_delete.c    | 11 ++---
+ ldap/servers/slapd/back-ldbm/ldbm_modify.c    | 10 ++---
+ ldap/servers/slapd/back-ldbm/ldbm_modrdn.c    | 10 ++---
+ 6 files changed, 74 insertions(+), 31 deletions(-)
+
+diff --git a/dirsrvtests/tests/suites/betxns/betxn_test.py b/dirsrvtests/tests/suites/betxns/betxn_test.py
+index f03fb93cc..84f5e2087 100644
+--- a/dirsrvtests/tests/suites/betxns/betxn_test.py
++++ b/dirsrvtests/tests/suites/betxns/betxn_test.py
+@@ -86,9 +86,7 @@ def test_betxt_7bit(topology_st, dynamic_plugins):
+         log.fatal('Error while searching for test entry: ' + e.message['desc'])
+         assert False
+ 
+-    #
+     # Cleanup - remove the user
+-    #
+     try:
+         topology_st.standalone.delete_s(USER_DN)
+     except ldap.LDAPError as e:
+@@ -241,14 +239,15 @@ def test_betxn_memberof(topology_st, dynamic_plugins):
+     except ldap.LDAPError as e:
+         log.info('test_betxn_memberof: Group2 was correctly rejected (mod add): error ' + e.message['desc'])
+ 
+-    #
++    # verify entry cache reflects the current/correct state of group1
++    assert not group1.is_member(group2.dn)
++
+     # Done
+-    #
+     log.info('test_betxn_memberof: PASSED')
+ 
+ 
+ def test_betxn_modrdn_memberof_cache_corruption(topology_st):
+-    """Test modrdn operations and memberOf
++    """Test modrdn operations and memberOf be txn post op failures
+ 
+     :id: 70d0b96e-b693-4bf7-bbf5-102a66ac5994
+ 
+@@ -297,9 +296,7 @@ def test_betxn_modrdn_memberof_cache_corruption(topology_st):
+     with pytest.raises(ldap.OBJECT_CLASS_VIOLATION):
+         group.rename('cn=group_to_people', newsuperior=peoplebase)
+ 
+-    #
+     # Done
+-    #
+     log.info('test_betxn_modrdn_memberof: PASSED')
+ 
+ 
+@@ -374,15 +371,23 @@ def test_ri_and_mep_cache_corruption(topology_st):
+         log.fatal("MEP group was not created for the user")
+         assert False
+ 
++    # Test MEP be txn pre op failure does not corrupt entry cache
++    # Should get the same exception for both rename attempts
++    with pytest.raises(ldap.UNWILLING_TO_PERFORM):
++        mep_group.rename("cn=modrdn group")
++
++    with pytest.raises(ldap.UNWILLING_TO_PERFORM):
++        mep_group.rename("cn=modrdn group")
++
+     # Mess with MEP so it fails
+     mep_plugin.disable()
+     mep_group.delete()
+     mep_plugin.enable()
+ 
+-    # Add another group for verify entry cache is not corrupted
++    # Add another group to verify entry cache is not corrupted
+     test_group = groups.create(properties={'cn': 'test_group'})
+ 
+-    # Delete user, should fail, and user should still be a member
++    # Delete user, should fail in MEP be txn post op, and user should still be a member
+     with pytest.raises(ldap.NO_SUCH_OBJECT):
+         user.delete()
+ 
+diff --git a/ldap/servers/slapd/back-ldbm/cache.c b/ldap/servers/slapd/back-ldbm/cache.c
+index 458d7912f..02453abac 100644
+--- a/ldap/servers/slapd/back-ldbm/cache.c
++++ b/ldap/servers/slapd/back-ldbm/cache.c
+@@ -517,7 +517,8 @@ flush_remove_entry(struct timespec *entry_time, struct timespec *start_time)
+ /*
+  * Flush all the cache entries that were added after the "start time"
+  * This is called when a backend transaction plugin fails, and we need
+- * to remove all the possible invalid entries in the cache.
++ * to remove all the possible invalid entries in the cache.  We need
++ * to check both the ID and DN hashtables when checking the entry cache.
+  *
+  * If the ref count is 0, we can straight up remove it from the cache, but
+  * if the ref count is greater than 1, then the entry is currently in use.
+@@ -528,8 +529,8 @@ flush_remove_entry(struct timespec *entry_time, struct timespec *start_time)
+ static void
+ flush_hash(struct cache *cache, struct timespec *start_time, int32_t type)
+ {
++    Hashtable *ht = cache->c_idtable; /* start with the ID table as it's in both ENTRY and DN caches */
+     void *e, *laste = NULL;
+-    Hashtable *ht = cache->c_idtable;
+ 
+     cache_lock(cache);
+ 
+@@ -570,6 +571,43 @@ flush_hash(struct cache *cache, struct timespec *start_time, int32_t type)
+         }
+     }
+ 
++    if (type == ENTRY_CACHE) {
++        /* Also check the DN hashtable */
++        ht = cache->c_dntable;
++
++        for (size_t i = 0; i < ht->size; i++) {
++            e = ht->slot[i];
++            while (e) {
++                struct backcommon *entry = (struct backcommon *)e;
++                uint64_t remove_it = 0;
++                if (flush_remove_entry(&entry->ep_create_time, start_time)) {
++                    /* Mark the entry to be removed */
++                    slapi_log_err(SLAPI_LOG_CACHE, "flush_hash", "[ENTRY CACHE] Removing entry id (%d)\n",
++                            entry->ep_id);
++                    remove_it = 1;
++                }
++                laste = e;
++                e = HASH_NEXT(ht, e);
++
++                if (remove_it) {
++                    /* since we have the cache lock we know we can trust refcnt */
++                    entry->ep_state |= ENTRY_STATE_INVALID;
++                    if (entry->ep_refcnt == 0) {
++                        entry->ep_refcnt++;
++                        lru_delete(cache, laste);
++                        entrycache_remove_int(cache, laste);
++                        entrycache_return(cache, (struct backentry **)&laste);
++                    } else {
++                        /* Entry flagged for removal */
++                        slapi_log_err(SLAPI_LOG_CACHE, "flush_hash",
++                                "[ENTRY CACHE] Flagging entry to be removed later: id (%d) refcnt: %d\n",
++                                entry->ep_id, entry->ep_refcnt);
++                    }
++                }
++            }
++        }
++    }
++
+     cache_unlock(cache);
+ }
+ 
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_add.c b/ldap/servers/slapd/back-ldbm/ldbm_add.c
+index aa5b59aea..264f0ceea 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_add.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_add.c
+@@ -1221,11 +1221,6 @@ ldbm_back_add(Slapi_PBlock *pb)
+             slapi_pblock_set(pb, SLAPI_PLUGIN_OPRETURN, ldap_result_code ? &ldap_result_code : &retval);
+         }
+         slapi_pblock_get(pb, SLAPI_PB_RESULT_TEXT, &ldap_result_message);
+-
+-        /* Revert the caches if this is the parent operation */
+-        if (parent_op) {
+-            revert_cache(inst, &parent_time);
+-        }
+         goto error_return;
+     }
+ 
+@@ -1253,6 +1248,10 @@ ldbm_back_add(Slapi_PBlock *pb)
+     goto common_return;
+ 
+ error_return:
++    /* Revert the caches if this is the parent operation */
++    if (parent_op) {
++        revert_cache(inst, &parent_time);
++    }
+     if (addingentry_id_assigned) {
+         next_id_return(be, addingentry->ep_id);
+     }
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_delete.c b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+index 3f687eb91..1ad846447 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_delete.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+@@ -1279,11 +1279,6 @@ replace_entry:
+             slapi_pblock_set(pb, SLAPI_PLUGIN_OPRETURN, &retval);
+         }
+         slapi_pblock_get(pb, SLAPI_PB_RESULT_TEXT, &ldap_result_message);
+-
+-        /* Revert the caches if this is the parent operation */
+-        if (parent_op) {
+-            revert_cache(inst, &parent_time);
+-        }
+         goto error_return;
+     }
+     if (parent_found) {
+@@ -1370,6 +1365,11 @@ commit_return:
+     goto common_return;
+ 
+ error_return:
++    /* Revert the caches if this is the parent operation */
++    if (parent_op) {
++        revert_cache(inst, &parent_time);
++    }
++
+     if (tombstone) {
+         if (cache_is_in_cache(&inst->inst_cache, tombstone)) {
+             tomb_ep_id = tombstone->ep_id; /* Otherwise, tombstone might have been freed. */
+@@ -1388,6 +1388,7 @@ error_return:
+         CACHE_RETURN(&inst->inst_cache, &tombstone);
+         tombstone = NULL;
+     }
++
+     if (retval == DB_RUNRECOVERY) {
+         dblayer_remember_disk_filled(li);
+         ldbm_nasty("ldbm_back_delete", "Delete", 79, retval);
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modify.c b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+index b90b3e0f0..b0c477e3f 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modify.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+@@ -873,11 +873,6 @@ ldbm_back_modify(Slapi_PBlock *pb)
+             slapi_pblock_set(pb, SLAPI_PLUGIN_OPRETURN, ldap_result_code ? &ldap_result_code : &retval);
+         }
+         slapi_pblock_get(pb, SLAPI_PB_RESULT_TEXT, &ldap_result_message);
+-
+-        /* Revert the caches if this is the parent operation */
+-        if (parent_op) {
+-            revert_cache(inst, &parent_time);
+-        }
+         goto error_return;
+     }
+     retval = plugin_call_mmr_plugin_postop(pb, NULL,SLAPI_PLUGIN_BE_TXN_POST_MODIFY_FN);
+@@ -901,6 +896,11 @@ ldbm_back_modify(Slapi_PBlock *pb)
+     goto common_return;
+ 
+ error_return:
++    /* Revert the caches if this is the parent operation */
++    if (parent_op) {
++        revert_cache(inst, &parent_time);
++    }
++
+     if (postentry != NULL) {
+         slapi_entry_free(postentry);
+         postentry = NULL;
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+index 73e50ebcc..65610d613 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+@@ -1217,11 +1217,6 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+             slapi_pblock_set(pb, SLAPI_PLUGIN_OPRETURN, ldap_result_code ? &ldap_result_code : &retval);
+         }
+         slapi_pblock_get(pb, SLAPI_PB_RESULT_TEXT, &ldap_result_message);
+-
+-        /* Revert the caches if this is the parent operation */
+-        if (parent_op) {
+-            revert_cache(inst, &parent_time);
+-        }
+         goto error_return;
+     }
+ 	retval = plugin_call_mmr_plugin_postop(pb, NULL,SLAPI_PLUGIN_BE_TXN_POST_MODRDN_FN);
+@@ -1290,6 +1285,11 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+     goto common_return;
+ 
+ error_return:
++    /* Revert the caches if this is the parent operation */
++    if (parent_op) {
++        revert_cache(inst, &parent_time);
++    }
++
+     /* result already sent above - just free stuff */
+     if (postentry) {
+         slapi_entry_free(postentry);
+-- 
+2.17.2
+

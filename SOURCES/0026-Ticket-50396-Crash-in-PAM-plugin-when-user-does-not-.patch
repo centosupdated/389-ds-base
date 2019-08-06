@@ -1,4 +1,4 @@
-From 6984b34fe496d696e37f003dbf57a5ca1b5899ea Mon Sep 17 00:00:00 2001
+From 44b6f98bc687f3ec3ae2c40b8086f1bd4936b827 Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
 Date: Mon, 20 May 2019 15:06:54 -0400
 Subject: [PATCH] Ticket 50396 - Crash in PAM plugin when user does not exist
@@ -33,5 +33,5 @@ index de9448b90..b62c3c6b6 100644
                        "pam_passthru_bindpreop - Not handled (not simple bind or NULL dn/credentials)\n");
          return retcode;
 -- 
-2.21.0
+2.17.2
 

@@ -1,0 +1,73 @@
+From 5bed4704f3fa6fc6fca1cad9f132985cc7f68056 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 14 May 2019 13:58:42 -0400
+Subject: [PATCH] Ticket 50370 -  CleanAllRUV task crashing during server
+ shutdown
+
+Description:  There is a race condition during server shutdown that
+              can cause the server to crash.  Increment the active
+              thread count for each cleaning task to prevent the plugins
+              from being closed before the thread terminates.
+
+https://pagure.io/389-ds-base/issue/50370
+
+Reviewed by: firstyear(Thanks!)
+
+(cherry picked from commit 7141b8d10382e8dcb8528b57e5226c82506b79b9)
+---
+ .../plugins/replication/repl5_replica_config.c     | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index a952b687d..b4aff9eb4 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -1630,9 +1630,13 @@ replica_cleanallruv_thread(void *arg)
+     int aborted = 0;
+     int rc = 0;
+ 
+-    if (!data) {
++    if (!data || slapi_is_shutting_down()) {
+         return; /* no data */
+     }
++
++    /* Increase active thread count to prevent a race condition at server shutdown */
++    g_incr_active_threadcnt();
++
+     if (data->task) {
+         slapi_task_inc_refcount(data->task);
+         slapi_log_err(SLAPI_LOG_PLUGIN, repl_plugin_name,
+@@ -1912,6 +1916,7 @@ done:
+     slapi_ch_free_string(&data->force);
+     slapi_ch_free_string(&rid_text);
+     slapi_ch_free((void **)&data);
++    g_decr_active_threadcnt();
+ }
+ 
+ /*
+@@ -3005,9 +3010,13 @@ replica_abort_task_thread(void *arg)
+     int release_it = 0;
+     int count = 0, rc = 0;
+ 
+-    if (!data) {
++    if (!data || slapi_is_shutting_down()) {
+         return; /* no data */
+     }
++
++    /* Increase active thread count to prevent a race condition at server shutdown */
++    g_incr_active_threadcnt();
++
+     if (data->task) {
+         slapi_task_inc_refcount(data->task);
+         slapi_log_err(SLAPI_LOG_PLUGIN, repl_plugin_name, "replica_abort_task_thread --> refcount incremented.\n");
+@@ -3134,6 +3143,7 @@ done:
+     slapi_ch_free_string(&data->certify);
+     slapi_sdn_free(&data->sdn);
+     slapi_ch_free((void **)&data);
++    g_decr_active_threadcnt();
+ }
+ 
+ static int
+-- 
+2.17.2
+

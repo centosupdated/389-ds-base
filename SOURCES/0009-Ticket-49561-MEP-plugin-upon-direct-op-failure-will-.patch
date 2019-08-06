@@ -1,0 +1,64 @@
+From 99802f5290466474ca2f1fdab0bf077ec736a013 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Mon, 18 Mar 2019 13:48:03 +0100
+Subject: [PATCH 2/4] Ticket 49561 - MEP plugin, upon direct op failure, will
+ delete twice the same managed entry
+
+Bug Description:
+	When a failure occurs during betxn_post plugin callback, the betxn_post plugins are called again.
+	This is to process some kind of undo action (for example usn or dna that manage counters).
+
+	If MEP plugin is called for a managing entry, it deletes the managed entry (that become a tombstone).
+	If later an other betxn_postop fails, then MEP is called again.
+	But as it does not detect the operation failure (for DEL and ADD), then it tries again
+	to delete the managed entry that is already a tombstone.
+
+Fix Description:
+	The MEP betxn_post plugin callbacks (ADD and DEL) should catch the operation failure
+	and return.
+	It is already in place for MODRDN and MOD.
+
+https://pagure.io/389-ds-base/issue/49561
+
+Reviewed by: Mark Reynold, thanks !!
+
+Platforms tested: F28
+
+Flag Day: no
+
+Doc impact: no
+---
+ ldap/servers/plugins/mep/mep.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/ldap/servers/plugins/mep/mep.c b/ldap/servers/plugins/mep/mep.c
+index 7f30f412d..a7b60e129 100644
+--- a/ldap/servers/plugins/mep/mep.c
++++ b/ldap/servers/plugins/mep/mep.c
+@@ -2471,6 +2471,11 @@ mep_add_post_op(Slapi_PBlock *pb)
+     slapi_log_err(SLAPI_LOG_TRACE, MEP_PLUGIN_SUBSYSTEM,
+                   "--> mep_add_post_op\n");
+ 
++    /* Just bail if we aren't ready to service requests yet. */
++    if (!mep_oktodo(pb)) {
++        return SLAPI_PLUGIN_SUCCESS;
++    }
++
+     /* Reload config if a config entry was added. */
+     if ((sdn = mep_get_sdn(pb))) {
+         if (mep_dn_is_config(sdn)) {
+@@ -2543,6 +2548,11 @@ mep_del_post_op(Slapi_PBlock *pb)
+     slapi_log_err(SLAPI_LOG_TRACE, MEP_PLUGIN_SUBSYSTEM,
+                   "--> mep_del_post_op\n");
+ 
++    /* Just bail if we aren't ready to service requests yet. */
++    if (!mep_oktodo(pb)) {
++        return SLAPI_PLUGIN_SUCCESS;
++    }
++
+     /* Reload config if a config entry was deleted. */
+     if ((sdn = mep_get_sdn(pb))) {
+         if (mep_dn_is_config(sdn))
+-- 
+2.17.2
+

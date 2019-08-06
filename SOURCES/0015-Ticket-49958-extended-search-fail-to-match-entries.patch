@@ -1,4 +1,4 @@
-From 02de69d6987b059459980b50de285c2fd7bb3e2c Mon Sep 17 00:00:00 2001
+From cfadaa740b34f1bc1b14db253d7a7cb25f7125d8 Mon Sep 17 00:00:00 2001
 From: Thierry Bordaz <tbordaz@redhat.com>
 Date: Mon, 24 Sep 2018 14:14:16 +0200
 Subject: [PATCH] Ticket 49958: extended search fail to match entries
@@ -25,17 +25,17 @@ Flag Day: no
 
 Doc impact: no
 ---
- .../tests/suites/filter/filter_test.py        | 203 ++++++++++++++++++
+ .../tests/suites/filter/filter_test.py        | 200 ++++++++++++++++++
  ldap/servers/plugins/collation/orfilter.c     |   4 +-
- 2 files changed, 204 insertions(+), 3 deletions(-)
+ 2 files changed, 201 insertions(+), 3 deletions(-)
 
 diff --git a/dirsrvtests/tests/suites/filter/filter_test.py b/dirsrvtests/tests/suites/filter/filter_test.py
-index 280db68a3..61c449989 100644
+index 280db68a3..4d2dd3055 100644
 --- a/dirsrvtests/tests/suites/filter/filter_test.py
 +++ b/dirsrvtests/tests/suites/filter/filter_test.py
-@@ -83,6 +83,209 @@ def test_filter_search_original_attrs(topology_st):
-     log.info('test_filter_search_original_attrs: PASSED')
+@@ -82,6 +82,206 @@ def test_filter_search_original_attrs(topology_st):
  
+     log.info('test_filter_search_original_attrs: PASSED')
  
 +@pytest.mark.bz1511462
 +def test_filter_scope_one(topology_st):
@@ -155,7 +155,6 @@ index 280db68a3..61c449989 100644
 +
 +    log.info('Testcase PASSED')
 +
-+
 +@pytest.mark.bz1615155
 +def test_extended_search(topology_st):
 +    """Test we can search with equality extended matching rule
@@ -238,11 +237,9 @@ index 280db68a3..61c449989 100644
 +    topology_st.standalone.log.info("Try to search with filter %s" % myfilter)
 +    ents = topology_st.standalone.search_s(SUFFIX, ldap.SCOPE_SUBTREE, myfilter)
 +    assert len(ents) == 1
-+
-+
+ 
  if __name__ == '__main__':
      # Run isolated
-     # -s for DEBUG mode
 diff --git a/ldap/servers/plugins/collation/orfilter.c b/ldap/servers/plugins/collation/orfilter.c
 index 7705de9d6..c092d77ca 100644
 --- a/ldap/servers/plugins/collation/orfilter.c

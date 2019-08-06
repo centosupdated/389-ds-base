@@ -1,0 +1,40 @@
+From 11f8ecf946c0b56d7d49f7b46429d153d5c19ee1 Mon Sep 17 00:00:00 2001
+From: German Parente <gparente@redhat.com>
+Date: Wed, 10 Oct 2018 10:24:08 +0200
+Subject: [PATCH] Ticket #49946 upgrade of 389-ds-base could remove replication
+ agreements.
+
+Bug Description:
+
+when a replication agreement starts with "cn=->...", the upgrade is removing
+the entry.
+
+Fix Description:
+
+a check is missing when re-building dse.ldif in "setup-ds.pl -u" that provoked this entry not to be re-added to the file.
+
+https://pagure.io/389-ds-base/issue/49946
+
+Author: German Parente <gparente@redhat.com>
+
+Review by: ???
+---
+ ldap/admin/src/scripts/FileConn.pm | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/admin/src/scripts/FileConn.pm b/ldap/admin/src/scripts/FileConn.pm
+index dcea70904..8a2a1afe6 100644
+--- a/ldap/admin/src/scripts/FileConn.pm
++++ b/ldap/admin/src/scripts/FileConn.pm
+@@ -360,7 +360,7 @@ sub add {
+         return $self->write();
+     }
+ 
+-    if (exists($self->{$ndn})) {
++    if ($ndn && exists($self->{$ndn})) {
+         $self->setErrorCode(LDAP_ALREADY_EXISTS);
+         return 0;
+     }
+-- 
+2.17.2
+

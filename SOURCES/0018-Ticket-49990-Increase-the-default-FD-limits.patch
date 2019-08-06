@@ -1,0 +1,270 @@
+From a825c288665556013a51a7efba2e07bc16ee4ee8 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 5 Apr 2019 09:16:02 -0400
+Subject: [PATCH] Ticket 49990 - Increase the default FD limits
+
+Description:  As discussed in the ticket, this fix sets the maxdescriptors
+              to the maximum allowed by the OS/systemd.  If this limit can
+              not be obtained then we fall back to 8192 as the limit
+
+https://pagure.io/389-ds-base/issue/49990
+
+Reviewed by: tbordaz & firstyear(Thanks!!)
+
+(cherry picked from commit 8ca142034a051122b78bdaa3a948d3c50d4cca7e)
+(cherry picked from commit 2c583a97cffa54a7da9922215ae37156174a37c5)
+---
+ .../suites/resource_limits/fdlimits_test.py   | 63 +++++++++++++++++++
+ ldap/servers/slapd/libglobs.c                 | 26 +++++---
+ ldap/servers/slapd/main.c                     |  5 +-
+ ldap/servers/slapd/proto-slap.h               |  4 +-
+ ldap/servers/slapd/slap.h                     |  6 +-
+ wrappers/systemd.template.service.in          |  1 -
+ wrappers/systemd.template.sysconfig           |  3 +-
+ 7 files changed, 90 insertions(+), 18 deletions(-)
+ create mode 100644 dirsrvtests/tests/suites/resource_limits/fdlimits_test.py
+
+diff --git a/dirsrvtests/tests/suites/resource_limits/fdlimits_test.py b/dirsrvtests/tests/suites/resource_limits/fdlimits_test.py
+new file mode 100644
+index 000000000..e5b14a747
+--- /dev/null
++++ b/dirsrvtests/tests/suites/resource_limits/fdlimits_test.py
+@@ -0,0 +1,63 @@
++import logging
++import pytest
++import os
++import ldap
++from lib389._constants import *
++from lib389.topologies import topology_st
++
++logging.getLogger(__name__).setLevel(logging.INFO)
++log = logging.getLogger(__name__)
++
++FD_ATTR = "nsslapd-maxdescriptors"
++SYSTEMD_VAL = "16384"
++CUSTOM_VAL = "9000"
++TOO_HIGH_VAL = "65536"
++TOO_LOW_VAL = "0"
++
++
++def test_fd_limits(topology_st):
++    """Test the default limits, and custom limits
++
++    :id: fa0a5106-612f-428f-84c0-9c85c34d0433
++    :setup: Standalone Instance
++    :steps:
++        1. Check default limit
++        2. Change default limit
++        3. Check invalid/too high limit is rejected
++        4. Check invalid/too low limit is rejected
++    :expectedresults:
++        1. Success
++        2. Success
++        3. Success
++        4  Success
++    """
++
++    # Check systemd default
++    max_fd = topology_st.standalone.config.get_attr_val_utf8(FD_ATTR)
++    assert max_fd == SYSTEMD_VAL
++
++    # Check custom value is applied
++    topology_st.standalone.config.set(FD_ATTR, CUSTOM_VAL)
++    max_fd = topology_st.standalone.config.get_attr_val_utf8(FD_ATTR)
++    assert max_fd == CUSTOM_VAL
++
++    # Attempt to use val that is too high
++    with pytest.raises(ldap.UNWILLING_TO_PERFORM):
++        topology_st.standalone.config.set(FD_ATTR, TOO_HIGH_VAL)
++    max_fd = topology_st.standalone.config.get_attr_val_utf8(FD_ATTR)
++    assert max_fd == CUSTOM_VAL
++
++    # Attempt to use val that is too low
++    with pytest.raises(ldap.OPERATIONS_ERROR):
++        topology_st.standalone.config.set(FD_ATTR, TOO_LOW_VAL)
++    max_fd = topology_st.standalone.config.get_attr_val_utf8(FD_ATTR)
++    assert max_fd == CUSTOM_VAL
++
++    log.info("Test PASSED")
++
++
++if __name__ == '__main__':
++    # Run isolated
++    # -s for DEBUG mode
++    CURRENT_FILE = os.path.realpath(__file__)
++    pytest.main(["-s", CURRENT_FILE])
+diff --git a/ldap/servers/slapd/libglobs.c b/ldap/servers/slapd/libglobs.c
+index 59f8d06d5..91c3a4a89 100644
+--- a/ldap/servers/slapd/libglobs.c
++++ b/ldap/servers/slapd/libglobs.c
+@@ -131,6 +131,7 @@
+ #if defined(LINUX)
+ #include <malloc.h>
+ #endif
++#include <sys/resource.h>
+ 
+ #define REMOVE_CHANGELOG_CMD "remove"
+ 
+@@ -1465,6 +1466,8 @@ void
+ FrontendConfig_init(void)
+ {
+     slapdFrontendConfig_t *cfg = getFrontendConfig();
++    struct rlimit rlp;
++    int64_t maxdescriptors = SLAPD_DEFAULT_MAXDESCRIPTORS;
+ 
+ #if SLAPI_CFG_USE_RWLOCK == 1
+     /* initialize the read/write configuration lock */
+@@ -1480,6 +1483,11 @@ FrontendConfig_init(void)
+         exit(-1);
+     }
+ #endif
++    /* Default the maximum fd's to the maximum allowed */
++    if (getrlimit(RLIMIT_NOFILE, &rlp) == 0) {
++        maxdescriptors = (int64_t)rlp.rlim_max;
++    }
++
+     /* Take the lock to make sure we barrier correctly. */
+     CFG_LOCK_WRITE(cfg);
+ 
+@@ -1514,7 +1522,7 @@ FrontendConfig_init(void)
+     /* minssf is applied to rootdse, by default */
+     init_minssf_exclude_rootdse = cfg->minssf_exclude_rootdse = LDAP_OFF;
+     cfg->validate_cert = SLAPD_DEFAULT_VALIDATE_CERT;
+-    cfg->maxdescriptors = SLAPD_DEFAULT_MAXDESCRIPTORS;
++    cfg->maxdescriptors = maxdescriptors;
+     cfg->groupevalnestlevel = SLAPD_DEFAULT_GROUPEVALNESTLEVEL;
+     cfg->snmp_index = SLAPD_DEFAULT_SNMP_INDEX;
+     cfg->SSLclientAuth = SLAPD_DEFAULT_SSLCLIENTAUTH;
+@@ -1665,8 +1673,7 @@ FrontendConfig_init(void)
+     init_ndn_cache_enabled = cfg->ndn_cache_enabled = LDAP_ON;
+     cfg->ndn_cache_max_size = SLAPD_DEFAULT_NDN_SIZE;
+     init_sasl_mapping_fallback = cfg->sasl_mapping_fallback = LDAP_OFF;
+-    init_ignore_vattrs =
+-        cfg->ignore_vattrs = LDAP_OFF;
++    init_ignore_vattrs = cfg->ignore_vattrs = LDAP_OFF;
+     cfg->sasl_max_bufsize = SLAPD_DEFAULT_SASL_MAXBUFSIZE;
+     cfg->unhashed_pw_switch = SLAPD_DEFAULT_UNHASHED_PW_SWITCH;
+     init_return_orig_type = cfg->return_orig_type = LDAP_OFF;
+@@ -4011,13 +4018,12 @@ config_set_maxthreadsperconn(const char *attrname, char *value, char *errorbuf,
+     return retVal;
+ }
+ 
+-#include <sys/resource.h>
+-int
++int32_t
+ config_set_maxdescriptors(const char *attrname, char *value, char *errorbuf, int apply)
+ {
+-    int retVal = LDAP_SUCCESS;
+-    long nValue = 0;
+-    int maxVal = 65535;
++    int32_t retVal = LDAP_SUCCESS;
++    int64_t nValue = 0;
++    int64_t maxVal = 65535;
+     struct rlimit rlp;
+     char *endp = NULL;
+ 
+@@ -5493,11 +5499,11 @@ config_get_maxthreadsperconn()
+     return slapi_atomic_load_32(&(slapdFrontendConfig->maxthreadsperconn), __ATOMIC_ACQUIRE);
+ }
+ 
+-int
++int64_t
+ config_get_maxdescriptors(void)
+ {
+     slapdFrontendConfig_t *slapdFrontendConfig = getFrontendConfig();
+-    int retVal;
++    int64_t retVal;
+ 
+     CFG_LOCK_READ(slapdFrontendConfig);
+     retVal = slapdFrontendConfig->maxdescriptors;
+diff --git a/ldap/servers/slapd/main.c b/ldap/servers/slapd/main.c
+index 219c91294..5e24b3b5f 100644
+--- a/ldap/servers/slapd/main.c
++++ b/ldap/servers/slapd/main.c
+@@ -1074,7 +1074,10 @@ main(int argc, char **argv)
+         slapi_ch_free((void **)&versionstring);
+     }
+ 
+-    /* -sduloutre: compute_init() and entry_computed_attr_init() moved up */
++    /* log the max fd limit as it is typically set in env/systemd */
++    slapi_log_err(SLAPI_LOG_INFO, "main",
++            "Setting the maximum file descriptor limit to: %ld\n",
++            config_get_maxdescriptors());
+ 
+     if (mcfg.slapd_exemode != SLAPD_EXEMODE_REFERRAL) {
+         int rc;
+diff --git a/ldap/servers/slapd/proto-slap.h b/ldap/servers/slapd/proto-slap.h
+index 79017e68d..a0648ca3c 100644
+--- a/ldap/servers/slapd/proto-slap.h
++++ b/ldap/servers/slapd/proto-slap.h
+@@ -383,7 +383,7 @@ int config_set_malloc_mxfast(const char *attrname, char *value, char *errorbuf,
+ int config_set_malloc_trim_threshold(const char *attrname, char *value, char *errorbuf, int apply);
+ int config_set_malloc_mmap_threshold(const char *attrname, char *value, char *errorbuf, int apply);
+ #endif
+-int config_set_maxdescriptors(const char *attrname, char *value, char *errorbuf, int apply);
++int32_t config_set_maxdescriptors(const char *attrname, char *value, char *errorbuf, int apply);
+ int config_set_localuser(const char *attrname, char *value, char *errorbuf, int apply);
+ 
+ int config_set_maxsimplepaged_per_conn(const char *attrname, char *value, char *errorbuf, int apply);
+@@ -465,7 +465,7 @@ char *config_get_workingdir(void);
+ char *config_get_encryptionalias(void);
+ int32_t config_get_threadnumber(void);
+ int config_get_maxthreadsperconn(void);
+-int config_get_maxdescriptors(void);
++int64_t config_get_maxdescriptors(void);
+ int config_get_reservedescriptors(void);
+ int config_get_ioblocktimeout(void);
+ int config_get_idletimeout(void);
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index 618e245b6..bce720974 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -351,8 +351,8 @@ typedef void (*VFPV)(); /* takes undefined arguments */
+ 
+ #define SLAPD_DEFAULT_PAGEDSIZELIMIT 0
+ #define SLAPD_DEFAULT_PAGEDSIZELIMIT_STR "0"
+-#define SLAPD_DEFAULT_MAXDESCRIPTORS 1024
+-#define SLAPD_DEFAULT_MAXDESCRIPTORS_STR "1024"
++#define SLAPD_DEFAULT_MAXDESCRIPTORS 8192
++#define SLAPD_DEFAULT_MAXDESCRIPTORS_STR "8192"
+ #define SLAPD_DEFAULT_MAX_FILTER_NEST_LEVEL 40
+ #define SLAPD_DEFAULT_MAX_FILTER_NEST_LEVEL_STR "40"
+ #define SLAPD_DEFAULT_GROUPEVALNESTLEVEL 0
+@@ -2254,7 +2254,7 @@ typedef struct _slapdFrontendConfig
+     int idletimeout;
+     slapi_int_t ioblocktimeout;
+     slapi_onoff_t lastmod;
+-    int maxdescriptors;
++    int64_t maxdescriptors;
+     int conntablesize;
+     slapi_int_t maxthreadsperconn;
+     int outbound_ldap_io_timeout;
+diff --git a/wrappers/systemd.template.service.in b/wrappers/systemd.template.service.in
+index 0d88900b6..4c1b13d98 100644
+--- a/wrappers/systemd.template.service.in
++++ b/wrappers/systemd.template.service.in
+@@ -28,7 +28,6 @@ EnvironmentFile=@initconfigdir@/@package_name@-%i
+ PIDFile=@localstatedir@/run/@package_name@/slapd-%i.pid
+ ExecStartPre=@sbindir@/ds_systemd_ask_password_acl @instconfigdir@/slapd-%i/dse.ldif
+ ExecStart=@sbindir@/ns-slapd -D @instconfigdir@/slapd-%i -i @localstatedir@/run/@package_name@/slapd-%i.pid
+-
+ # Hardening options:
+ # PrivateDevices=true
+ # ProtectSystem=true
+diff --git a/wrappers/systemd.template.sysconfig b/wrappers/systemd.template.sysconfig
+index 903876b17..76c004d40 100644
+--- a/wrappers/systemd.template.sysconfig
++++ b/wrappers/systemd.template.sysconfig
+@@ -7,7 +7,8 @@
+ 
+ # This controls the number of file handles avaliable. File handles
+ # correlate to sockets for the process, and our access to logs and
+-# databases.
++# databases.  Note, the configuration setting in Directory Server,
++# "nsslapd-maxdescriptors", can override this limit.
+ LimitNOFILE=16384
+ 
+ # You can limit the memory in the cgroup with these, and ns-slapd
+-- 
+2.17.2
+

@@ -1,0 +1,55 @@
+From addb07130e93bf8acb32178190451ba7cc9cc888 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 12 Mar 2019 16:03:29 -0400
+Subject: [PATCH] Ticket 50077 - Do not automatically turn automember postop
+ modifies on
+
+Description:  Although we have set the new postop processing on by
+              default in the template-dse.ldif, we do not want to
+              enable it by default for upgrades (only new installs).
+
+              So if the attribute is not set, it is assumed "off".
+
+https://pagure.io/389-ds-base/issue/50077
+
+Reviewed by: firstyear(Thanks!)
+
+(cherry picked from commit d318d060f49b67ed1b10f22b52f98e038afa356a)
+---
+ ldap/servers/plugins/automember/automember.c | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/ldap/servers/plugins/automember/automember.c b/ldap/servers/plugins/automember/automember.c
+index abd6df805..bb6ff1f8e 100644
+--- a/ldap/servers/plugins/automember/automember.c
++++ b/ldap/servers/plugins/automember/automember.c
+@@ -90,7 +90,7 @@ static void automember_task_export_destructor(Slapi_Task *task);
+ static void automember_task_map_destructor(Slapi_Task *task);
+ 
+ #define DEFAULT_FILE_MODE PR_IRUSR | PR_IWUSR
+-static uint64_t plugin_do_modify = 1;
++static uint64_t plugin_do_modify = 0;
+ static uint64_t plugin_is_betxn = 0;
+ 
+ /*
+@@ -345,15 +345,14 @@ automember_start(Slapi_PBlock *pb)
+     }
+ 
+     /* Check and set if we should process modify operations */
+-    plugin_do_modify = 1;  /* default is "on" */
+     if ((slapi_pblock_get(pb, SLAPI_ADD_ENTRY, &plugin_entry) == 0) && plugin_entry){
+         if ((do_modify = slapi_fetch_attr(plugin_entry, AUTOMEMBER_DO_MODIFY, NULL)) ) {
+             if (strcasecmp(do_modify, "on") && strcasecmp(do_modify, "off")) {
+                 slapi_log_err(SLAPI_LOG_ERR, AUTOMEMBER_PLUGIN_SUBSYSTEM,
+                               "automember_start - %s: invalid value \"%s\". Valid values are \"on\" or \"off\".  Using default of \"on\"\n",
+                               AUTOMEMBER_DO_MODIFY, do_modify);
+-            } else if (strcasecmp(do_modify, "off") == 0 ){
+-                plugin_do_modify = 0;
++            } else if (strcasecmp(do_modify, "on") == 0 ){
++                plugin_do_modify = 1;
+             }
+         }
+     }
+-- 
+2.17.2
+
