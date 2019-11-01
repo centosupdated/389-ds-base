@@ -1,0 +1,39 @@
+From f50dfbb61224e6a9516b93cd3d3957c1fde4798e Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 22 Aug 2019 10:26:24 -0400
+Subject: [PATCH] Issue 49624 - modrdn silently fails if DB deadlock occurs
+
+Bug Description:
+
+If a DB Deadlock error occurs during a modrdn operation the entry
+cache gets updated (corrupted), but the update is not applied to
+the database.
+
+Fix Description:
+
+Looks like there was a copy & paste error, and the wrong attribute
+was updated during the retry of the modrdn operation.
+
+relates: https://pagure.io/389-ds-base/issue/49624
+
+Reviewed by: lkrispenz (Thanks!)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_modrdn.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+index 65610d613..433ed88fb 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+@@ -251,7 +251,7 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+             slapi_pblock_get(pb, SLAPI_MODRDN_NEWSUPERIOR_SDN, &dn_newsuperiordn);
+             slapi_sdn_free(&dn_newsuperiordn);
+             slapi_pblock_set(pb, SLAPI_MODRDN_NEWSUPERIOR_SDN, orig_dn_newsuperiordn);
+-            orig_dn_newsuperiordn = slapi_sdn_dup(orig_dn_newsuperiordn);
++            dn_newsuperiordn = slapi_sdn_dup(orig_dn_newsuperiordn);
+             /* must duplicate ec before returning it to cache,
+              * which could free the entry. */
+             if ((tmpentry = backentry_dup(original_entry ? original_entry : ec)) == NULL) {
+-- 
+2.21.0
+
