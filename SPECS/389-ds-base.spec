@@ -25,7 +25,7 @@ ExcludeArch: i686
 
 %if %{bundle_jemalloc}
 %global jemalloc_name jemalloc
-%global jemalloc_ver 5.1.0
+%global jemalloc_ver 5.2.0
 %global __provides_exclude ^libjemalloc\\.so.*$
 %endif
 
@@ -42,13 +42,10 @@ ExcludeArch: i686
 # set PIE flag
 %global _hardened_build 1
 
-# RHEL minor version
-%global minor 10
-
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          1.4.0.20
-Release:          %{?relprefix}%{minor}%{?prerel}%{?dist}
+Version:          1.4.1.3
+Release:          %{?relprefix}7%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -94,6 +91,7 @@ BuildRequires: rust
 %endif
 BuildRequires:    pkgconfig
 BuildRequires:    pkgconfig(systemd)
+BuildRequires:    pkgconfig(krb5)
 
 # Needed to support regeneration of the autotool artifacts.
 BuildRequires:    autoconf
@@ -160,18 +158,40 @@ Requires:         perl-Errno >= 1.23-360
 Requires:         perl-DB_File
 Requires:         perl-Archive-Tar
 
+# Needed for password dictionary checks
+Requires:         cracklib-dicts
+
 # Picks up our systemd deps.
 %{?systemd_requires}
 
 Obsoletes:        %{name} <= 1.3.5.4
 
-Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}-%{minor}.tar.bz2
+Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}.tar.bz2
 # 389-ds-git.sh should be used to generate the source tarball from git
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
 %if %{bundle_jemalloc}
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
+Patch00:          0000-Issue-49602-Revise-replication-status-messages.patch
+Patch01:          0001-Issue-49875-Move-SystemD-service-config-to-a-drop-in.patch
+Patch02:          0002-Ticket-50355-NSS-can-change-the-requested-SSL-min-an.patch
+Patch03:          0003-Ticket-49361-Use-IPv6-friendly-network-functions.patch
+Patch04:          0004-Ticket-50431-Fix-covscan-warnings.patch
+Patch05:          0005-Issue-50431-Fix-regression-from-coverity-fix.patch
+Patch06:          0006-Revert-Issue-49960-Core-schema-contains-strings-inst.patch
+Patch07:          0007-Issue-50378-ACI-s-with-IPv4-and-IPv6-bind-rules-do-n.patch
+Patch08:          0008-Issue-50177-Add-a-new-CI-test-case-also-added-fixes-.patch
+Patch09:          0009-Ticket-50217-Implement-dsconf-security-section.patch
+Patch10:          0010-Issue-50431-Fix-regression-from-coverity-fix.patch
+Patch11:          0011-Ticket-50413-ds-replcheck-Always-display-the-Result-.patch
+Patch12:          0012-Issue-49239-Add-a-new-CI-test-case.patch
+Patch13:          0013-Ticket-50428-Log-the-actual-base-DN-when-the-search-.patch
+Patch14:          0014-Issue-50474-Unify-result-codes-for-add-and-modify-of.patch
+Patch15:          0015-Ticket-49789-By-default-do-not-manage-unhashed-passw.patch
+Patch16:          0016-Ticket-50329-2nd-Possible-Security-Issue-DOS-due-to-.patch
+Patch17:          0017-Issue-50538-cleanAllRUV-task-limit-is-not-enforced-f.patch
+Patch18:          0018-CVE-2019-14824-BZ-1748201-deref-plugin-displays-rest.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -211,7 +231,7 @@ package to be installed with just the -libs package and without the main package
 Summary:          Legacy utilities for 389 Directory Server (%{variant})
 Group:            System Environment/Daemons
 Obsoletes:        %{name} <= 1.4.0.9
-Requires:         %{name} = %{version}-%{release}
+Requires:         %{name}-libs = %{version}-%{release}
 %if %{use_perl}
 # for setup-ds.pl to support ipv6
 %if %{use_Socket6}
@@ -269,7 +289,6 @@ Group:            Development/Libraries
 Requires: openssl
 Requires: iproute
 Requires: platform-python
-Requires: python%{python3_pkgversion}-pytest
 Requires: python%{python3_pkgversion}-ldap
 Requires: python%{python3_pkgversion}-six
 Requires: python%{python3_pkgversion}-pyasn1
@@ -294,9 +313,9 @@ Requires:         python%{python3_pkgversion}-lib389
 A cockpit UI Plugin for configuring and administering the 389 Directory Server
 
 %prep
-%autosetup -p1 -v -n %{name}-%{version}-%{minor}%{?prerel}
+%autosetup -p1 -v -n %{name}-%{version}%{?prerel}
 %if %{bundle_jemalloc}
-%setup -q -n %{name}-%{version}-%{minor}%{?prerel} -T -D -b 3
+%setup -q -n %{name}-%{version}%{?prerel} -T -D -b 3
 %endif
 cp %{SOURCE2} README.devel
 
@@ -317,6 +336,8 @@ RUST_FLAGS="--enable-rust"
 
 %if !%{use_perl}
 PERL_FLAGS="--disable-perl"
+%else
+PERL_FLAGS="--enable-perl"
 %endif
 
 %if %{use_clang}
@@ -356,10 +377,10 @@ pushd ./src/lib389
 popd
 # argparse-manpage dynamic man pages have hardcoded man v1 in header,
 # need to change it to v8
-sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/src/lib389/man/dsconf.8
-sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/src/lib389/man/dsctl.8
-sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/src/lib389/man/dsidm.8
-sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/src/lib389/man/dscreate.8
+sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}%{?prerel}/src/lib389/man/dsconf.8
+sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}%{?prerel}/src/lib389/man/dsctl.8
+sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}%{?prerel}/src/lib389/man/dsidm.8
+sed -i  "1s/\"1\"/\"8\"/" %{_builddir}/%{name}-%{version}%{?prerel}/src/lib389/man/dscreate.8
 
 # Generate symbolic info for debuggers
 export XCFLAGS=$RPM_OPT_FLAGS
@@ -379,7 +400,7 @@ find %{buildroot}%{_datadir}/cockpit/389-console -type d | sed -e "s@%{buildroot
 find %{buildroot}%{_datadir}/cockpit/389-console -type f | sed -e "s@%{buildroot}@@" >> cockpit.list
 
 # Copy in our docs from doxygen.
-cp -r %{_builddir}/%{name}-%{version}-%{minor}%{?prerel}/man/man3 $RPM_BUILD_ROOT/%{_mandir}/man3
+cp -r %{_builddir}/%{name}-%{version}%{?prerel}/man/man3 $RPM_BUILD_ROOT/%{_mandir}/man3
 
 # lib389
 pushd src/lib389
@@ -405,8 +426,8 @@ sed -i -e 's|#{{PERL-EXEC}}|#!/usr/bin/perl|' $RPM_BUILD_ROOT%{_datadir}/%{pkgna
 %if %{bundle_jemalloc}
 pushd ../%{jemalloc_name}-%{jemalloc_ver}
 make DESTDIR="$RPM_BUILD_ROOT" install_lib install_bin
-cp -pa COPYING ../%{name}-%{version}-%{minor}%{?prerel}/COPYING.jemalloc
-cp -pa README ../%{name}-%{version}-%{minor}%{?prerel}/README.jemalloc
+cp -pa COPYING ../%{name}-%{version}%{?prerel}/COPYING.jemalloc
+cp -pa README ../%{name}-%{version}%{?prerel}/README.jemalloc
 popd
 %endif
 
@@ -550,8 +571,6 @@ exit 0
 %config(noreplace)%{_sysconfdir}/%{pkgname}/config/slapd-collations.conf
 %config(noreplace)%{_sysconfdir}/%{pkgname}/config/certmap.conf
 %config(noreplace)%{_sysconfdir}/%{pkgname}/config/template-initconfig
-%config(noreplace)%{_sysconfdir}/sysconfig/%{pkgname}
-%config(noreplace)%{_sysconfdir}/sysconfig/%{pkgname}.systemd
 %{_datadir}/%{pkgname}
 %exclude %{_datadir}/%{pkgname}/script-templates
 %exclude %{_datadir}/%{pkgname}/updates
@@ -590,14 +609,6 @@ exit 0
 %{_mandir}/man8/dbverify.8.gz
 %{_sbindir}/ldif2db
 %{_mandir}/man8/ldif2db.8.gz
-%{_sbindir}/restart-dirsrv
-%{_mandir}/man8/restart-dirsrv.8.gz
-%{_sbindir}/start-dirsrv
-%{_mandir}/man8/start-dirsrv.8.gz
-%{_sbindir}/status-dirsrv
-%{_mandir}/man8/status-dirsrv.8.gz
-%{_sbindir}/stop-dirsrv
-%{_mandir}/man8/stop-dirsrv.8.gz
 %{_sbindir}/upgradedb
 %{_mandir}/man8/upgradedb.8.gz
 %{_sbindir}/vlvindex
@@ -689,6 +700,14 @@ exit 0
 %{_mandir}/man8/suffix2instance.8.gz
 %{_sbindir}/upgradednformat
 %{_mandir}/man8/upgradednformat.8.gz
+%{_sbindir}/restart-dirsrv
+%{_mandir}/man8/restart-dirsrv.8.gz
+%{_sbindir}/start-dirsrv
+%{_mandir}/man8/start-dirsrv.8.gz
+%{_sbindir}/status-dirsrv
+%{_mandir}/man8/status-dirsrv.8.gz
+%{_sbindir}/stop-dirsrv
+%{_mandir}/man8/stop-dirsrv.8.gz
 %if %{use_perl}
 %{_datadir}/%{pkgname}/properties/*.res
 %{_datadir}/%{pkgname}/script-templates
@@ -764,23 +783,49 @@ exit 0
 %{_mandir}/man8/dsctl.8.gz
 %{_sbindir}/dsidm
 %{_mandir}/man8/dsidm.8.gz
+%{_sbindir}/dscontainer
 
 %files -n cockpit-389-ds -f cockpit.list
-%{_datarootdir}/metainfo/389-console/org.cockpit-project.389-console.metainfo.xml
+%{_datarootdir}/metainfo/389-console/org.port389.cockpit_console.metainfo.xml
 %doc README.md
 
 %changelog
-* Wed Apr 24 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.0.20-10
-- Bump version to 1.4.0.20-10
-- Resolves: Bug 1690024 - rebase lib389 to pull in all the dscreate fixes
+* Tue Sep 3 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.1.3-7
+- Bump version to 1.4.1.3-7
+- Resolves: Bug 1748201 - EMBARGOED CVE-2019-14824 389-ds:1.4/389-ds-base: 389-ds and IDM: allows authenticated unprivileged user to retrieve content of userPassword field for any user
 
-* Wed Apr 10 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.0.20-9
-- Bump version to 1.4.0.20-9
-- Resolves: Bug 1690024 - ipa role-mod DatabaseError changing cn (missing commit from last release)
+* Thu Aug 22 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.1.3-6
+- Bump version to 1.4.1.3-6
+- Resolves: Bug 1739183 - CleanAllRUV task limit not enforced
 
-* Tue Mar 19 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.0.20-8
-- Bump version to 1.4.0.20-8
-- Resolves: Bug 1690024 - ipa role-mod DatabaseError changing cn (entry cache corruption)
+* Fri Jul 26 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.1.3-5
+- Bump verison to 1.4.1.3-5
+- Resolves: Bug 1720331 - Log the actual base DN when the search fails with "invalid attribute request"
+- Resolves: Bug 1725815 - consistency in the replication error codes while setting nsds5replicaid=65535
+- Resolves: Bug 1592228 - CVE-2018-10871 389-ds-base: replication and the Retro Changelog plugin store plaintext password by default
+- Resolves: Bug 1699043 - CVE-2019-3883 389-ds-base: DoS via hanging secured connections 
+- Resolves: Bug 1444876 - Add new keyword to access logging when buffer capacity is exceeded
+
+* Fri Jul 12 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.1.3-4
+- Bump verison to 1.4.1.3-4
+- Resolves: Bug 1712467 - Fix schema OID issue that came over from rebase
+
+* Fri Jun 28 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.1.3-3
+- Bump verison to 1.4.1.3-3
+- Resolves: Bug 1654056 - /usr/lib/systemd/system/dirsrv@.service:40: .include directives are deprecated
+- Resolves: Bug 1706224 - Protocol setting is inconsistent in FIPS mode
+- Resolves: Bug 1715675 - Fix potential ipv6 issues
+- Resolves: Bug 1717540 - Address covscan warnings
+
+* Fri May 24 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.1.3-2
+- Bump version to 1.4.1.3-2
+- Resolves: Bug 1544973 - [RFE] IPA replica stuck at last update status: Error (18) Replication error acquiring replica: Incremental update transient error. 
+
+* Fri May 24 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.1.3-1
+- Bump version to 1.4.1.3-1
+- Resolves: Bug 1633718 - 389-ds module: Switched Requires from "python3" to "platform-python"
+- Resolves: Bug 1654059 - 389-ds-base: dscreate and dsconf print DM's password in verbose mode
+- Resolves: Bug 1712467 - Rebase 389-ds-base on RHEL 8.1 
 
 * Fri Feb 01 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.0.20-7
 - Bump version to 1.4.0.20-7

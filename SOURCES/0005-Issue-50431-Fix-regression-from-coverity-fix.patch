@@ -1,0 +1,138 @@
+From 6aa839f96f5ac880d45b0e98ed05445784476745 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 13 Jun 2019 17:55:25 -0400
+Subject: [PATCH] Issue 50431 - Fix regression from coverity fix
+
+Description:  Fix a regression from the initial coverity commit
+              where we did not allow NULL pointers to set into
+              the pblock.  They were false positives reported by
+              covscan.
+
+https://pagure.io/389-ds-base/issue/50431
+
+Reviewed by: mreynolds (one line commit rule)
+---
+ ldap/servers/plugins/acl/acleffectiverights.c | 4 +---
+ ldap/servers/plugins/views/views.c            | 4 +---
+ ldap/servers/slapd/back-ldbm/vlv_srch.c       | 3 ++-
+ ldap/servers/slapd/dse.c                      | 6 ++----
+ ldap/servers/slapd/opshared.c                 | 3 +--
+ ldap/servers/slapd/plugin_internal_op.c       | 3 +--
+ ldap/servers/slapd/plugin_syntax.c            | 4 +---
+ 7 files changed, 9 insertions(+), 18 deletions(-)
+
+diff --git a/ldap/servers/plugins/acl/acleffectiverights.c b/ldap/servers/plugins/acl/acleffectiverights.c
+index 5dd46a064..8a34ac5eb 100644
+--- a/ldap/servers/plugins/acl/acleffectiverights.c
++++ b/ldap/servers/plugins/acl/acleffectiverights.c
+@@ -1030,9 +1030,7 @@ bailout:
+      * slapi_pblock_set() will free any previous data, and
+      * pblock_done() will free SLAPI_PB_RESULT_TEXT.
+      */
+-    if (gerstr) {
+-        slapi_pblock_set(pb, SLAPI_PB_RESULT_TEXT, gerstr);
+-    }
++    slapi_pblock_set(pb, SLAPI_PB_RESULT_TEXT, gerstr);
+ 
+     if (!iscritical) {
+         /*
+diff --git a/ldap/servers/plugins/views/views.c b/ldap/servers/plugins/views/views.c
+index 5d8464761..64e305a3f 100644
+--- a/ldap/servers/plugins/views/views.c
++++ b/ldap/servers/plugins/views/views.c
+@@ -1760,9 +1760,7 @@ view_search_rewrite_callback(Slapi_PBlock *pb)
+ #endif
+ 
+     /* make it happen */
+-    if (outFilter) {
+-        slapi_pblock_set(pb, SLAPI_SEARCH_FILTER, outFilter);
+-    }
++    slapi_pblock_set(pb, SLAPI_SEARCH_FILTER, outFilter);
+ 
+     ret = -2;
+ 
+diff --git a/ldap/servers/slapd/back-ldbm/vlv_srch.c b/ldap/servers/slapd/back-ldbm/vlv_srch.c
+index 1ac3e009e..65b876647 100644
+--- a/ldap/servers/slapd/back-ldbm/vlv_srch.c
++++ b/ldap/servers/slapd/back-ldbm/vlv_srch.c
+@@ -168,8 +168,9 @@ vlvSearch_init(struct vlvSearch *p, Slapi_PBlock *pb, const Slapi_Entry *e, ldbm
+ 
+             /* switch context back to the DSE backend */
+             slapi_pblock_set(pb, SLAPI_BACKEND, oldbe);
+-            if (oldbe)
++            if (oldbe) {
+                 slapi_pblock_set(pb, SLAPI_PLUGIN, oldbe->be_database);
++            }
+         }
+ 
+         /* make (&(parentid=idofbase)(|(originalfilter)(objectclass=referral))) */
+diff --git a/ldap/servers/slapd/dse.c b/ldap/servers/slapd/dse.c
+index 125684329..8f2a14c9a 100644
+--- a/ldap/servers/slapd/dse.c
++++ b/ldap/servers/slapd/dse.c
+@@ -2530,8 +2530,7 @@ dse_delete(Slapi_PBlock *pb) /* JCM There should only be one exit point from thi
+     dse_call_callback(pdse, pb, SLAPI_OPERATION_DELETE, DSE_FLAG_POSTOP, ec, NULL, &returncode, returntext);
+ done:
+     slapi_pblock_get(pb, SLAPI_DELETE_BEPOSTOP_ENTRY, &orig_entry);
+-    if (ec)
+-        slapi_pblock_set(pb, SLAPI_DELETE_BEPOSTOP_ENTRY, ec);
++    slapi_pblock_set(pb, SLAPI_DELETE_BEPOSTOP_ENTRY, ec);
+     /* make sure OPRETURN and RESULT_CODE are set */
+     slapi_pblock_get(pb, SLAPI_PLUGIN_OPRETURN, &rc);
+     if (returncode || rc) {
+@@ -2572,8 +2571,7 @@ done:
+             rc = LDAP_UNWILLING_TO_PERFORM;
+         }
+     }
+-    if (orig_entry)
+-        slapi_pblock_set(pb, SLAPI_DELETE_BEPOSTOP_ENTRY, orig_entry);
++    slapi_pblock_set(pb, SLAPI_DELETE_BEPOSTOP_ENTRY, orig_entry);
+     slapi_send_ldap_result(pb, returncode, NULL, returntext, 0, NULL);
+     return dse_delete_return(returncode, ec);
+ }
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index dac42eb13..dd6917363 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -998,8 +998,7 @@ free_and_return_nolock:
+         slapi_sdn_free(&sdn);
+     }
+     slapi_sdn_free(&basesdn);
+-    if (orig_sdn)
+-        slapi_pblock_set(pb, SLAPI_SEARCH_TARGET_SDN, orig_sdn);
++    slapi_pblock_set(pb, SLAPI_SEARCH_TARGET_SDN, orig_sdn);
+ 
+     slapi_ch_free_string(&proxydn);
+     slapi_ch_free_string(&proxystr);
+diff --git a/ldap/servers/slapd/plugin_internal_op.c b/ldap/servers/slapd/plugin_internal_op.c
+index 622daffdb..9da266b61 100644
+--- a/ldap/servers/slapd/plugin_internal_op.c
++++ b/ldap/servers/slapd/plugin_internal_op.c
+@@ -368,8 +368,7 @@ seq_internal_callback_pb(Slapi_PBlock *pb, void *callback_data, plugin_result_ca
+     slapi_pblock_set(pb, SLAPI_BACKEND, be);
+     slapi_pblock_set(pb, SLAPI_PLUGIN, be->be_database);
+     slapi_pblock_set(pb, SLAPI_SEQ_ATTRNAME, attrname);
+-    if (val)
+-        slapi_pblock_set(pb, SLAPI_SEQ_VAL, val);
++    slapi_pblock_set(pb, SLAPI_SEQ_VAL, val);
+     slapi_pblock_set(pb, SLAPI_REQCONTROLS, controls);
+ 
+     /* set actions taken to process the operation */
+diff --git a/ldap/servers/slapd/plugin_syntax.c b/ldap/servers/slapd/plugin_syntax.c
+index dc7106da5..e208442d5 100644
+--- a/ldap/servers/slapd/plugin_syntax.c
++++ b/ldap/servers/slapd/plugin_syntax.c
+@@ -247,9 +247,7 @@ plugin_call_syntax_filter_sub_sv(
+             Operation *op = NULL;
+             /* to pass SLAPI_SEARCH_TIMELIMIT & SLAPI_OPINITATED_TIME */
+             slapi_pblock_get(pb, SLAPI_OPERATION, &op);
+-            if (op) {
+-                slapi_pblock_set(pipb, SLAPI_OPERATION, op);
+-            }
++            slapi_pblock_set(pipb, SLAPI_OPERATION, op);
+         }
+         rc = (*sub_fn)(pipb, fsub->sf_initial, fsub->sf_any, fsub->sf_final, va);
+     } else {
+-- 
+2.21.0
+

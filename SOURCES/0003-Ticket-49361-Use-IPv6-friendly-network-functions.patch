@@ -1,0 +1,1002 @@
+From a652ff67c89888a61ce3da7cc55c45fb1f63cf7f Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 30 May 2019 16:52:58 -0400
+Subject: [PATCH] Ticket 49361 - Use IPv6 friendly network functions
+
+Description:  We use these functions that are not reliable with IPv6:
+
+                 - gethostbyname()
+                 - inet_ntoa()
+                 - inet_aton()
+                 - inet_addr()
+
+              This patch replaces these calls using one of the following
+              preferred functions:
+
+                  - inet_ntop()
+                  - inet_pton()
+
+              Also fixed a few failures in the replication CI test
+              regression_test.py as replication uses code touched by this
+              patch.
+
+ASAN approved
+
+https://pagure.io/389-ds-base/issue/49361
+
+Reviewed by: firstyear(Thanks!)
+---
+ Makefile.am                                   |   2 -
+ configure.ac                                  |   2 +-
+ .../suites/replication/regression_test.py     |  53 ++++---
+ include/base/util.h                           |   3 -
+ ldap/include/portable.h                       |  50 ------
+ ldap/servers/slapd/connection.c               |  70 +++++----
+ ldap/servers/slapd/localhost.c                |  61 ++++----
+ ldap/servers/slapd/tools/ldclt/repcheck.c     |  30 +++-
+ ldap/servers/slapd/tools/ldclt/repslave.c     |  25 ++-
+ lib/base/dns.cpp                              | 142 ------------------
+ lib/base/net.cpp                              |  66 --------
+ 11 files changed, 134 insertions(+), 370 deletions(-)
+ delete mode 100644 lib/base/dns.cpp
+ delete mode 100644 lib/base/net.cpp
+
+diff --git a/Makefile.am b/Makefile.am
+index de9e0c460..c23686ea3 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -1260,12 +1260,10 @@ libns_dshttpd_la_SOURCES = lib/libaccess/access_plhash.cpp \
+ 	lib/libadmin/template.c \
+ 	lib/libadmin/util.c \
+ 	lib/base/crit.cpp \
+-	lib/base/dns.cpp \
+ 	lib/base/dnsdmain.cpp \
+ 	lib/base/ereport.cpp \
+ 	lib/base/file.cpp \
+ 	lib/base/fsmutex.cpp \
+-	lib/base/net.cpp \
+ 	lib/base/nscperror.c \
+ 	lib/base/plist.cpp \
+ 	lib/base/pool.cpp \
+diff --git a/configure.ac b/configure.ac
+index d329e84a9..0cc36fabe 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -76,7 +76,7 @@ AC_FUNC_STAT
+ AC_FUNC_STRERROR_R
+ AC_FUNC_STRFTIME
+ AC_FUNC_VPRINTF
+-AC_CHECK_FUNCS([endpwent ftruncate getcwd gethostbyname inet_ntoa localtime_r memmove memset mkdir munmap putenv rmdir setrlimit socket strcasecmp strchr strcspn strdup strerror strncasecmp strpbrk strrchr strstr strtol tzset])
++AC_CHECK_FUNCS([endpwent ftruncate getcwd getaddrinfo inet_pton inet_ntop localtime_r memmove memset mkdir munmap putenv rmdir setrlimit socket strcasecmp strchr strcspn strdup strerror strncasecmp strpbrk strrchr strstr strtol tzset])
+ 
+ # These functions are *required* without option.
+ AC_CHECK_FUNCS([clock_gettime], [], AC_MSG_ERROR([unable to locate required symbol clock_gettime]))
+diff --git a/dirsrvtests/tests/suites/replication/regression_test.py b/dirsrvtests/tests/suites/replication/regression_test.py
+index cf34a1a6a..830ef63ab 100644
+--- a/dirsrvtests/tests/suites/replication/regression_test.py
++++ b/dirsrvtests/tests/suites/replication/regression_test.py
+@@ -13,11 +13,9 @@ from lib389.idm.user import TEST_USER_PROPERTIES, UserAccounts
+ from lib389.utils import *
+ from lib389.topologies import topology_m2 as topo_m2, TopologyMain, topology_m3 as topo_m3, create_topology, _remove_ssca_db
+ from lib389._constants import *
+-from . import get_repl_entries
+ from lib389.idm.organizationalunit import OrganizationalUnits
+ from lib389.agreement import Agreements
+ from lib389.idm.user import UserAccount
+-from lib389 import Entry
+ from lib389.idm.group import Groups, Group
+ from lib389.replica import Replicas, ReplicationManager
+ from lib389.changelog import Changelog5
+@@ -40,6 +38,7 @@ else:
+     logging.getLogger(__name__).setLevel(logging.INFO)
+ log = logging.getLogger(__name__)
+ 
++
+ def find_start_location(file, no):
+     log_pattern = re.compile("slapd_daemon - slapd started.")
+     count = 0
+@@ -59,7 +58,7 @@ def find_start_location(file, no):
+ def pattern_errorlog(file, log_pattern, start_location=0):
+ 
+     count = 0
+-    log.debug("_pattern_errorlog: start from the beginning" )
++    log.debug("_pattern_errorlog: start from the beginning")
+     file.seek(start_location)
+ 
+     # Use a while true iteration because 'for line in file: hit a
+@@ -76,6 +75,7 @@ def pattern_errorlog(file, log_pattern, start_location=0):
+     log.debug("_pattern_errorlog: complete (count=%d)" % count)
+     return count
+ 
++
+ def _move_ruv(ldif_file):
+     """ Move RUV entry in an ldif file to the top"""
+ 
+@@ -108,16 +108,13 @@ def topo_with_sigkill(request):
+         subprocess.Popen(cmd, stdout=subprocess.PIPE)
+ 
+     def fin():
++        # Kill the hanging process at the end of test to prevent failures in the following tests
+         if DEBUGGING:
+-            # Kill the hanging process at the end of test to prevent failures in the following tests
+             [_kill_ns_slapd(inst) for inst in topology]
+-            #[inst.stop() for inst in topology]
+         else:
+-            # Kill the hanging process at the end of test to prevent failures in the following tests
+             [_kill_ns_slapd(inst) for inst in topology]
+             assert _remove_ssca_db(topology)
+             [inst.delete() for inst in topology if inst.exists()]
+-
+     request.addfinalizer(fin)
+ 
+     return topology
+@@ -167,6 +164,7 @@ def test_double_delete(topo_m2, create_entry):
+     repl.test_replication(m1, m2)
+     repl.test_replication(m2, m1)
+ 
++
+ @pytest.mark.bz1506831
+ def test_repl_modrdn(topo_m2):
+     """Test that replicated MODRDN does not break replication
+@@ -228,10 +226,10 @@ def test_repl_modrdn(topo_m2):
+     topo_m2.pause_all_replicas()
+ 
+     log.info("Apply modrdn to M1 - move test user from OU A -> C")
+-    master1.rename_s(tuser_A.dn,'uid=testuser1',newsuperior=OU_C.dn,delold=1)
++    master1.rename_s(tuser_A.dn, 'uid=testuser1', newsuperior=OU_C.dn, delold=1)
+ 
+     log.info("Apply modrdn on M2 - move test user from OU B -> C")
+-    master2.rename_s(tuser_B.dn,'uid=testuser1',newsuperior=OU_C.dn,delold=1)
++    master2.rename_s(tuser_B.dn, 'uid=testuser1', newsuperior=OU_C.dn, delold=1)
+ 
+     log.info("Start Replication")
+     topo_m2.resume_all_replicas()
+@@ -252,7 +250,6 @@ def test_repl_modrdn(topo_m2):
+     repl.test_replication(master2, master1)
+ 
+ 
+-
+ def test_password_repl_error(topo_m2, create_entry):
+     """Check that error about userpassword replication is properly logged
+ 
+@@ -329,7 +326,7 @@ def test_invalid_agmt(topo_m2):
+             'cn': 'whatever',
+             'nsDS5ReplicaRoot': DEFAULT_SUFFIX,
+             'nsDS5ReplicaBindDN': 'cn=replication manager,cn=config',
+-            'nsDS5ReplicaBindMethod': 'simple' ,
++            'nsDS5ReplicaBindMethod': 'simple',
+             'nsDS5ReplicaTransportInfo': 'LDAP',
+             'nsds5replicaTimeout': '5',
+             'description': "test agreement",
+@@ -344,6 +341,7 @@ def test_invalid_agmt(topo_m2):
+     repl.test_replication(m1, m2)
+     repl.test_replication(m2, m1)
+ 
++
+ def test_fetch_bindDnGroup(topo_m2):
+     """Check the bindDNGroup is fetched on first replication session
+ 
+@@ -380,13 +378,13 @@ def test_fetch_bindDnGroup(topo_m2):
+     M2 = topo_m2.ms['master2']
+ 
+     # Enable replication log level. Not really necessary
+-    M1.modify_s('cn=config',[(ldap.MOD_REPLACE, 'nsslapd-errorlog-level', b'8192')])
+-    M2.modify_s('cn=config',[(ldap.MOD_REPLACE, 'nsslapd-errorlog-level', b'8192')])
++    M1.modify_s('cn=config', [(ldap.MOD_REPLACE, 'nsslapd-errorlog-level', b'8192')])
++    M2.modify_s('cn=config', [(ldap.MOD_REPLACE, 'nsslapd-errorlog-level', b'8192')])
+ 
+     # Create a group and a user
+     PEOPLE = "ou=People,%s" % SUFFIX
+     PASSWD = 'password'
+-    REPL_MGR_BOUND_DN='repl_mgr_bound_dn'
++    REPL_MGR_BOUND_DN = 'repl_mgr_bound_dn'
+ 
+     uid = REPL_MGR_BOUND_DN.encode()
+     users = UserAccounts(M1, PEOPLE, rdn=None)
+@@ -396,14 +394,12 @@ def test_fetch_bindDnGroup(topo_m2):
+ 
+     groups_M1 = Groups(M1, DEFAULT_SUFFIX)
+     group_properties = {
+-        'cn' : 'group1',
+-        'description' : 'testgroup'}
++        'cn': 'group1',
++        'description': 'testgroup'}
+     group_M1 = groups_M1.create(properties=group_properties)
+     group_M2 = Group(M2, group_M1.dn)
+     assert(not group_M1.is_member(create_user.dn))
+ 
+-
+-
+     # Check that M1 and M2 are in sync
+     repl = ReplicationManager(DEFAULT_SUFFIX)
+     repl.wait_for_replication(M1, M2, timeout=20)
+@@ -414,13 +410,11 @@ def test_fetch_bindDnGroup(topo_m2):
+     replica.apply_mods([(ldap.MOD_REPLACE, 'nsDS5ReplicaBindDnGroupCheckInterval', '60'),
+                         (ldap.MOD_REPLACE, 'nsDS5ReplicaBindDnGroup', group_M1.dn)])
+ 
+-
+     replicas = Replicas(M2)
+     replica = replicas.list()[0]
+     replica.apply_mods([(ldap.MOD_REPLACE, 'nsDS5ReplicaBindDnGroupCheckInterval', '60'),
+                         (ldap.MOD_REPLACE, 'nsDS5ReplicaBindDnGroup', group_M1.dn)])
+ 
+-
+     # Then pause the replication agreement to prevent them trying to acquire
+     # while the user is not member of the group
+     topo_m2.pause_all_replicas()
+@@ -432,7 +426,6 @@ def test_fetch_bindDnGroup(topo_m2):
+         agmt.replace('nsDS5ReplicaBindDN', create_user.dn.encode())
+         agmt.replace('nsds5ReplicaCredentials', PASSWD.encode())
+ 
+-
+     # Key step
+     # The restart will fetch the group/members define in the replica
+     #
+@@ -451,8 +444,8 @@ def test_fetch_bindDnGroup(topo_m2):
+     topo_m2.resume_all_replicas()
+ 
+     # trigger updates to be sure to have a replication session, giving some time
+-    M1.modify_s(create_user.dn,[(ldap.MOD_ADD, 'description', b'value_1_1')])
+-    M2.modify_s(create_user.dn,[(ldap.MOD_ADD, 'description', b'value_2_2')])
++    M1.modify_s(create_user.dn, [(ldap.MOD_ADD, 'description', b'value_1_1')])
++    M2.modify_s(create_user.dn, [(ldap.MOD_ADD, 'description', b'value_2_2')])
+     time.sleep(10)
+ 
+     # Check replication is working
+@@ -494,12 +487,13 @@ def test_fetch_bindDnGroup(topo_m2):
+     count = pattern_errorlog(errorlog_M1, regex, start_location=restart_location_M1)
+     assert(count <= 1)
+     count = pattern_errorlog(errorlog_M2, regex, start_location=restart_location_M2)
+-    assert(count <=1)
++    assert(count <= 1)
+ 
+     if DEBUGGING:
+         # Add debugging steps(if any)...
+         pass
+ 
++
+ def test_cleanallruv_repl(topo_m3):
+     """Test that cleanallruv could not break replication if anchor csn in ruv originated in deleted replica
+     :id: 46faba9a-897e-45b8-98dc-aec7fa8cec9a
+@@ -546,7 +540,7 @@ def test_cleanallruv_repl(topo_m3):
+     user_props = TEST_USER_PROPERTIES.copy()
+ 
+     user_props.update({'uid': "testuser10"})
+-    user10 =  users_m1.create(properties=user_props)
++    user10 = users_m1.create(properties=user_props)
+ 
+     user_props.update({'uid': "testuser20"})
+     user20 = users_m2.create(properties=user_props)
+@@ -587,7 +581,7 @@ def test_cleanallruv_repl(topo_m3):
+     # ClearRuv is launched but with Force
+     M3.stop()
+     M1.tasks.cleanAllRUV(suffix=SUFFIX, replicaid='3',
+-                        force=True,args={TASK_WAIT: False})
++                         force=True, args={TASK_WAIT: False})
+ 
+     # here M1 should clear 31
+     M2.start()
+@@ -595,11 +589,16 @@ def test_cleanallruv_repl(topo_m3):
+     M1.agreement.resume(m1_m2[0].dn)
+     time.sleep(10)
+ 
+-    #Check the users after CleanRUV
++    # Check the users after CleanRUV
+     expected_m1_users = [user31.dn, user11.dn, user21.dn, user32.dn, user33.dn, user12.dn]
++    expected_m1_users = [x.lower() for x in expected_m1_users]
+     expected_m2_users = [user31.dn, user11.dn, user21.dn, user12.dn]
++    expected_m2_users = [x.lower() for x in expected_m2_users]
++
+     current_m1_users = [user.dn for user in users_m1.list()]
++    current_m1_users = [x.lower() for x in current_m1_users]
+     current_m2_users = [user.dn for user in users_m2.list()]
++    current_m2_users = [x.lower() for x in current_m2_users]
+ 
+     assert set(expected_m1_users).issubset(current_m1_users)
+     assert set(expected_m2_users).issubset(current_m2_users)
+diff --git a/include/base/util.h b/include/base/util.h
+index 94506d5e0..8ad5ddfbb 100644
+--- a/include/base/util.h
++++ b/include/base/util.h
+@@ -36,8 +36,6 @@
+ 
+ NSPR_BEGIN_EXTERN_C
+ 
+-NSAPI_PUBLIC char *INTutil_hostname(void);
+-
+ NSAPI_PUBLIC int INTutil_itoa(int i, char *a);
+ 
+ NSAPI_PUBLIC
+@@ -75,7 +73,6 @@ NSAPI_PUBLIC int INTutil_strncasecmp(CASECMPARG_T char *one, CASECMPARG_T char *
+ 
+ NSPR_END_EXTERN_C
+ 
+-#define util_hostname INTutil_hostname
+ #define util_itoa INTutil_itoa
+ #define util_vsprintf INTutil_vsprintf
+ #define util_sprintf INTutil_sprintf
+diff --git a/ldap/include/portable.h b/ldap/include/portable.h
+index 63cc4d461..fddc9c80e 100644
+--- a/ldap/include/portable.h
++++ b/ldap/include/portable.h
+@@ -241,30 +241,9 @@ int strncasecmp(const char *, const char *, size_t);
+ #endif /* SNI || LINUX1_2 */
+ 
+ #if defined(_WINDOWS) || defined(macintosh)
+-#define GETHOSTBYNAME(n, r, b, l, e) gethostbyname(n)
+ #define CTIME(c, b, l) ctime(c)
+ #define STRTOK(s1, s2, l) strtok(s1, s2)
+ #else /* UNIX */
+-#if defined(sgi) || defined(HPUX9) || defined(LINUX1_2) || defined(SCOOS) || \
+-    defined(UNIXWARE) || defined(SUNOS4) || defined(SNI) || defined(BSDI) || \
+-    defined(NCR) || defined(OSF1) || defined(NEC) ||                         \
+-    (defined(HPUX10) && !defined(_REENTRANT)) || defined(HPUX11) ||          \
+-    defined(UnixWare) || defined(LINUX) || defined(__FreeBSD__)
+-#define GETHOSTBYNAME(n, r, b, l, e) gethostbyname(n)
+-#elif defined(AIX)
+-#define GETHOSTBYNAME_BUF_T struct hostent_data
+-#define GETHOSTBYNAME(n, r, b, l, e) \
+-    (memset(&b, 0, l), gethostbyname_r(n, r, &b) ? NULL : r)
+-#elif defined(HPUX10)
+-#define GETHOSTBYNAME_BUF_T struct hostent_data
+-#define GETHOSTBYNAME(n, r, b, l, e) nsldapi_compat_gethostbyname_r(n, r, (char *)&b, l, e)
+-#else
+-#include <stdio.h> /* BUFSIZ */
+-typedef char GETHOSTBYNAME_buf_t[BUFSIZ /* XXX might be too small */];
+-#define GETHOSTBYNAME_BUF_T GETHOSTBYNAME_buf_t
+-#define GETHOSTBYNAME(n, r, b, l, e) gethostbyname_r(n, r, b, l, e)
+-#endif
+-
+ /*
+  * XXXmcs: GETHOSTBYADDR() is only defined for IRIX/SGI and Solaris for now.
+  */
+@@ -319,35 +298,6 @@ extern char *strdup();
+ #include <arpa/inet.h> /* for inet_addr() */
+ #endif                 /* SOLARIS */
+ 
+-#ifdef SUNOS4
+-#include <pcfs/pc_dir.h> /* for toupper() */
+-int fprintf(FILE *, char *, ...);
+-int fseek(FILE *, long, int);
+-int fread(char *, int, int, FILE *);
+-int fclose(FILE *);
+-int fflush(FILE *);
+-int rewind(FILE *);
+-void *memmove(void *, const void *, size_t);
+-int strcasecmp(char *, char *);
+-int strncasecmp(char *, char *, int);
+-time_t time(time_t *);
+-void perror(char *);
+-int fputc(char, FILE *);
+-int fputs(char *, FILE *);
+-int LDAP_CALL re_exec(char *);
+-int socket(int, int, int);
+-void bzero(char *, int);
+-unsigned long inet_addr(char *);
+-char *inet_ntoa(struct in_addr);
+-int getdtablesize();
+-int connect(int, struct sockaddr *, int);
+-#endif /* SUNOS4 */
+-
+-/* #if defined(SUNOS4) || defined(SNI) */
+-#if defined(SUNOS4)
+-int select(int, fd_set *, fd_set *, fd_set *, struct timeval *);
+-#endif /* SUNOS4 || SNI */
+-
+ /*
+  * SAFEMEMCPY is an overlap-safe copy from s to d of n bytes
+  */
+diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
+index 1dc53434c..4a611e7f4 100644
+--- a/ldap/servers/slapd/connection.c
++++ b/ldap/servers/slapd/connection.c
+@@ -244,6 +244,28 @@ connection_cleanup(Connection *conn)
+     conn->c_ns_close_jobs = 0;
+ }
+ 
++static char *
++get_ip_str(struct sockaddr *addr, char *str)
++{
++    switch(addr->sa_family) {
++        case AF_INET:
++            if (sizeof(str) < INET_ADDRSTRLEN) {
++                break;
++            }
++            inet_ntop(AF_INET, &(((struct sockaddr_in *)addr)->sin_addr), str, INET_ADDRSTRLEN);
++            break;
++
++        case AF_INET6:
++            if (sizeof(str) < INET6_ADDRSTRLEN) {
++                break;
++            }
++            inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)addr)->sin6_addr), str, INET6_ADDRSTRLEN);
++            break;
++    }
++
++    return str;
++}
++
+ /*
+  * Callers of connection_reset() must hold the conn->c_mutex lock.
+  */
+@@ -252,7 +274,8 @@ connection_reset(Connection *conn, int ns, PRNetAddr *from, int fromLen __attrib
+ {
+     char *pTmp = is_SSL ? "SSL " : "";
+     char *str_ip = NULL, *str_destip;
+-    char buf_ip[256], buf_destip[256];
++    char buf_ip[INET6_ADDRSTRLEN + 1] = {0};
++    char buf_destip[INET6_ADDRSTRLEN + 1] = {0};
+     char *str_unknown = "unknown";
+     int in_referral_mode = config_check_referral_mode();
+ 
+@@ -288,10 +311,10 @@ connection_reset(Connection *conn, int ns, PRNetAddr *from, int fromLen __attrib
+                 (from->ipv6.ip.pr_s6_addr32[1] != 0) ||
+                 (from->ipv6.ip.pr_s6_addr32[2] != 0) ||
+                 (from->ipv6.ip.pr_s6_addr32[3] != 0)) ||
+-               ((conn->c_prfd != NULL) && (PR_GetPeerName(conn->c_prfd, from) == 0))) {
++               ((conn->c_prfd != NULL) && (PR_GetPeerName(conn->c_prfd, from) == 0)))
++    {
+         conn->cin_addr = (PRNetAddr *)slapi_ch_malloc(sizeof(PRNetAddr));
+         memcpy(conn->cin_addr, from, sizeof(PRNetAddr));
+-
+         if (PR_IsNetAddrType(conn->cin_addr, PR_IpAddrV4Mapped)) {
+             PRNetAddr v4addr = {{0}};
+             v4addr.inet.family = PR_AF_INET;
+@@ -305,7 +328,7 @@ connection_reset(Connection *conn, int ns, PRNetAddr *from, int fromLen __attrib
+     } else {
+         /* try syscall since "from" was not given and PR_GetPeerName failed */
+         /* a corner case */
+-        struct sockaddr_in addr = {0}; /* assuming IPv4 */
++        struct sockaddr addr = {0};
+ #if (defined(hpux))
+         int addrlen;
+ #else
+@@ -315,23 +338,15 @@ connection_reset(Connection *conn, int ns, PRNetAddr *from, int fromLen __attrib
+         addrlen = sizeof(addr);
+ 
+         if ((conn->c_prfd == NULL) &&
+-            (getpeername(conn->c_sd, (struct sockaddr *)&addr, &addrlen) == 0)) {
++            (getpeername(conn->c_sd, (struct sockaddr *)&addr, &addrlen) == 0))
++        {
+             conn->cin_addr = (PRNetAddr *)slapi_ch_malloc(sizeof(PRNetAddr));
+             memset(conn->cin_addr, 0, sizeof(PRNetAddr));
+             PR_NetAddrFamily(conn->cin_addr) = AF_INET6;
+             /* note: IPv4-mapped IPv6 addr does not work on Windows */
+-            PR_ConvertIPv4AddrToIPv6(addr.sin_addr.s_addr, &(conn->cin_addr->ipv6.ip));
+-            PRLDAP_SET_PORT(conn->cin_addr, addr.sin_port);
+-
+-            /* copy string equivalent of address into a buffer to use for
+-             * logging since each call to inet_ntoa() returns a pointer to a
+-             * single thread-specific buffer (which prevents us from calling
+-             * inet_ntoa() twice in one call to slapi_log_access()).
+-             */
+-            str_ip = inet_ntoa(addr.sin_addr);
+-            strncpy(buf_ip, str_ip, sizeof(buf_ip) - 1);
+-            buf_ip[sizeof(buf_ip) - 1] = '\0';
+-            str_ip = buf_ip;
++            PR_ConvertIPv4AddrToIPv6(((struct sockaddr_in *)&addr)->sin_addr.s_addr, &(conn->cin_addr->ipv6.ip));
++            PRLDAP_SET_PORT(conn->cin_addr, ((struct sockaddr_in *)&addr)->sin_port);
++            str_ip = get_ip_str(&addr, buf_ip);
+         } else {
+             str_ip = str_unknown;
+         }
+@@ -367,38 +382,27 @@ connection_reset(Connection *conn, int ns, PRNetAddr *from, int fromLen __attrib
+     } else {
+         /* try syscall since c_prfd == NULL */
+         /* a corner case */
+-        struct sockaddr_in destaddr = {0}; /* assuming IPv4 */
++        struct sockaddr destaddr = {0}; /* assuming IPv4 */
+ #if (defined(hpux))
+         int destaddrlen;
+ #else
+         socklen_t destaddrlen;
+ #endif
+-
+         destaddrlen = sizeof(destaddr);
+ 
+-        if ((getsockname(conn->c_sd, (struct sockaddr *)&destaddr, &destaddrlen) == 0)) {
++        if ((getsockname(conn->c_sd, &destaddr, &destaddrlen) == 0)) {
+             conn->cin_destaddr = (PRNetAddr *)slapi_ch_malloc(sizeof(PRNetAddr));
+             memset(conn->cin_destaddr, 0, sizeof(PRNetAddr));
+             PR_NetAddrFamily(conn->cin_destaddr) = AF_INET6;
+-            PRLDAP_SET_PORT(conn->cin_destaddr, destaddr.sin_port);
++            PRLDAP_SET_PORT(conn->cin_destaddr, ((struct sockaddr_in *)&destaddr)->sin_port);
+             /* note: IPv4-mapped IPv6 addr does not work on Windows */
+-            PR_ConvertIPv4AddrToIPv6(destaddr.sin_addr.s_addr, &(conn->cin_destaddr->ipv6.ip));
+-
+-            /* copy string equivalent of address into a buffer to use for
+-             * logging since each call to inet_ntoa() returns a pointer to a
+-             * single thread-specific buffer (which prevents us from calling
+-             * inet_ntoa() twice in one call to slapi_log_access()).
+-             */
+-            str_destip = inet_ntoa(destaddr.sin_addr);
+-            strncpy(buf_destip, str_destip, sizeof(buf_destip) - 1);
+-            buf_destip[sizeof(buf_destip) - 1] = '\0';
+-            str_destip = buf_destip;
++            PR_ConvertIPv4AddrToIPv6(((struct sockaddr_in *)&destaddr)->sin_addr.s_addr, &(conn->cin_destaddr->ipv6.ip));
++            str_destip = get_ip_str(&destaddr, buf_destip);
+         } else {
+             str_destip = str_unknown;
+         }
+     }
+ 
+-
+     if (!in_referral_mode) {
+         /* create a sasl connection */
+         ids_sasl_server_new(conn);
+diff --git a/ldap/servers/slapd/localhost.c b/ldap/servers/slapd/localhost.c
+index f2aff28f4..993143cbd 100644
+--- a/ldap/servers/slapd/localhost.c
++++ b/ldap/servers/slapd/localhost.c
+@@ -17,6 +17,7 @@
+ #include <string.h>
+ #include <sys/param.h>
+ #include <sys/socket.h>
++#include <netdb.h>
+ #include <netinet/in.h>
+ #include <arpa/inet.h>
+ #include <netdb.h>
+@@ -45,22 +46,14 @@
+ static char *
+ find_localhost_DNS(void)
+ {
+-    /* This implementation could (and should) be entirely replaced by:
+-       dns_ip2host ("127.0.0.1", 1); defined in ldapserver/lib/base/dns.c
+-     */
+     char hostname[MAXHOSTNAMELEN + 1];
+-    struct hostent *hp;
+-#ifdef GETHOSTBYNAME_BUF_T
+-    struct hostent hent;
+-    GETHOSTBYNAME_BUF_T hbuf;
+-    int err;
+-#endif
+-    char **alias;
+     FILE *f;
+     char *cp;
+     char *domain;
+     char line[MAXHOSTNAMELEN + 8];
+-
++    int gai_result;
++    struct addrinfo hints = {0};
++    struct addrinfo *info = NULL, *p = NULL;
+     if (gethostname(hostname, MAXHOSTNAMELEN)) {
+         int oserr = errno;
+ 
+@@ -69,32 +62,34 @@ find_localhost_DNS(void)
+                       oserr, slapd_system_strerror(oserr));
+         return NULL;
+     }
+-    hp = GETHOSTBYNAME(hostname, &hent, hbuf, sizeof(hbuf), &err);
+-    if (hp == NULL) {
+-        int oserr = errno;
+ 
+-        slapi_log_err(SLAPI_LOG_ERR,
+-                      "find_localhost_DNS - gethostbyname(\"%s\") failed, error %d (%s)\n",
+-                      hostname, oserr, slapd_system_strerror(oserr));
+-        return NULL;
+-    }
+-    if (hp->h_name == NULL) {
++    hints.ai_family = AF_UNSPEC;
++    hints.ai_socktype = SOCK_STREAM;
++    hints.ai_flags = AI_CANONNAME;
++    if ((gai_result = getaddrinfo(hostname, NULL, &hints, &info)) != 0) {
+         slapi_log_err(SLAPI_LOG_ERR, "find_localhost_DNS",
+-                      "gethostbyname(\"%s\")->h_name == NULL\n", hostname);
++                "getaddrinfo: %s\n", gai_strerror(gai_result));
+         return NULL;
+     }
+-    if (strchr(hp->h_name, '.') != NULL) {
+-        slapi_log_err(SLAPI_LOG_CONFIG, "find_localhost_DNS", "h_name == %s\n", hp->h_name);
+-        return slapi_ch_strdup(hp->h_name);
+-    } else if (hp->h_aliases != NULL) {
+-        for (alias = hp->h_aliases; *alias != NULL; ++alias) {
+-            if (strchr(*alias, '.') != NULL &&
+-                strncmp(*alias, hp->h_name, strlen(hp->h_name))) {
+-                slapi_log_err(SLAPI_LOG_CONFIG, "find_localhost_DNS", "h_alias == %s\n", *alias);
+-                return slapi_ch_strdup(*alias);
+-            }
++
++    if (strchr(info->ai_canonname, '.') != NULL) {
++        char *return_name = slapi_ch_strdup(info->ai_canonname);
++        freeaddrinfo(info);
++        slapi_log_err(SLAPI_LOG_CONFIG, "find_localhost_DNS", "initial ai_canonname == %s\n", return_name);
++        return return_name;
++    }
++    for(p = info; p != NULL; p = p->ai_next) {
++        if (strchr(p->ai_canonname, '.') != NULL &&
++            strncmp(p->ai_canonname, info->ai_canonname, strlen(info->ai_canonname)))
++        {
++            char *return_name = slapi_ch_strdup(p->ai_canonname);
++            freeaddrinfo(info);
++            slapi_log_err(SLAPI_LOG_CONFIG, "find_localhost_DNS", "next ai_canonname == %s\n", return_name);
++            return return_name;
+         }
+     }
++
++
+     /* The following is copied from dns_guess_domain(),
+        in ldapserver/lib/base/dnsdmain.c */
+     domain = NULL;
+@@ -134,9 +129,10 @@ find_localhost_DNS(void)
+     }
+ #endif
+     if (domain == NULL) {
++        freeaddrinfo(info);
+         return NULL;
+     }
+-    PL_strncpyz(hostname, hp->h_name, sizeof(hostname));
++    PL_strncpyz(hostname, info->ai_canonname, sizeof(hostname));
+     if (domain[0] == '.')
+         ++domain;
+     if (domain[0]) {
+@@ -144,6 +140,7 @@ find_localhost_DNS(void)
+         PL_strcatn(hostname, sizeof(hostname), domain);
+     }
+     slapi_log_err(SLAPI_LOG_CONFIG, "find_localhost_DNS", "hostname == %s\n", hostname);
++    freeaddrinfo(info);
+     return slapi_ch_strdup(hostname);
+ }
+ 
+diff --git a/ldap/servers/slapd/tools/ldclt/repcheck.c b/ldap/servers/slapd/tools/ldclt/repcheck.c
+index 4340055e5..05ea65a8b 100644
+--- a/ldap/servers/slapd/tools/ldclt/repcheck.c
++++ b/ldap/servers/slapd/tools/ldclt/repcheck.c
+@@ -19,6 +19,10 @@
+ #include "remote.h"
+ #include "lber.h"
+ #include "ldap.h"
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <netdb.h>
++
+ 
+ enum
+ {
+@@ -90,13 +94,15 @@ send_op(char *s, int sfd)
+ 
+ main(int argc, char **argv)
+ {
+-    int i, port = 16000;
+-    int sockfd;
++    struct sockaddr_in srvsaddr;
+     static char logline[512];
+     char **tmp;
+-    struct hostent *serveraddr;
+-    struct sockaddr_in srvsaddr;
+     char *p;
++    struct addrinfo hints = {0};
++    struct addrinfo *info = NULL;
++    int gai_result = 0;
++    int i, port = 16000;
++    int sockfd;
+ 
+     while ((i = getopt(argc, argv, "p:")) != EOF) {
+         switch (i) {
+@@ -105,15 +111,25 @@ main(int argc, char **argv)
+             break;
+         }
+     }
+-    serveraddr = gethostbyname(argv[optind]);
+-    srvsaddr.sin_addr.s_addr = htonl(*((u_long *)(serveraddr->h_addr_list[0])));
++
++    hints.ai_family = AF_UNSPEC;
++    hints.ai_socktype = SOCK_STREAM;
++    hints.ai_flags = AI_CANONNAME;
++    if ((gai_result = getaddrinfo(argv[optind], NULL, &hints, &info)) != 0) {
++        slapi_log_err(SLAPI_LOG_ERR, "ldclt",
++                "getaddrinfo: %s\n", gai_strerror(gai_result));
++        return NULL;
++    }
++
++    srvsaddr.sin_addr.s_addr = htonl(*((u_long *)(info->ai_addr)));
+     srvsaddr.sin_family = AF_INET;
+     srvsaddr.sin_port = htons(port);
++    freeaddrinfo(info);
+     maxop = npend = 0;
+     pendops = (Optype *)malloc(sizeof(Optype) * 20);
+     sigset(SIGPIPE, SIG_IGN);
+     while (fgets(logline, sizeof(logline), stdin)) {
+-        if (p = strchr(logline, '\n')) {
++        if ((p = strchr(logline, '\n'))) {
+             *p = 0;
+         }
+         if (!connected) {
+diff --git a/ldap/servers/slapd/tools/ldclt/repslave.c b/ldap/servers/slapd/tools/ldclt/repslave.c
+index a04a73f5c..8df2a0ace 100644
+--- a/ldap/servers/slapd/tools/ldclt/repslave.c
++++ b/ldap/servers/slapd/tools/ldclt/repslave.c
+@@ -62,6 +62,9 @@ dd/mm/yy | Author    | Comments
+ #include "remote.h"
+ #include "lber.h"
+ #include "ldap.h"
++#include <sys/types.h>
++#include <sys/socket.h>
++#include <netdb.h>
+ 
+ /*
+  * Enumeration for internal list
+@@ -221,7 +224,8 @@ main(int argc, char **argv)
+     int sockfd, log = 0;
+     static char logline[512];
+     char **tmp, *hn, *hp, *hf;
+-    struct hostent *serveraddr;
++    struct addrinfo hints = {0};
++    struct addrinfo *info = NULL;
+ 
+     while ((i = getopt(argc, argv, "tdP:s:")) != EOF) {
+         switch (i) {
+@@ -251,12 +255,17 @@ main(int argc, char **argv)
+             /*
+              * Get master address, just the first.
+              */
+-            if ((serveraddr = gethostbyname(hn)) == NULL) {
++
++            hints.ai_family = AF_UNSPEC;
++            hints.ai_socktype = SOCK_STREAM;
++            hints.ai_flags = AI_CANONNAME;
++            if (getaddrinfo(hn, NULL, &hints, &info) != 0) {
+                 printf("Unknown host %s\n", hn);
+                 break;
+             }
++
+             srvlist = (Towho *)realloc(srvlist, (nsrv + 1) * sizeof(Towho));
+-            srvlist[nsrv].addr.sin_addr.s_addr = htonl(*((u_long *)(serveraddr->h_addr_list[0])));
++            srvlist[nsrv].addr.sin_addr.s_addr = htonl(*((u_long *)(info->ai_addr)));
+             srvlist[nsrv].addr.sin_family = AF_INET;
+             srvlist[nsrv].addr.sin_port = htonl((hp == hf ? port : atoi(hp)));
+             if ((srvlist[nsrv].filter = regcmp(hf, NULL)) == NULL)
+@@ -264,6 +273,7 @@ main(int argc, char **argv)
+             srvlist[nsrv].fd = open_cnx((struct sockaddr *)&srvlist[nsrv].addr);
+             srvlist[nsrv].hname = strdup(hn);
+             nsrv++;
++            freeaddrinfo(info);
+             break;
+         }
+     }
+@@ -273,18 +283,19 @@ main(int argc, char **argv)
+             printf("\t-t\tprints input on stdout.\n\t-d\tdebug mode.\n");
+             exit(1);
+         }
+-        srvlist = (Towho *)malloc(sizeof(Towho));
+-        if ((serveraddr = gethostbyname(argv[optind])) == NULL) {
+-            printf("Unknown host %s\n", argv[optind]);
++        if (getaddrinfo(argv[optind], NULL, &hints, &info) != 0) {
++            printf("Unknown host %s\n", hn);
+             exit(1);
+         }
+-        srvlist[nsrv].addr.sin_addr.s_addr = htonl(*((u_long *)(serveraddr->h_addr_list[0])));
++        srvlist = (Towho *)malloc(sizeof(Towho));
++        srvlist[nsrv].addr.sin_addr.s_addr = htonl(*((u_long *)(info->ai_addr)));
+         srvlist[nsrv].addr.sin_family = AF_INET;
+         srvlist[nsrv].addr.sin_port = htons(port);
+         srvlist[nsrv].filter = NULL;
+         srvlist[nsrv].fd = open_cnx((struct sockaddr *)&srvlist[nsrv].addr);
+         srvlist[nsrv].hname = strdup(argv[optind]);
+         nsrv++;
++        freeaddrinfo(info);
+     }
+     maxop = npend = 0;
+     pendops = (Optype *)malloc(sizeof(Optype) * 20);
+diff --git a/lib/base/dns.cpp b/lib/base/dns.cpp
+deleted file mode 100644
+index e704094db..000000000
+--- a/lib/base/dns.cpp
++++ /dev/null
+@@ -1,142 +0,0 @@
+-/** BEGIN COPYRIGHT BLOCK
+- * Copyright (C) 2001 Sun Microsystems, Inc. Used by permission.
+- * Copyright (C) 2005 Red Hat, Inc.
+- * All rights reserved.
+- *
+- * License: GPL (version 3 or any later version).
+- * See LICENSE for details. 
+- * END COPYRIGHT BLOCK **/
+-
+-#ifdef HAVE_CONFIG_H
+-#  include <config.h>
+-#endif
+-
+-/*
+- * dns.c: DNS resolution routines
+- * 
+- * Rob McCool
+- */
+-#define DNS_GUESSING
+-
+-#include "netsite.h"
+-#include "systems.h"
+-
+-/* Under NT, these are taken care of by net.h including winsock.h */
+-#include <arpa/inet.h>  /* inet_ntoa */
+-#include <netdb.h>  /* struct hostent */
+-#ifdef NEED_GHN_PROTO
+-extern "C" int gethostname (char *name, size_t namelen);
+-#endif
+-#include <stdio.h>
+-#include <nspr.h>
+-
+-/* ---------------------------- dns_find_fqdn ----------------------------- */
+-
+-
+-/* defined in dnsdmain.c */
+-extern "C"  NSAPI_PUBLIC char *dns_guess_domain(char * hname);
+-
+-char *net_find_fqdn(PRHostEnt *p)
+-{
+-    int x;
+-
+-    if((!p->h_name) || (!p->h_aliases))
+-        return NULL;
+-
+-    if(!strchr(p->h_name, '.')) {
+-        for(x = 0; p->h_aliases[x]; ++x) {
+-            if((strchr(p->h_aliases[x], '.')) && 
+-               (!strncmp(p->h_aliases[x], p->h_name, strlen(p->h_name))))
+-            {
+-                return STRDUP(p->h_aliases[x]);
+-            }
+-        }
+-#ifdef DNS_GUESSING
+-	return dns_guess_domain(p->h_name);
+-#else
+-	return NULL;
+-#endif /* DNS_GUESSING */
+-    } 
+-    else 
+-        return STRDUP(p->h_name);
+-}
+-
+-
+-/* ----------------------------- dns_ip2host ------------------------------ */
+-
+-
+-char *dns_ip2host(char *ip, int verify)
+-{
+-    /*    struct in_addr iaddr;  */
+-    PRNetAddr iaddr;
+-    char *hn;
+-    static unsigned long laddr = 0;
+-    static char myhostname[256];
+-    PRHostEnt   hent;
+-    char        buf[PR_NETDB_BUF_SIZE];
+-    PRStatus    err;
+-
+-
+-    err = PR_InitializeNetAddr(PR_IpAddrNull, 0, &iaddr);
+-
+-	/* richm: ipv6 cleanup - use inet_aton or other more appropriate function
+-	   instead of inet_addr */
+-    if((iaddr.inet.ip = inet_addr(ip)) == (in_addr_t)-1)
+-        goto bong;
+-
+-    /*
+-     * See if it happens to be the localhost IP address, and try
+-     * the local host name if so.
+-     */
+-    if (laddr == 0) {
+-	laddr = inet_addr("127.0.0.1");
+-	myhostname[0] = 0;
+-	PR_GetSystemInfo(PR_SI_HOSTNAME, myhostname, sizeof(myhostname));
+-    }
+-
+-    /* Have to match the localhost IP address and have a hostname */
+-    if ((iaddr.inet.ip == laddr) && (myhostname[0] != 0)) {
+-        /*
+-         * Now try for a fully-qualified domain name, starting with
+-         * the local hostname.
+-         */
+-        err =  PR_GetHostByName(myhostname,
+-				buf,
+-				PR_NETDB_BUF_SIZE,
+-				&hent);
+-
+-        /* Don't verify if we get a fully-qualified name this way */
+-        verify = 0;
+-    }
+-    else {
+-      err = PR_GetHostByAddr(&iaddr, 
+-			     buf,
+-			     PR_NETDB_BUF_SIZE,
+-			     &hent);
+-    }
+-
+-    if ((err == PR_FAILURE) || !(hn = net_find_fqdn(&hent))) goto bong;
+-
+-
+-    if(verify) {
+-        char **haddr = 0;
+-       	err = PR_GetHostByName(hn,
+-			       buf,
+-			       PR_NETDB_BUF_SIZE,
+-			       &hent);
+- 
+-        if(err == PR_SUCCESS) {
+-            for(haddr = hent.h_addr_list; *haddr; haddr++) {
+-                if(((struct in_addr *)(*haddr))->s_addr == iaddr.inet.ip)
+-                    break;
+-            }
+-        }
+-
+-        if((err == PR_FAILURE) || (!(*haddr)))
+-            goto bong;
+-    }
+-
+-    return hn;
+-  bong:
+-    return NULL;
+-}
+diff --git a/lib/base/net.cpp b/lib/base/net.cpp
+deleted file mode 100644
+index 7227d9584..000000000
+--- a/lib/base/net.cpp
++++ /dev/null
+@@ -1,66 +0,0 @@
+-/** BEGIN COPYRIGHT BLOCK
+- * Copyright (C) 2001 Sun Microsystems, Inc. Used by permission.
+- * Copyright (C) 2005 Red Hat, Inc.
+- * All rights reserved.
+- *
+- * License: GPL (version 3 or any later version).
+- * See LICENSE for details. 
+- * END COPYRIGHT BLOCK **/
+-
+-#ifdef HAVE_CONFIG_H
+-#  include <config.h>
+-#endif
+-
+-/*
+- * net.c: sockets abstraction and DNS related things
+- * 
+- * Note: sockets created with net_socket are placed in non-blocking mode,
+- *       however this API simulates that the calls are blocking.
+- *
+- * Rob McCool
+- */
+-
+-
+-#include "netsite.h"
+-#include <nspr.h>
+-
+-#include "util.h"
+-#include <string.h>
+-#include <arpa/inet.h>  /* inet_ntoa */
+-#include <netdb.h>      /* hostent stuff */
+-#ifdef NEED_GHN_PROTO
+-extern "C" int gethostname (char *name, size_t namelen);
+-#endif
+-#ifdef LINUX
+-#include <sys/ioctl.h> /* ioctl */
+-#endif
+-
+-#include "libadmin/libadmin.h"
+-
+-/* ---------------------------- util_hostname ----------------------------- */
+-
+-
+-#include <sys/param.h>
+-
+-/* Defined in dns.cpp */
+-char *net_find_fqdn(PRHostEnt *p);
+-
+-NSAPI_PUBLIC char *util_hostname(void)
+-{
+-    char str[MAXHOSTNAMELEN];
+-    PRHostEnt   hent;
+-    char        buf[PR_NETDB_BUF_SIZE];
+-    PRStatus    err;
+-
+-    gethostname(str, MAXHOSTNAMELEN);
+-    err = PR_GetHostByName(
+-                str,
+-                buf,
+-                PR_NETDB_BUF_SIZE,
+-                &hent);
+-
+-    if (err == PR_FAILURE) 
+-        return NULL;
+-    return net_find_fqdn(&hent);
+-}
+-
+-- 
+2.21.0
+

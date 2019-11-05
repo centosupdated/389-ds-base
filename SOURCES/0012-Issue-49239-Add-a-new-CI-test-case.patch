@@ -1,0 +1,34 @@
+From 2f42d3575b9dd781e7d351853df984db367507af Mon Sep 17 00:00:00 2001
+From: Akshay Adhikari <aadhikar@redhat.com>
+Date: Wed, 26 Jun 2019 13:56:05 +0530
+Subject: [PATCH 08/12] Issue 49239 - Add a new CI test case
+
+Bug Description: ds-replcheck unreliable, showing false positives, showing missing tombstone entries
+in the report.
+
+Fix Description: Added a test case to check missing tombstone entries is not reported, also fixed
+py3 issue in ds-replcheck by explicitly adding bytes.
+
+Relates: https://pagure.io/389-ds-base/issue/49239
+
+Review by: vashirov, mreynolds (Thanks!)
+---
+ ldap/admin/src/scripts/ds-replcheck | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/admin/src/scripts/ds-replcheck b/ldap/admin/src/scripts/ds-replcheck
+index 4abb417af..30bcfd65d 100755
+--- a/ldap/admin/src/scripts/ds-replcheck
++++ b/ldap/admin/src/scripts/ds-replcheck
+@@ -142,7 +142,7 @@ def convert_entries(entries):
+             continue
+ 
+         # lowercase all the objectclass values (easier for tombstone checking)
+-        oc_vals = new_entry.data['objectclass']
++        oc_vals = ensure_list_str(new_entry.data['objectclass'])
+         new_oc_vals = []
+         for val in oc_vals:
+             new_oc_vals.append(val.lower())
+-- 
+2.21.0
+
