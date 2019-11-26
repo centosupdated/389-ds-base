@@ -1,0 +1,24 @@
+From cbbadc2d339eef9e3220cbaa8578d17b95b66265 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 1 Nov 2019 09:52:18 -0400
+Subject: [PATCH 2/2] Fix cherry-pick error for cleanAllRUV issue
+
+---
+ dirsrvtests/tests/suites/replication/cleanallruv_test.py | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/dirsrvtests/tests/suites/replication/cleanallruv_test.py b/dirsrvtests/tests/suites/replication/cleanallruv_test.py
+index 43801dd52..caf214b19 100644
+--- a/dirsrvtests/tests/suites/replication/cleanallruv_test.py
++++ b/dirsrvtests/tests/suites/replication/cleanallruv_test.py
+@@ -899,7 +899,6 @@ def test_max_tasks(topology_m4):
+ 
+     # Check the errors log for our error message in master 1
+     assert m1.searchErrorsLog('Exceeded maximum number of active CLEANALLRUV tasks')
+->>>>>>> ab24aa4cb... Issue 50538 - cleanAllRUV task limit is not enforced for replicated tasks
+ 
+ 
+ if __name__ == '__main__':
+-- 
+2.21.0
+

@@ -1,0 +1,29 @@
+From c9e602ebdb0fb8b8ee526d272e8a6fdf23a26a4b Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Thu, 24 Oct 2019 14:26:20 +0200
+Subject: [PATCH] Ticket 49850 cont -fix crash in ldbm_non_leaf
+
+        Bug: if the ldif to be imported contains only one entry there are no leaf nodes
+                and the call to qsort crashes
+
+        Fix: check that nodes is not NULL
+---
+ ldap/servers/slapd/back-ldbm/ancestorid.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ancestorid.c b/ldap/servers/slapd/back-ldbm/ancestorid.c
+index 254a3aa3b..f26ac1364 100644
+--- a/ldap/servers/slapd/back-ldbm/ancestorid.c
++++ b/ldap/servers/slapd/back-ldbm/ancestorid.c
+@@ -114,7 +114,7 @@ ldbm_get_nonleaf_ids(backend *be, DB_TXN *txn, IDList **idl, ImportJob *job)
+     if (ret != 0)
+         ldbm_nasty("ldbm_get_nonleaf_ids", sourcefile, 13030, ret);
+ 
+-    if (ret == 0) {
++    if (ret == 0 && nodes) {
+         /* now sort it */
+         import_log_notice(job, SLAPI_LOG_INFO, "ldbm_get_nonleaf_ids",
+             "Starting sort of ancestorid non-leaf IDs...");
+-- 
+2.21.0
+

@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.9.1
-Release:          %{?relprefix}10%{?prerel}%{?dist}
+Release:          %{?relprefix}12%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -179,6 +179,14 @@ Patch30:          0030-Ticket-50389-ns-slapd-craches-while-two-threads-are-.patc
 Patch31:          0031-Issue-50123-with_tmpfiles_d-is-associated-with-syste.patch
 Patch32:          0032-Issue-50426-nsSSL3Ciphers-is-limited-to-1024-charact.patch
 Patch33:          0033-Ticket-50329-2nd-Possible-Security-Issue-DOS-due-to-.patch
+Patch34:          0034-CVE-deref-plugin-displays-restricted-attributes.patch
+Patch35:          0035-Issue-49624-modrdn-silently-fails-if-DB-deadlock-occ.patch
+Patch36:          0036-Issue-50536-Audit-log-heading-written-to-log-after-e.patch
+Patch37:          0037-Issue-50636-Crash-during-sasl-bind.patch
+Patch38:          0038-Issue-49850-ldbm_get_nonleaf_ids-slow-for-databases-.patch
+Patch39:          0039-Ticket-49850-cont-fix-crash-in-ldbm_non_leaf.patch
+Patch40:          0040-Issue-50538-cleanAllRUV-task-limit-is-not-enforced-f.patch
+Patch41:          0041-Fix-cherry-pick-error-for-cleanAllRUV-issue.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -531,6 +539,18 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Fri Nov 1 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-12
+- Bump version to 1.3.9.1-12
+- Resolves: Bug 1767622 - CleanAllRUV task limit not enforced
+
+* Mon Oct 28 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-11
+- Bump version to 1.3.9.1-11
+- Resolves: Bug 1748198 - EMBARGOED CVE-2019-14824 389-ds-base: Read permission check bypass via the deref plugin
+- Resolves: Bug 1754831 - After audit log file is rotated, DS version string is logged after each update
+- Resolves: Bug 1763622 - Extremely slow LDIF import with ldif2db
+- Resolves: Bug 1763627 - ns-slapd crash on concurrent SASL BINDs, connection_call_io_layer_callbacks must hold hold c_mutex
+- Resolves: Bug 1749289 - DB Deadlock on modrdn appears to corrupt database and entry cache
+
 * Thu Jun 13 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-10
 - Bump version to 1.3.9.1-10
 - Resolves: Bug 1668457 - CVE-2019-3883 389-ds-base: DoS via hanging secured connections

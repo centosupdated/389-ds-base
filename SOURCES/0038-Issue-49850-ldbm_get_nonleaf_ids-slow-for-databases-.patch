@@ -1,0 +1,70 @@
+From 8355b844dbc7097ddc5639a1da0932c60ca50aee Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 16 Oct 2019 20:27:30 -0400
+Subject: [PATCH] Issue 49850 -  ldbm_get_nonleaf_ids() slow for databases with
+ many non-leaf entries
+
+Bug Description:  The logs from an LDIF import indicated that gathering non-leaf IDs
+                  for creating the ancestorid index took an enormous amount of time,
+                  over 10hrs.  The root cause is that the parentid index btree ordering
+                  is lexical, but the IDList being built up from it is sorted numerically.
+                  In the existing code, the IDList is maintained in constantly sorted
+                  order by idl_insert().
+
+Fix Description:  ldbm_get_nonleaf_ids() switches to idl_append_extend() instead idl_insert()
+                  for building up the IDList and then sorts the result only once, using
+                  qsort with idl_sort_cmp, after the entire list has been gathered.
+
+                  The improvement on identical hardware is for the operation to take 10
+                  seconds rather than 10 hours
+
+Patch Author:  Thomas Lackey <telackey@bozemanpass.com>  Thanks for the great contribution!!!
+
+relates: https://pagure.io/389-ds-base/issue/49850
+
+Reviewed by: mreynolds, tbordaz, and firstyear
+---
+ ldap/servers/slapd/back-ldbm/ancestorid.c | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ancestorid.c b/ldap/servers/slapd/back-ldbm/ancestorid.c
+index 24642923d..254a3aa3b 100644
+--- a/ldap/servers/slapd/back-ldbm/ancestorid.c
++++ b/ldap/servers/slapd/back-ldbm/ancestorid.c
+@@ -82,7 +82,14 @@ ldbm_get_nonleaf_ids(backend *be, DB_TXN *txn, IDList **idl, ImportJob *job)
+         ret = dbc->c_get(dbc, &key, &data, DB_NEXT_NODUP);
+         if ((ret == 0) && (*(char *)key.data == EQ_PREFIX)) {
+             id = (ID)strtoul((char *)key.data + 1, NULL, 10);
+-            idl_insert(&nodes, id);
++            /*
++             * TEL 20180711 - switch to idl_append instead of idl_insert because there is no
++             * no need to keep the list constantly sorted, which can be very expensive with
++             * large databases (exacerbated by the fact that the parentid btree ordering is
++             * lexical, but the idl_insert ordering is numeric).  It is enough to gather them
++             * all together and sort them once at the end.
++             */
++            idl_append_extend(&nodes, id);
+         }
+         key_count++;
+         if (!(key_count % PROGRESS_INTERVAL)) {
+@@ -107,6 +114,17 @@ ldbm_get_nonleaf_ids(backend *be, DB_TXN *txn, IDList **idl, ImportJob *job)
+     if (ret != 0)
+         ldbm_nasty("ldbm_get_nonleaf_ids", sourcefile, 13030, ret);
+ 
++    if (ret == 0) {
++        /* now sort it */
++        import_log_notice(job, SLAPI_LOG_INFO, "ldbm_get_nonleaf_ids",
++            "Starting sort of ancestorid non-leaf IDs...");
++
++        qsort((void *)&nodes->b_ids[0], nodes->b_nids, (size_t)sizeof(ID), idl_sort_cmp);
++
++        import_log_notice(job, SLAPI_LOG_INFO, "ldbm_get_nonleaf_ids",
++            "Finished sort of ancestorid non-leaf IDs.");
++    }
++
+ out:
+     /* Close the cursor */
+     if (dbc != NULL) {
+-- 
+2.21.0
+
