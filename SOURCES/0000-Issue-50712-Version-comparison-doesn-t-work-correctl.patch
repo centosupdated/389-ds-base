@@ -1,0 +1,161 @@
+From b823da0b0e3f02a7972ebec4e714877d2ee2170e Mon Sep 17 00:00:00 2001
+From: Viktor Ashirov <vashirov@redhat.com>
+Date: Fri, 15 Nov 2019 11:55:07 +0100
+Subject: [PATCH 1/2] Issue 50712 - Version comparison doesn't work correctly
+ on git builds
+
+Bug Description:
+`python3-packaging` is not shipped in RHEL8. But it's bundled with
+`setuptools` which is present in all major distributions.
+
+Fix Description:
+Use `pkg_resources` module from `setuptools` which provides needed
+functionality, change lib389 and rpm dependencies accordingly.
+
+Unfortunately, `pkg_resources.parse_version()` returns different
+objects for different strings too, so use `LegacyVersion` directly
+from `pkg_resources.extern.packaging.version`.
+
+Fixes:   https://pagure.io/389-ds-base/issue/50712
+Relates: https://pagure.io/389-ds-base/issue/50706
+---
+ rpm/389-ds-base.spec.in               |  2 +-
+ src/lib389/lib389/tests/utils_test.py | 29 +++++++++++++++++++++++++++
+ src/lib389/lib389/utils.py            | 11 +++++-----
+ src/lib389/requirements.txt           |  2 +-
+ src/lib389/setup.py                   |  2 +-
+ 5 files changed, 38 insertions(+), 8 deletions(-)
+
+diff --git a/rpm/389-ds-base.spec.in b/rpm/389-ds-base.spec.in
+index e60b0f3c5..6f4a1e1a9 100644
+--- a/rpm/389-ds-base.spec.in
++++ b/rpm/389-ds-base.spec.in
+@@ -130,7 +130,6 @@ BuildRequires:    python%{python3_pkgversion}-argcomplete
+ BuildRequires:    python%{python3_pkgversion}-argparse-manpage
+ BuildRequires:    python%{python3_pkgversion}-policycoreutils
+ BuildRequires:    python%{python3_pkgversion}-libselinux
+-BuildRequires:    python%{python3_pkgversion}-packaging
+ 
+ # For cockpit
+ BuildRequires:    rsync
+@@ -303,6 +302,7 @@ Requires: python%{python3_pkgversion}-pyasn1-modules
+ Requires: python%{python3_pkgversion}-dateutil
+ Requires: python%{python3_pkgversion}-argcomplete
+ Requires: python%{python3_pkgversion}-libselinux
++Requires: python%{python3_pkgversion}-setuptools
+ %{?python_provide:%python_provide python%{python3_pkgversion}-lib389}
+ 
+ %description -n python%{python3_pkgversion}-lib389
+diff --git a/src/lib389/lib389/tests/utils_test.py b/src/lib389/lib389/tests/utils_test.py
+index 5378066b6..a696eb5c9 100644
+--- a/src/lib389/lib389/tests/utils_test.py
++++ b/src/lib389/lib389/tests/utils_test.py
+@@ -145,6 +145,35 @@ def test_get_log_data(data):
+     assert display_log_data(before) == after
+ 
+ 
++@pytest.mark.parametrize('ds_ver, cmp_ver', [
++    ('1.3.1', '1.3.2'),
++    ('1.3.1', '1.3.10'),
++    ('1.3.2', '1.3.10'),
++    ('1.3.9', ('1.3.10', '1.4.2.0')),
++    ('1.4.0.1', ('1.3.9', '1.4.1.0', '1.4.2.1')),
++    ('1.4.1', '1.4.2.0-20191115gitbadc0ffee' ),
++])
++def test_ds_is_older_versions(ds_ver, cmp_ver):
++    if isinstance(cmp_ver, tuple):
++        assert ds_is_related('older', ds_ver, *cmp_ver)
++    else:
++        assert ds_is_related('older', ds_ver, cmp_ver)
++
++@pytest.mark.parametrize('ds_ver, cmp_ver', [
++    ('1.3.2', '1.3.1'),
++    ('1.3.10', '1.3.1'),
++    ('1.3.10', '1.3.2'),
++    ('1.3.10', ('1.3.9', '1.4.2.0')),
++    ('1.4.2.1', ('1.3.9', '1.4.0.1', '1.4.2.0')),
++    ('1.4.2.0-20191115gitbadc0ffee', '1.4.1' ),
++])
++def test_ds_is_newer_versions(ds_ver, cmp_ver):
++    if isinstance(cmp_ver, tuple):
++        assert ds_is_related('newer', ds_ver, *cmp_ver)
++    else:
++        assert ds_is_related('newer', ds_ver, cmp_ver)
++
++
+ if __name__ == "__main__":
+     CURRENT_FILE = os.path.realpath(__file__)
+     pytest.main("-s -v %s" % CURRENT_FILE)
+diff --git a/src/lib389/lib389/utils.py b/src/lib389/lib389/utils.py
+index 3234cdccb..b9eacfdea 100644
+--- a/src/lib389/lib389/utils.py
++++ b/src/lib389/lib389/utils.py
+@@ -40,7 +40,7 @@ import shlex
+ import operator
+ import subprocess
+ import math
+-from packaging.version import LegacyVersion
++from pkg_resources.extern.packaging.version import LegacyVersion
+ from socket import getfqdn
+ from ldapurl import LDAPUrl
+ from contextlib import closing
+@@ -1067,13 +1067,12 @@ def get_ds_version():
+     return p.version
+ 
+ 
+-def ds_is_related(relation, *ver):
++def ds_is_related(relation, ds_ver, *ver):
+     """
+     Return a result of a comparison between the current version of ns-slapd and a provided version.
+     """
+     ops = {'older': operator.lt,
+            'newer': operator.ge}
+-    ds_ver = get_ds_version()
+     if len(ver) > 1:
+         for cmp_ver in ver:
+             if cmp_ver.startswith(ds_ver[:3]):
+@@ -1086,14 +1085,16 @@ def ds_is_older(*ver):
+     """
+     Return True if the current version of ns-slapd is older than a provided version
+     """
+-    return ds_is_related('older', *ver)
++    ds_ver = get_ds_version()
++    return ds_is_related('older', ds_ver, *ver)
+ 
+ 
+ def ds_is_newer(*ver):
+     """
+     Return True if the current version of ns-slapd is newer than a provided version
+     """
+-    return ds_is_related('newer', *ver)
++    ds_ver = get_ds_version()
++    return ds_is_related('newer', ds_ver, *ver)
+ 
+ 
+ def gentime_to_datetime(gentime):
+diff --git a/src/lib389/requirements.txt b/src/lib389/requirements.txt
+index 5cce1d04b..eb2475f3b 100644
+--- a/src/lib389/requirements.txt
++++ b/src/lib389/requirements.txt
+@@ -6,4 +6,4 @@ six
+ argcomplete
+ argparse-manpage
+ python-ldap
+-packaging
++setuptools
+diff --git a/src/lib389/setup.py b/src/lib389/setup.py
+index f2e404333..056173936 100644
+--- a/src/lib389/setup.py
++++ b/src/lib389/setup.py
+@@ -82,7 +82,7 @@ setup(
+         'argcomplete',
+         'argparse-manpage',
+         'python-ldap',
+-        'packaging',
++        'setuptools',
+         ],
+ 
+     cmdclass={
+-- 
+2.21.0
+
