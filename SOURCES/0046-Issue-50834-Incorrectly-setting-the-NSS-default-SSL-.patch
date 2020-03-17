@@ -1,0 +1,35 @@
+From 5c4e9f2017ba6c0415fe8352587db61dd9451ee4 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 20 Jan 2020 13:16:36 -0500
+Subject: [PATCH] Issue 50834 - Incorrectly setting the NSS default SSL version
+ max
+
+Description:  We've been using the wrong function to get the NSS max
+              version We were calling SSL_VersionRangeGetSupported()
+              which gets the versions NSS "can" handle, but
+              SSL_VersionRangeGetDefault() gets the versions that
+              are actually "enabled".
+
+relates: https://pagure.io/389-ds-base/issue/50834
+
+Reviewed by: mreynolds(one line commit rule)
+---
+ ldap/servers/slapd/ssl.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/ssl.c b/ldap/servers/slapd/ssl.c
+index ed054db44..c71e3019b 100644
+--- a/ldap/servers/slapd/ssl.c
++++ b/ldap/servers/slapd/ssl.c
+@@ -1164,7 +1164,7 @@ slapd_nss_init(int init_ssl __attribute__((unused)), int config_available __attr
+     char *certdir;
+     char emin[VERSION_STR_LENGTH], emax[VERSION_STR_LENGTH];
+     /* Get the range of the supported SSL version */
+-    SSL_VersionRangeGetSupported(ssl_variant_stream, &enabledNSSVersions);
++    SSL_VersionRangeGetDefault(ssl_variant_stream, &enabledNSSVersions);
+ 
+     (void)slapi_getSSLVersion_str(enabledNSSVersions.min, emin, sizeof(emin));
+     (void)slapi_getSSLVersion_str(enabledNSSVersions.max, emax, sizeof(emax));
+-- 
+2.21.1
+

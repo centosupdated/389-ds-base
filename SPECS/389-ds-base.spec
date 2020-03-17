@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.9.1
-Release:          %{?relprefix}12%{?prerel}%{?dist}
+Release:          %{?relprefix}13%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -187,6 +187,13 @@ Patch38:          0038-Issue-49850-ldbm_get_nonleaf_ids-slow-for-databases-.patc
 Patch39:          0039-Ticket-49850-cont-fix-crash-in-ldbm_non_leaf.patch
 Patch40:          0040-Issue-50538-cleanAllRUV-task-limit-is-not-enforced-f.patch
 Patch41:          0041-Fix-cherry-pick-error-for-cleanAllRUV-issue.patch
+Patch42:          0042-Ticket-50736-RetroCL-trimming-may-crash-at-shutdown-.patch
+Patch43:          0043-Issue-50529-LDAP-server-returning-PWP-controls-in-di.patch
+Patch44:          0044-Issue-50572-After-running-cl-dump-dbdir-cldb-ldif.do.patch
+Patch45:          0045-Issue-50655-access-log-etime-is-not-properly-formatt.patch
+Patch46:          0046-Issue-50834-Incorrectly-setting-the-NSS-default-SSL-.patch
+Patch47:          0047-Ticket-50428-Log-the-actual-base-DN-when-the-search-.patch
+Patch48:          0048-Issue-50530-Directory-Server-not-RFC-4511-compliant-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -539,6 +546,17 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Wed Feb 12 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-13
+- Bump version to 1.3.9.1-13
+- Resolves: Bug 1801693 - ns-slapd is crashing while restarting ipactl
+- Resolves: Bug 1801695 - LDAP server returning controltype in different sequence
+- Resolves: Bug 1801700 - After running cl-dump dbdir/cldb/*ldif.done are not deleted
+- Resolves: Bug 1801701 - etime displayed has an order of magnitude 10 times smaller than it should be
+- Resolves: Bug 1801702 - Regression: NSS has interop problems as server when using limited cipher list
+- Resolves: Bug 1801704 - Log the actual base DN when the search fails with "invalid attribute request"
+- Resolves: Bug 1801705 - Directory Server 10 not RFC 4511 compliant
+- Resolves: Bug 1801706 - Replace error by warning in the state machine defined in repl5_inc_run
+
 * Fri Nov 1 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-12
 - Bump version to 1.3.9.1-12
 - Resolves: Bug 1767622 - CleanAllRUV task limit not enforced
