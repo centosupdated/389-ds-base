@@ -38,8 +38,8 @@
 
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
-Version:          1.3.9.1
-Release:          %{?relprefix}13%{?prerel}%{?dist}
+Version:          1.3.10.1
+Release:          %{?relprefix}5%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -145,55 +145,22 @@ Requires:         gperftools-libs
 Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}%{?prerel}.tar.bz2
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
-Patch00:          0000-Ticket-50236-memberOf-should-be-more-robust.patch
-Patch01:          0001-Ticket-50238-Failed-modrdn-can-corrupt-entry-cache.patch
-Patch02:          0002-Ticket-50232-export-creates-not-importable-ldif-file.patch
-Patch03:          0003-Ticket-50234-one-level-search-returns-not-matching-e.patch
-Patch04:          0004-Issue-50091-shadowWarning-is-not-generated-if-passwo.patch
-Patch05:          0005-Ticket-50091-shadowWarning-is-not-generated-if-passw.patch
-Patch06:          0006-Ticket-50260-backend-txn-plugins-can-corrupt-entry-c.patch
-Patch07:          0007-Ticket-50077-Do-not-automatically-turn-automember-po.patch
-Patch08:          0008-Ticket-50282-OPERATIONS-ERROR-when-trying-to-delete-.patch
-Patch09:          0009-Ticket-49561-MEP-plugin-upon-direct-op-failure-will-.patch
-Patch10:          0010-Ticket-50260-Invalid-cache-flushing-improvements.patch
-Patch11:          0011-Ticket-50265-the-warning-about-skew-time-could-last-.patch
-Patch12:          0012-Ticket-50063-Crash-after-attempting-to-restore-a-sin.patch
-Patch13:          0013-Ticket-49946-upgrade-of-389-ds-base-could-remove-rep.patch
-Patch14:          0014-Ticket-49873-Contention-on-virtual-attribute-lookup.patch
-Patch15:          0015-Ticket-49958-extended-search-fail-to-match-entries.patch
-Patch16:          0016-Ticket-50028-ds-replcheck-y-option-throws-usage-erro.patch
-#Patch17:          0017-Ticket-50329-Possible-Security-Issue-DOS-due-to-iobl.patch
-Patch18:          0018-Ticket-49990-Increase-the-default-FD-limits.patch
-Patch19:          0019-Ticket-50053-Subtree-password-policy-overrides-a-use.patch
-Patch20:          0020-Ticket-49866-Add-passwordSendExpiringTime-to-objectc.patch
-Patch21:          0021-Ticket-50013-Log-warn-instead-of-ERR-when-aci-target.patch
-Patch22:          0022-Ticket-49997-RFE-ds-replcheck-could-validate-suffix-.patch
-Patch23:          0023-Ticket-50363-ds-replcheck-incorrectly-reports-error-.patch
-Patch24:          0024-Ticket-50370-CleanAllRUV-task-crashing-during-server.patch
-Patch25:          0025-Ticket-50378-ACI-s-with-IPv4-and-IPv6-bind-rules-do-.patch
-Patch26:          0026-Ticket-50396-Crash-in-PAM-plugin-when-user-does-not-.patch
-Patch27:          0027-Ticket-50393-maxlogsperdir-accepting-negative-values.patch
-Patch28:          0028-Issue-49754-Instance-created-using-dscreate-can-t-be.patch
-Patch29:          0029-Ticket-50413-ds-replcheck-Always-display-the-Result-.patch
-Patch30:          0030-Ticket-50389-ns-slapd-craches-while-two-threads-are-.patch
-Patch31:          0031-Issue-50123-with_tmpfiles_d-is-associated-with-syste.patch
-Patch32:          0032-Issue-50426-nsSSL3Ciphers-is-limited-to-1024-charact.patch
-Patch33:          0033-Ticket-50329-2nd-Possible-Security-Issue-DOS-due-to-.patch
-Patch34:          0034-CVE-deref-plugin-displays-restricted-attributes.patch
-Patch35:          0035-Issue-49624-modrdn-silently-fails-if-DB-deadlock-occ.patch
-Patch36:          0036-Issue-50536-Audit-log-heading-written-to-log-after-e.patch
-Patch37:          0037-Issue-50636-Crash-during-sasl-bind.patch
-Patch38:          0038-Issue-49850-ldbm_get_nonleaf_ids-slow-for-databases-.patch
-Patch39:          0039-Ticket-49850-cont-fix-crash-in-ldbm_non_leaf.patch
-Patch40:          0040-Issue-50538-cleanAllRUV-task-limit-is-not-enforced-f.patch
-Patch41:          0041-Fix-cherry-pick-error-for-cleanAllRUV-issue.patch
-Patch42:          0042-Ticket-50736-RetroCL-trimming-may-crash-at-shutdown-.patch
-Patch43:          0043-Issue-50529-LDAP-server-returning-PWP-controls-in-di.patch
-Patch44:          0044-Issue-50572-After-running-cl-dump-dbdir-cldb-ldif.do.patch
-Patch45:          0045-Issue-50655-access-log-etime-is-not-properly-formatt.patch
-Patch46:          0046-Issue-50834-Incorrectly-setting-the-NSS-default-SSL-.patch
-Patch47:          0047-Ticket-50428-Log-the-actual-base-DN-when-the-search-.patch
-Patch48:          0048-Issue-50530-Directory-Server-not-RFC-4511-compliant-.patch
+Patch00:          0000-CVE-2019-14824-BZ-1748199-deref-plugin-displays-rest.patch
+Patch01:          0001-Issue-50525-nsslapd-defaultnamingcontext-does-not-ch.patch
+Patch02:          0002-Issue-50530-Directory-Server-not-RFC-4511-compliant-.patch
+Patch03:          0003-Issue-50529-LDAP-server-returning-PWP-controls-in-di.patch
+Patch04:          0004-Issue-50538-cleanAllRUV-task-limit-is-not-enforced-f.patch
+Patch05:          0005-Issue-49624-modrdn-silently-fails-if-DB-deadlock-occ.patch
+Patch06:          0006-Issue-50572-After-running-cl-dump-dbdir-cldb-ldif.do.patch
+Patch07:          0007-Issue-50538-Fix-cherry-pick-error.patch
+Patch08:          0008-Issue-50646-Improve-task-handling-during-shutdowns.patch
+Patch09:          0009-Issue-50653-objectclass-parsing-fails-to-log-error-m.patch
+Patch10:          0010-Issue-50655-access-log-etime-is-not-properly-formatt.patch
+Patch11:          0011-Issue-49850-ldbm_get_nonleaf_ids-slow-for-databases-.patch
+Patch12:          0012-Issue-50536-Audit-log-heading-written-to-log-after-e.patch
+Patch13:          0013-Issue-50636-Crash-during-sasl-bind.patch
+Patch14:          0014-Ticket-49850-cont-fix-crash-in-ldbm_non_leaf.patch
+Patch15:          0015-Ticket-49624-cont-DB-Deadlock-on-modrdn-appears-to-c.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -546,28 +513,39 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
-* Wed Feb 12 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-13
-- Bump version to 1.3.9.1-13
-- Resolves: Bug 1801693 - ns-slapd is crashing while restarting ipactl
-- Resolves: Bug 1801695 - LDAP server returning controltype in different sequence
-- Resolves: Bug 1801700 - After running cl-dump dbdir/cldb/*ldif.done are not deleted
-- Resolves: Bug 1801701 - etime displayed has an order of magnitude 10 times smaller than it should be
-- Resolves: Bug 1801702 - Regression: NSS has interop problems as server when using limited cipher list
-- Resolves: Bug 1801704 - Log the actual base DN when the search fails with "invalid attribute request"
-- Resolves: Bug 1801705 - Directory Server 10 not RFC 4511 compliant
-- Resolves: Bug 1801706 - Replace error by warning in the state machine defined in repl5_inc_run
+* Fri Feb 7 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-5
+- Bump version to 1.3.10.1-5
+- Resolves: Bug 1744623 - DB Deadlock on modrdn appears to corrupt database and entry cache(cont)
 
-* Fri Nov 1 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-12
-- Bump version to 1.3.9.1-12
-- Resolves: Bug 1767622 - CleanAllRUV task limit not enforced
+* Fri Oct 25 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-4
+- Bump version to 1.3.10.1-4
+- Resolves: Bug 1765106 - ipa-server-install is failing with ipapython.admintool: ERROR failed to create DS instance Command
 
-* Mon Oct 28 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-11
-- Bump version to 1.3.9.1-11
-- Resolves: Bug 1748198 - EMBARGOED CVE-2019-14824 389-ds-base: Read permission check bypass via the deref plugin
-- Resolves: Bug 1754831 - After audit log file is rotated, DS version string is logged after each update
-- Resolves: Bug 1763622 - Extremely slow LDIF import with ldif2db
-- Resolves: Bug 1763627 - ns-slapd crash on concurrent SASL BINDs, connection_call_io_layer_callbacks must hold hold c_mutex
-- Resolves: Bug 1749289 - DB Deadlock on modrdn appears to corrupt database and entry cache
+* Thu Oct 17 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-3
+- Bump version to 1.3.10.1-3
+- Resolves: Bug 1756182 - ns-slapd crash on concurrent SASL BINDs, connection_call_io_layer_callbacks must hold hold c_mutex
+- Resolves: Bug 1749236 - etime displayed has an order of magnitude 10 times smaller than it should be
+- Resolves: Bug 1758109 - AddressSanitizer: heap-use-after-free in import_free_job
+- Resolves: Bug 1676948 - After audit log file is rotated, DS version string is logged after each update
+- Resolves: Bug 1749595 - Extremely slow LDIF import with ldif2db
+
+* Tue Sep 3 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-2
+- Bump version to 1.3.10.1-2
+- Resolves: Bug 1748199 - EMBARGOED CVE-2019-14824 389-ds-base: 389-ds and IDM: allows authenticated unprivileged user to retrieve content of userPassword field for any user 
+- Resolves: Bug 1610234 - nsslapd-defaultnamingcontext does not change when the assigned suffix got deleted
+- Resolves: Bug 1723545 - Directory Server 10 not RFC 4511 compliant
+- Resolves: Bug 1724914 - LDAP server returning controltype in different sequence
+- Resolves: Bug 1739182 - CleanAllRUV task limit not enforced
+- Resolves: Bug 1744623 - DB Deadlock on modrdn appears to corrupt database and entry cache
+- Resolves: Bug 1685059 - After running cl-dump dbdir/cldb/*ldif.done are not deleted
+
+* Wed Jul 31 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-1
+- Bump version to 1.3.10.1-1
+- Resolves: Bug 1639342 - Replace error by warning in the state machine defined in repl5_inc_run
+- Resolves: Bug 1691931 - memory leak in automember plugin
+- Resolves: Bug 1662461 - Log the actual base DN when the search fails with "invalid attribute request"
+- Resolves: Bug 1732053 - etime can contain invalid nanosecond value
+- Resolves: Bug 1546739 - consistency in the replication error codes while setting nsds5replicaid=65535
 
 * Thu Jun 13 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.9.1-10
 - Bump version to 1.3.9.1-10

@@ -1,0 +1,172 @@
+From 81587cabb358bb24d0ae2623076e09676a4a0620 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 15 Oct 2019 11:02:24 -0400
+Subject: [PATCH] Issue 50646 - Improve task handling during shutdowns
+
+Bug Description:  There is a race condition when stopping the server and
+                  a running import task that can cause a heap-use-after-free.
+
+Fix Description:  For an import task, encapsulate the import thread with
+                  a global thread increment/decrement (just like the export
+                  task).  Also improved how tasks are notified to abort by
+                  notifiying them before we wait for active threads to finish.
+                  Then the tasks get destroyed after all threads are complete.
+
+relates: https://pagure.io/389-ds-base/issue/50646
+
+Reviewed by: lkrispen & tbordaz (Thanks!!)
+---
+ ldap/servers/slapd/back-ldbm/import.c |  3 ++
+ ldap/servers/slapd/daemon.c           |  5 ++++
+ ldap/servers/slapd/main.c             |  2 +-
+ ldap/servers/slapd/slapi-private.h    |  1 +
+ ldap/servers/slapd/task.c             | 40 +++++++++++++++++----------
+ 5 files changed, 35 insertions(+), 16 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/import.c b/ldap/servers/slapd/back-ldbm/import.c
+index 42e2696d3..1c21f6e55 100644
+--- a/ldap/servers/slapd/back-ldbm/import.c
++++ b/ldap/servers/slapd/back-ldbm/import.c
+@@ -1626,7 +1626,10 @@ error:
+ void
+ import_main(void *arg)
+ {
++    /* For online import tasks increment/decrement the global thread count */
++    g_incr_active_threadcnt();
+     import_main_offline(arg);
++    g_decr_active_threadcnt();
+ }
+ 
+ int
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index afe0fb737..5d8767df6 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -1218,6 +1218,11 @@ slapd_daemon(daemon_ports_t *ports, ns_thrpool_t *tp)
+         ns_thrpool_wait(tp);
+     }
+ 
++    if (!in_referral_mode) {
++        /* signal tasks to start shutting down */
++        task_cancel_all();
++    }
++
+     threads = g_get_active_threadcnt();
+     if (threads > 0) {
+         slapi_log_err(SLAPI_LOG_INFO, "slapd_daemon",
+diff --git a/ldap/servers/slapd/main.c b/ldap/servers/slapd/main.c
+index 5e24b3b5f..5ca52ce74 100644
+--- a/ldap/servers/slapd/main.c
++++ b/ldap/servers/slapd/main.c
+@@ -1989,7 +1989,7 @@ lookup_plugin_by_instance_name(const char *name)
+ {
+     Slapi_Entry **entries = NULL;
+     Slapi_PBlock *pb = slapi_pblock_new();
+-    struct slapdplugin *plugin;
++    struct slapdplugin *plugin = NULL;
+     char *query, *dn, *cn;
+     int ret = 0;
+ 
+diff --git a/ldap/servers/slapd/slapi-private.h b/ldap/servers/slapd/slapi-private.h
+index b347b6162..d676486a8 100644
+--- a/ldap/servers/slapd/slapi-private.h
++++ b/ldap/servers/slapd/slapi-private.h
+@@ -794,6 +794,7 @@ int slapi_lookup_instance_name_by_suffix(char *suffix,
+ 
+ /* begin and end the task subsystem */
+ void task_init(void);
++void task_cancel_all(void);
+ void task_shutdown(void);
+ void task_cleanup(void);
+ 
+diff --git a/ldap/servers/slapd/task.c b/ldap/servers/slapd/task.c
+index 80a238392..7e7094750 100644
+--- a/ldap/servers/slapd/task.c
++++ b/ldap/servers/slapd/task.c
+@@ -26,7 +26,7 @@
+  */
+ static Slapi_Task *global_task_list = NULL;
+ static PRLock *global_task_lock = NULL;
+-static int shutting_down = 0;
++static uint64_t shutting_down = 0;
+ 
+ /***********************************
+  * Private Defines
+@@ -588,7 +588,7 @@ new_task(const char *rawdn, void *plugin)
+     Slapi_Task *task = NULL;
+     char *dn = NULL;
+ 
+-    if (rawdn == NULL) {
++    if (rawdn == NULL || shutting_down) {
+         return NULL;
+     }
+ 
+@@ -600,9 +600,20 @@ new_task(const char *rawdn, void *plugin)
+     }
+     task = (Slapi_Task *)slapi_ch_calloc(1, sizeof(Slapi_Task));
+     PR_Lock(global_task_lock);
++    if (shutting_down) {
++        /* Abort!  Free everything and return NULL */
++        PR_Unlock(task->task_log_lock);
++        PR_Unlock(global_task_lock);
++        PR_DestroyLock(task->task_log_lock);
++        slapi_ch_free((void **)&task);
++        slapi_ch_free_string(&dn);
++        slapi_log_err(SLAPI_LOG_ERR, "new_task", "Server is shutting down, aborting task: %s\n", rawdn);
++        return NULL;
++    }
+     task->next = global_task_list;
+     global_task_list = task;
+     PR_Unlock(global_task_lock);
++
+     task->task_dn = dn;
+     task->task_state = SLAPI_TASK_SETUP;
+     task->task_flags = SLAPI_TASK_RUNNING_AS_TASK;
+@@ -2990,32 +3001,31 @@ task_init(void)
+ 
+ /* called when the server is shutting down -- abort all existing tasks */
+ void
+-task_shutdown(void)
+-{
++task_cancel_all(void) {
+     Slapi_Task *task;
+-    int found_any = 0;
+ 
+-    /* first, cancel all tasks */
+     PR_Lock(global_task_lock);
+     shutting_down = 1;
+     for (task = global_task_list; task; task = task->next) {
+-        if ((task->task_state != SLAPI_TASK_CANCELLED) &&
+-            (task->task_state != SLAPI_TASK_FINISHED)) {
++        if (task->task_state != SLAPI_TASK_CANCELLED &&
++            task->task_state != SLAPI_TASK_FINISHED)
++        {
+             task->task_state = SLAPI_TASK_CANCELLED;
+             if (task->cancel) {
+-                slapi_log_err(SLAPI_LOG_INFO, "task_shutdown", "Cancelling task '%s'\n",
++                slapi_log_err(SLAPI_LOG_INFO, "task_cancel_all", "Canceling task '%s'\n",
+                               task->task_dn);
+                 (*task->cancel)(task);
+-                found_any = 1;
+             }
+         }
+     }
++    PR_Unlock(global_task_lock);
++}
+ 
+-    if (found_any) {
+-        /* give any tasks 1 second to say their last rites */
+-        DS_Sleep(PR_SecondsToInterval(1));
+-    }
+-
++void
++task_shutdown(void)
++{
++    /* Now we can destroy the tasks... */
++    PR_Lock(global_task_lock);
+     while (global_task_list) {
+         destroy_task(0, global_task_list);
+     }
+-- 
+2.21.0
+

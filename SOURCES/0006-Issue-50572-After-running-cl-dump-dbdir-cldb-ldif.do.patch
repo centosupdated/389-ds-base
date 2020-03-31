@@ -1,4 +1,4 @@
-From c0f3b0c3c95aad6b67a80643bbf389acf7aa191d Mon Sep 17 00:00:00 2001
+From d8935139d377ad75be4242db7d3194f3706dc44a Mon Sep 17 00:00:00 2001
 From: Simon Pichugin <spichugi@redhat.com>
 Date: Thu, 29 Aug 2019 15:51:56 +0200
 Subject: [PATCH] Issue 50572 - After running cl-dump dbdir/cldb/*ldif.done are
@@ -149,5 +149,5 @@ index db736aca9..fbb836a72 100644
  .TP
  .B \-w bind\(hypassword
 -- 
-2.21.1
+2.21.0
 

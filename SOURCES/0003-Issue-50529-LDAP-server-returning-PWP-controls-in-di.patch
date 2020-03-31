@@ -1,4 +1,4 @@
-From 37449e509f4a4253bacea57adf6c1d860eaaf1bb Mon Sep 17 00:00:00 2001
+From 606b7b6a45f6e2014119d0716774323f30862e0c Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
 Date: Fri, 2 Aug 2019 12:07:07 -0400
 Subject: [PATCH] Issue 50529 -  LDAP server returning PWP controls in
@@ -33,5 +33,5 @@ index befac50cd..ca76fc12f 100644
                                 "password expired!", 0, NULL);
  
 -- 
-2.21.1
+2.21.0
 

@@ -1,4 +1,4 @@
-From b4b8c8adcda0168cc18e40045d0a25eaf74ba4e1 Mon Sep 17 00:00:00 2001
+From fbbbcda083034031e564e8772affe815f2058047 Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
 Date: Thu, 17 Oct 2019 09:42:02 -0400
 Subject: [PATCH] Issue 50636 - Crash during sasl bind
@@ -22,10 +22,10 @@ Reviewed by: Ludwig Krispenz, Mark Reynolds
  1 file changed, 4 insertions(+), 2 deletions(-)
 
 diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
-index 945602f20..3599512af 100644
+index 845a67091..9abd546f9 100644
 --- a/ldap/servers/slapd/connection.c
 +++ b/ldap/servers/slapd/connection.c
-@@ -1584,12 +1584,14 @@ connection_threadmain()
+@@ -1585,12 +1585,14 @@ connection_threadmain()
                       */
                      pb_conn->c_anonlimits_set = 1;
                  }

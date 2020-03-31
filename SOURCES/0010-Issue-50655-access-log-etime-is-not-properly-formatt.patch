@@ -1,4 +1,4 @@
-From c8977a03f2c65978ad7977030d55bc830bc1f852 Mon Sep 17 00:00:00 2001
+From f4a5a7f3074e15c3439fd906bef78568bd6ab13c Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
 Date: Wed, 16 Oct 2019 16:52:59 -0400
 Subject: [PATCH] Issue 50655 - access log etime is not properly formatted
@@ -14,10 +14,10 @@ Reviewed by: firstyear(Thanks!)
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/ldap/servers/slapd/result.c b/ldap/servers/slapd/result.c
-index d9f431cc5..393b3f6cd 100644
+index 34ddd8566..61e7a70f9 100644
 --- a/ldap/servers/slapd/result.c
 +++ b/ldap/servers/slapd/result.c
-@@ -1920,7 +1920,8 @@ log_result(Slapi_PBlock *pb, Operation *op, int err, ber_tag_t tag, int nentries
+@@ -1925,7 +1925,8 @@ log_result(Slapi_PBlock *pb, Operation *op, int err, ber_tag_t tag, int nentries
      struct timespec o_hr_time_end;
      slapi_operation_time_elapsed(op, &o_hr_time_end);
  
@@ -28,5 +28,5 @@ index d9f431cc5..393b3f6cd 100644
      slapi_pblock_get(pb, SLAPI_OPERATION_NOTES, &operation_notes);
  
 -- 
-2.21.1
+2.21.0
 

@@ -1,0 +1,162 @@
+From 1e050b8bee725bfdc4bb6e12bf062227437935a7 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Thu, 30 Jan 2020 17:26:35 +0100
+Subject: [PATCH]     Ticket 49624 cont - DB Deadlock on modrdn appears to
+ corrupt database and entry cache
+
+    Bug: If there are deadlocks a transaction will be retried. In the case
+            of modrdn operation there is an error in handling the newsuperior
+            dn, which has to be reset when the txn is repeated.
+         There is also an error in freeing the entry stored in the pblock which can
+            lead to a double free
+         There is also a memory leak for ec entries
+
+    Fix: check if the newsuperior in the pblock was changed before the retry and
+            only then free and reset it.
+         check and protect pblock entry from double free
+         remove ec entry from cache
+
+         There is also a message at shutdown that entries remain in the entry cache
+            although no leaks are reported and a hash dump didn't show entries.
+            Change log level to avoid confusion
+
+    Reviewed by: Thierry, William, Viktor - Thanks
+---
+ ldap/servers/slapd/back-ldbm/cache.c       |  2 +-
+ ldap/servers/slapd/back-ldbm/ldbm_modrdn.c | 60 ++++++++++++++++------
+ 2 files changed, 44 insertions(+), 18 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/cache.c b/ldap/servers/slapd/back-ldbm/cache.c
+index 02453abac..c8d9f606b 100644
+--- a/ldap/servers/slapd/back-ldbm/cache.c
++++ b/ldap/servers/slapd/back-ldbm/cache.c
+@@ -723,7 +723,7 @@ entrycache_clear_int(struct cache *cache)
+     }
+     cache->c_maxsize = size;
+     if (cache->c_curentries > 0) {
+-        slapi_log_err(SLAPI_LOG_WARNING,
++        slapi_log_err(SLAPI_LOG_CACHE,
+                       "entrycache_clear_int", "There are still %" PRIu64 " entries "
+                                               "in the entry cache.\n",
+                       cache->c_curentries);
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+index 433ed88fb..26698012a 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+@@ -67,6 +67,7 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+     Slapi_DN *dn_newsuperiordn = NULL;
+     Slapi_DN dn_parentdn;
+     Slapi_DN *orig_dn_newsuperiordn = NULL;
++    Slapi_DN *pb_dn_newsuperiordn = NULL; /* used to check what is currently in the pblock */
+     Slapi_Entry *target_entry = NULL;
+     Slapi_Entry *original_targetentry = NULL;
+     int rc;
+@@ -248,30 +249,45 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+             slapi_sdn_set_dn_byref(&dn_newrdn, original_newrdn);
+             original_newrdn = slapi_ch_strdup(original_newrdn);
+ 
+-            slapi_pblock_get(pb, SLAPI_MODRDN_NEWSUPERIOR_SDN, &dn_newsuperiordn);
+-            slapi_sdn_free(&dn_newsuperiordn);
+-            slapi_pblock_set(pb, SLAPI_MODRDN_NEWSUPERIOR_SDN, orig_dn_newsuperiordn);
+-            dn_newsuperiordn = slapi_sdn_dup(orig_dn_newsuperiordn);
++            /* we need to restart with the original newsuperiordn which could have
++             * been modified. So check what is in the pblock, if it was changed
++             * free it, reset orig dn in th epblock and recreate a working superior
++             */
++            slapi_pblock_get(pb, SLAPI_MODRDN_NEWSUPERIOR_SDN, &pb_dn_newsuperiordn);
++            if (pb_dn_newsuperiordn != orig_dn_newsuperiordn) {
++                slapi_sdn_free(&pb_dn_newsuperiordn);
++                slapi_pblock_set(pb, SLAPI_MODRDN_NEWSUPERIOR_SDN, orig_dn_newsuperiordn);
++                dn_newsuperiordn = slapi_sdn_dup(orig_dn_newsuperiordn);
++            }
+             /* must duplicate ec before returning it to cache,
+              * which could free the entry. */
+-            if ((tmpentry = backentry_dup(original_entry ? original_entry : ec)) == NULL) {
++            if (!original_entry) {
++                slapi_log_err(SLAPI_LOG_ERR, "ldbm_back_modrdn",
++                    "retrying transaction, but no original entry found\n");
++                ldap_result_code = LDAP_OPERATIONS_ERROR;
++                goto error_return;
++            }
++            if ((tmpentry = backentry_dup(original_entry)) == NULL) {
+                 ldap_result_code = LDAP_OPERATIONS_ERROR;
+                 goto error_return;
+             }
+             slapi_pblock_get(pb, SLAPI_MODRDN_EXISTING_ENTRY, &ent);
+             if (cache_is_in_cache(&inst->inst_cache, ec)) {
+                 CACHE_REMOVE(&inst->inst_cache, ec);
+-                if (ent && (ent == ec->ep_entry)) {
+-                    /*
+-                     * On a retry, it's possible that ec is now stored in the
+-                     * pblock as SLAPI_MODRDN_EXISTING_ENTRY.  "ec" will be freed
+-                     * by CACHE_RETURN below, so set ent to NULL so don't free
+-                     * it again.
+-                     */
+-                    ent = NULL;
+-                }
++            }
++            if (ent && (ent == ec->ep_entry)) {
++                /*
++                 * On a retry, it's possible that ec is now stored in the
++                 * pblock as SLAPI_MODRDN_EXISTING_ENTRY.  "ec" will be freed
++                 * by CACHE_RETURN below, so set ent to NULL so don't free
++                 * it again.
++                 * And it needs to be checked always.
++                 */
++                ent = NULL;
+             }
+             CACHE_RETURN(&inst->inst_cache, &ec);
++
++            /* LK why do we need this ????? */
+             if (!cache_is_in_cache(&inst->inst_cache, e)) {
+                 if (CACHE_ADD(&inst->inst_cache, e, NULL) < 0) {
+                     slapi_log_err(SLAPI_LOG_CACHE,
+@@ -1087,8 +1103,9 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+         if (slapi_sdn_get_dn(dn_newsuperiordn) != NULL) {
+             retval = ldbm_ancestorid_move_subtree(be, sdn, &dn_newdn, e->ep_id, children, &txn);
+             if (retval != 0) {
+-                if (retval == DB_LOCK_DEADLOCK)
++                if (retval == DB_LOCK_DEADLOCK) {
+                     continue;
++                }
+                 if (retval == DB_RUNRECOVERY || LDBM_OS_ERR_IS_DISKFULL(retval))
+                     disk_full = 1;
+                 MOD_SET_ERROR(ldap_result_code,
+@@ -1108,8 +1125,9 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+                                              e->ep_id, &txn, is_tombstone);
+             slapi_rdn_done(&newsrdn);
+             if (retval != 0) {
+-                if (retval == DB_LOCK_DEADLOCK)
++                if (retval == DB_LOCK_DEADLOCK) {
+                     continue;
++                }
+                 if (retval == DB_RUNRECOVERY || LDBM_OS_ERR_IS_DISKFULL(retval))
+                     disk_full = 1;
+                 MOD_SET_ERROR(ldap_result_code, LDAP_OPERATIONS_ERROR, retry_count);
+@@ -1500,7 +1518,12 @@ common_return:
+     done_with_pblock_entry(pb, SLAPI_MODRDN_NEWPARENT_ENTRY);
+     done_with_pblock_entry(pb, SLAPI_MODRDN_TARGET_ENTRY);
+     slapi_ch_free_string(&original_newrdn);
+-    slapi_sdn_free(&orig_dn_newsuperiordn);
++    slapi_pblock_get(pb, SLAPI_MODRDN_NEWSUPERIOR_SDN, &pb_dn_newsuperiordn);
++    if (pb_dn_newsuperiordn != orig_dn_newsuperiordn) {
++        slapi_sdn_free(&orig_dn_newsuperiordn);
++    } else {
++        slapi_sdn_free(&dn_newsuperiordn);
++    }
+     backentry_free(&original_entry);
+     backentry_free(&tmpentry);
+     slapi_entry_free(original_targetentry);
+@@ -1561,6 +1584,9 @@ moddn_unlock_and_return_entry(
+     /* Something bad happened so we should give back all the entries */
+     if (*targetentry != NULL) {
+         cache_unlock_entry(&inst->inst_cache, *targetentry);
++        if (cache_is_in_cache(&inst->inst_cache, *targetentry)) {
++            CACHE_REMOVE(&inst->inst_cache, *targetentry);
++        }
+         CACHE_RETURN(&inst->inst_cache, targetentry);
+         *targetentry = NULL;
+     }
+-- 
+2.21.1
+

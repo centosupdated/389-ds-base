@@ -1,4 +1,4 @@
-From 2fb026b0fe7e35dfabcb90b79fae3e60f9f95340 Mon Sep 17 00:00:00 2001
+From 177faf2c7080d3476798d305451e8ee19ea47f8d Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
 Date: Wed, 7 Aug 2019 16:57:17 -0400
 Subject: [PATCH] Issue 50536 - Audit log heading written to log after every
