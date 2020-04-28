@@ -1,0 +1,30 @@
+From 8c7b89bb2a1e25041e339e9e6092f031ac26d585 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 5 Feb 2020 09:48:15 -0500
+Subject: [PATCH] Issue 50873 - Fix healthcheck and virtual attr check
+
+Description:  Used the wrong DN to lookup COS definitions
+
+relates: https://pagure.io/389-ds-base/issue/50873
+
+Reviewed by: mreynolds (one line commit rule)
+---
+ src/lib389/lib389/backend.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/lib389/lib389/backend.py b/src/lib389/lib389/backend.py
+index ac2af021c..86ee33e6e 100644
+--- a/src/lib389/lib389/backend.py
++++ b/src/lib389/lib389/backend.py
+@@ -438,7 +438,7 @@ class Backend(DSLdapObject):
+ 
+         # Check COS next
+         for cosDefType in [CosIndirectDefinitions, CosPointerDefinitions, CosClassicDefinitions]:
+-            defs = cosDefType(self._instance, self._dn).list()
++            defs = cosDefType(self._instance, suffix).list()
+             for cosDef in defs:
+                 attrs = cosDef.get_attr_val_utf8_l("cosAttribute").split()
+                 for attr in attrs:
+-- 
+2.21.1
+

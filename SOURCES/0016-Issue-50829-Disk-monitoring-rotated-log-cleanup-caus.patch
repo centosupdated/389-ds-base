@@ -1,0 +1,39 @@
+From aa65a78d49eb7c5ab1e35cd1ab2aa9c2bc6a209b Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 17 Jan 2020 15:42:00 -0500
+Subject: [PATCH] Issue 50829 - Disk monitoring rotated log cleanup causes
+ heap-use-after-free
+
+Description:  When Disk Monitoring finds that disk space is too low it starts
+              freeing up disk space by removing rotated logs.  However the log
+              list struct was not properly reset after freeing all the files
+              in the list.  This is what allowed the heap-use-after-free to
+              occur.
+
+relates: https://pagure.io/389-ds-base/issue/50829
+
+Reviewed by: firstyear(Thanks!)
+---
+ ldap/servers/slapd/log.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/ldap/servers/slapd/log.c b/ldap/servers/slapd/log.c
+index bfcf57475..b16e56b21 100644
+--- a/ldap/servers/slapd/log.c
++++ b/ldap/servers/slapd/log.c
+@@ -3243,6 +3243,12 @@ log__delete_rotated_logs()
+         logp = logp->l_next;
+         slapi_ch_free((void **)&prev_log);
+     }
++
++    /* reset the log struct */
++    loginfo.log_access_logchain = NULL;
++    loginfo.log_audit_logchain = NULL;
++    loginfo.log_auditfail_logchain = NULL;
++    loginfo.log_error_logchain = NULL;
+ }
+ 
+ #define ERRORSLOG 1
+-- 
+2.21.1
+

@@ -1,0 +1,74 @@
+From b5d7a0b34d532335da7171dd7a308f95638c91c8 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Tue, 19 Nov 2019 09:56:46 +0100
+Subject: [PATCH] Ticket 50741 - bdb_start - Detected Disorderly Shutdown last
+ time Directory Server was running
+
+Bug description:
+	At startup plugins are started (plugin_dependency_startall) including ldbm database
+	that read/remove the guardian file (bdb_start).
+	If one of the plugin fails to start, for example because of a missing dependency,
+	the statup function just exits without recreating the guardian file.
+	The next restart will not find the guardian file, trigger a recovery and
+	log the alarming message "Detected Disorderly Shutdown last time Directory Server was running..."
+
+Fix description:
+	In case the startup function fails it should call the closing function of all
+	started plugin: plugin_closeall
+	The fix also contains fixes for plugin acceptance tests. If DS startup is expected
+	to fail, it is caught by subprocess.CalledProcessError but actually the startup
+	function can also return ValueError exception
+
+https://pagure.io/389-ds-base/issue/50741
+
+Reviewed By: Mark Reynolds
+---
+ dirsrvtests/tests/suites/plugins/acceptance_test.py | 6 +++---
+ ldap/servers/slapd/plugin.c                         | 1 +
+ 2 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/dirsrvtests/tests/suites/plugins/acceptance_test.py b/dirsrvtests/tests/suites/plugins/acceptance_test.py
+index 8aacb74be..cdb629eef 100644
+--- a/dirsrvtests/tests/suites/plugins/acceptance_test.py
++++ b/dirsrvtests/tests/suites/plugins/acceptance_test.py
+@@ -64,7 +64,7 @@ def check_dependency(inst, plugin, online=True):
+         acct_usability.remove('nsslapd-plugin-depends-on-named', plugin.rdn)
+     else:
+         plugin.disable()
+-        with pytest.raises(subprocess.CalledProcessError):
++        with pytest.raises((subprocess.CalledProcessError, ValueError)):
+             inst.restart()
+         dse_ldif = DSEldif(inst)
+         dse_ldif.delete(acct_usability.dn, 'nsslapd-plugin-depends-on-named')
+@@ -1739,14 +1739,14 @@ def test_rootdn(topo, args=None):
+     # First, test that invalid plugin changes are rejected
+     if args is None:
+         plugin.replace('rootdn-deny-ip', '12.12.ZZZ.12')
+-        with pytest.raises(subprocess.CalledProcessError):
++        with pytest.raises((subprocess.CalledProcessError, ValueError)):
+             inst.restart()
+         dse_ldif = DSEldif(inst)
+         dse_ldif.delete(plugin.dn, 'rootdn-deny-ip')
+         _rootdn_restart(inst)
+ 
+         plugin.replace('rootdn-allow-host', 'host._.com')
+-        with pytest.raises(subprocess.CalledProcessError):
++        with pytest.raises((subprocess.CalledProcessError, ValueError)):
+             inst.restart()
+         dse_ldif = DSEldif(inst)
+         dse_ldif.delete(plugin.dn, 'rootdn-allow-host')
+diff --git a/ldap/servers/slapd/plugin.c b/ldap/servers/slapd/plugin.c
+index a77bb5aa7..b00c1bd8f 100644
+--- a/ldap/servers/slapd/plugin.c
++++ b/ldap/servers/slapd/plugin.c
+@@ -1811,6 +1811,7 @@ plugin_dependency_startall(int argc, char **argv, char *errmsg __attribute__((un
+             }
+             i++;
+         }
++        plugin_closeall(1 /* Close Backends */, 1 /* Close Globals */);
+         exit(1);
+     }
+ 
+-- 
+2.21.1
+

@@ -1,0 +1,240 @@
+From 585d536de6927cf47ef817f541db392dfca4526b Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 22 Jan 2020 15:10:04 -0500
+Subject: [PATCH] Issue 49254 - Fix compiler failures and warnings
+
+Description:  Fix issues with new gcc compiler flag "-fno-common",
+              and clean up doxygen warnings around libsds
+
+relates: https://pagure.io/389-ds-base/issue/49254
+
+Reviewed by: mhonek, spichugi, and tbordaz (Thanks!!!)
+---
+ docs/slapi.doxy.in                       |  2 -
+ ldap/servers/plugins/acl/acl.c           |  1 +
+ ldap/servers/plugins/acl/acl.h           |  4 +-
+ ldap/servers/plugins/acl/acl_ext.c       |  2 +
+ ldap/servers/slapd/result.c              |  8 ++--
+ ldap/servers/slapd/slap.h                |  4 +-
+ ldap/servers/slapd/tools/ldclt/ldapfct.c |  2 +-
+ src/libsds/include/sds.h                 | 56 ++++++++++++++----------
+ 8 files changed, 47 insertions(+), 32 deletions(-)
+
+diff --git a/docs/slapi.doxy.in b/docs/slapi.doxy.in
+index 2cc2d5f47..b1e4810ab 100644
+--- a/docs/slapi.doxy.in
++++ b/docs/slapi.doxy.in
+@@ -760,7 +760,6 @@ WARN_LOGFILE           =
+ 
+ INPUT                  = src/libsds/include/sds.h \
+                          docs/job-safety.md \
+-                         src/nunc-stans/include/nunc-stans.h
+                          # ldap/servers/slapd/slapi-plugin.h \
+ 
+ # This tag can be used to specify the character encoding of the source files
+@@ -1101,7 +1100,6 @@ HTML_EXTRA_STYLESHEET  = docs/custom.css
+ 
+ # HTML_EXTRA_FILES       = docs/nunc-stans-intro.png \
+ # 						 docs/nunc-stans-job-states.png
+-HTML_EXTRA_FILES = docs/nunc-stans-job-states.png
+ 
+ # The HTML_COLORSTYLE_HUE tag controls the color of the HTML output. Doxygen
+ # will adjust the colors in the style sheet and background images according to
+diff --git a/ldap/servers/plugins/acl/acl.c b/ldap/servers/plugins/acl/acl.c
+index 5680de669..41a909a18 100644
+--- a/ldap/servers/plugins/acl/acl.c
++++ b/ldap/servers/plugins/acl/acl.c
+@@ -13,6 +13,7 @@
+ 
+ #include "acl.h"
+ 
++
+ /****************************************************************************
+ *
+ * acl.c
+diff --git a/ldap/servers/plugins/acl/acl.h b/ldap/servers/plugins/acl/acl.h
+index 5d453d825..becc7f920 100644
+--- a/ldap/servers/plugins/acl/acl.h
++++ b/ldap/servers/plugins/acl/acl.h
+@@ -311,8 +311,8 @@ typedef struct aci
+ #define ATTR_ACLPB_MAX_SELECTED_ACLS    "nsslapd-aclpb-max-selected-acls"
+ #define DEFAULT_ACLPB_MAX_SELECTED_ACLS 200
+ 
+-int aclpb_max_selected_acls; /* initialized from plugin config entry */
+-int aclpb_max_cache_results; /* initialized from plugin config entry */
++extern int aclpb_max_selected_acls; /* initialized from plugin config entry */
++extern int aclpb_max_cache_results; /* initialized from plugin config entry */
+ 
+ typedef struct result_cache
+ {
+diff --git a/ldap/servers/plugins/acl/acl_ext.c b/ldap/servers/plugins/acl/acl_ext.c
+index 31c61c2f4..797c5d2fd 100644
+--- a/ldap/servers/plugins/acl/acl_ext.c
++++ b/ldap/servers/plugins/acl/acl_ext.c
+@@ -23,6 +23,8 @@ static int acl__put_aclpb_back_to_pool(Acl_PBlock *aclpb);
+ static Acl_PBlock *acl__malloc_aclpb(void);
+ static void acl__free_aclpb(Acl_PBlock **aclpb_ptr);
+ 
++int aclpb_max_selected_acls = DEFAULT_ACLPB_MAX_SELECTED_ACLS;
++int aclpb_max_cache_results = DEFAULT_ACLPB_MAX_SELECTED_ACLS;
+ 
+ struct acl_pbqueue
+ {
+diff --git a/ldap/servers/slapd/result.c b/ldap/servers/slapd/result.c
+index 89f776716..0b13c30e9 100644
+--- a/ldap/servers/slapd/result.c
++++ b/ldap/servers/slapd/result.c
+@@ -1954,9 +1954,11 @@ notes2str(unsigned int notes, char *buf, size_t buflen)
+              */
+             buflen -= len;
+             p += len;
+-            /* Put in the end quote, then back track p. */
+-            *p++ = '"';
+-            *p--;
++            /*
++             * Put in the end quote. If another snp_detail is append a comma
++             * will overwrite the quote.
++             */
++            *(p + 1) = '"';
+         }
+     }
+ 
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index d73e9aaae..44f6be97a 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -935,7 +935,7 @@ enum
+ };
+ 
+ /* DataList definition */
+-struct datalist
++typedef struct datalist
+ {
+     void **elements;   /* array of elements */
+     int element_count; /* number of elements in the array */
+@@ -1737,7 +1737,7 @@ typedef struct conn
+  *  * Online tasks interface (to support import, export, etc)
+  *   * After some cleanup, we could consider making these public.
+  *    */
+-struct slapi_task
++typedef struct slapi_task
+ {
+     struct slapi_task *next;
+     char *task_dn;
+diff --git a/ldap/servers/slapd/tools/ldclt/ldapfct.c b/ldap/servers/slapd/tools/ldclt/ldapfct.c
+index ca0912d6c..dbfc553d3 100644
+--- a/ldap/servers/slapd/tools/ldclt/ldapfct.c
++++ b/ldap/servers/slapd/tools/ldclt/ldapfct.c
+@@ -698,7 +698,7 @@ connectToLDAP(thread_context *tttctx, const char *bufBindDN, const char *bufPass
+             }
+             if (mode & VERY_VERBOSE)
+                 printf("ldclt[%d]: T%03d: Before ldap_simple_bind_s (%s, %s)\n",
+-                       mctx.pid, thrdNum, binddn,
++                       mctx.pid, thrdNum, binddn ? binddn : "Anonymous",
+                        passwd ? passwd : "NO PASSWORD PROVIDED");
+             ret = ldap_sasl_bind_s(ld, binddn,
+                                    LDAP_SASL_SIMPLE, &cred, NULL, NULL, &servercredp); /*JLS 05-01-01*/
+diff --git a/src/libsds/include/sds.h b/src/libsds/include/sds.h
+index c649c036d..3f0dd8684 100644
+--- a/src/libsds/include/sds.h
++++ b/src/libsds/include/sds.h
+@@ -221,13 +221,13 @@ void sds_free(void *ptr);
+  * sds_crc32c uses the crc32c algorithm to create a verification checksum of data.
+  * This checksum is for data verification, not cryptographic purposes. It is used
+  * largely in debugging to find cases when bytes in structures are updated incorrectly,
+- * or to find memory bit flips during operation. If avaliable, this will use the
++ * or to find memory bit flips during operation. If available, this will use the
+  * intel sse4 crc32c hardware acceleration.
+  *
+  * \param crc The running CRC value. Initially should be 0. If in doubt, use 0.
+  * \param data Pointer to the data to checksum.
+  * \param length number of bytes to validate.
+- * \retval crc The crc of this data. May be re-used in subsequent sds_crc32c calls
++ * \retval rcrc The crc of this data. May be re-used in subsequent sds_crc32c calls
+  * for certain datatypes.
+  */
+ uint32_t sds_crc32c(uint32_t crc, const unsigned char *data, size_t length);
+@@ -1356,48 +1356,60 @@ typedef enum _sds_ht_slot_state {
+     SDS_HT_BRANCH = 2,
+ } sds_ht_slot_state;
+ 
++/**
++ * ht values
++ */
+ typedef struct _sds_ht_value
+ {
+-    uint32_t checksum;
+-    void *key;
+-    void *value;
++    uint32_t checksum;  /**< the checksum */
++    void *key;  /**< the key */
++    void *value;  /**< the key value */
+     // may make this a LL of values later for collisions
+ } sds_ht_value;
+ 
++/**
++ * ht slot
++ */
+ typedef struct _sds_ht_slot
+ {
+-    sds_ht_slot_state state;
++    sds_ht_slot_state state; /**< the checksum */
+     union
+     {
+         sds_ht_value *value;
+         struct _sds_ht_node *node;
+-    } slot;
++    } slot;  /**< slot union */
+ } sds_ht_slot;
+ 
++/**
++ *  ht node
++ */
+ typedef struct _sds_ht_node
+ {
+-    uint32_t checksum;
+-    uint64_t txn_id;
+-    uint_fast32_t count;
++    uint32_t checksum; /**< the checksum */
++    uint64_t txn_id; /**< transaction id */
++    uint_fast32_t count; /**< the count */
+ #ifdef SDS_DEBUG
+     uint64_t depth;
+ #endif
+-    struct _sds_ht_node *parent;
+-    size_t parent_slot;
+-    sds_ht_slot slots[HT_SLOTS];
++    struct _sds_ht_node *parent; /**< the parent */
++    size_t parent_slot; /**< the parent slot */
++    sds_ht_slot slots[HT_SLOTS]; /**< the slots */
+ } sds_ht_node;
+ 
++/**
++ *  ht instance
++ */
+ typedef struct _sds_ht_instance
+ {
+-    uint32_t checksum;
+-    char hkey[16];
+-    sds_ht_node *root;
+-    int64_t (*key_cmp_fn)(void *a, void *b);
+-    uint64_t (*key_size_fn)(void *key);
+-    void *(*key_dup_fn)(void *key);
+-    void (*key_free_fn)(void *key);
+-    void *(*value_dup_fn)(void *value);
+-    void (*value_free_fn)(void *value);
++    uint32_t checksum; /**< the checksum */
++    char hkey[16]; /**< the key */
++    sds_ht_node *root; /**< the root */
++    int64_t (*key_cmp_fn)(void *a, void *b); /**< the keycompare function */
++    uint64_t (*key_size_fn)(void *key); /**< the key size function */
++    void *(*key_dup_fn)(void *key); /**< the key dup function */
++    void (*key_free_fn)(void *key); /**< the key free function */
++    void *(*value_dup_fn)(void *value); /**< the value dup function */
++    void (*value_free_fn)(void *value); /**< the value free function */
+ } sds_ht_instance;
+ 
+ uint64_t sds_uint64_t_size(void *key);
+-- 
+2.21.1
+

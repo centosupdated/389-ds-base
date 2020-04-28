@@ -1,0 +1,45 @@
+From ffeb3389c2682b41db28062a48ff555875330098 Mon Sep 17 00:00:00 2001
+From: Ludwig Krispenz <lkrispen@redhat.com>
+Date: Thu, 1 Aug 2019 10:40:33 +0200
+Subject: [PATCH] Ticket 50490 objects and memory leaks
+
+Bug: There are severalmemory leaks for replication objects
+
+Fix: This patch contains a couple of fixes:
+
+	- The balance of acquire and release for a replica object was incorrect,
+	but the object is allocated at startup or when a replica is added and
+	destroyed at shutdown. In between we know the replica exists and can be accessed directly
+	To ensure that no access was made until it is destroyed the shutdown order was
+	slightly modifed
+
+	- other objects like RUV or AGMT were also not always correctly balanced, this
+	is corrected
+
+	- in cl5_api where many types of objects are used, the variable names were changed
+	to bettr indicat to what an object refers
+
+	- some other leaks, eg in repl5_total_init or op_shared_add were fixed
+
+	- unused code has been removed
+
+Reviewed by: William, Thierry, Mark - thanks
+---
+ ldap/servers/plugins/replication/repl5_replica_config.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index 02b36f6ad..238522b54 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -769,6 +769,7 @@ replica_config_delete(Slapi_PBlock *pb __attribute__((unused)),
+                       slapi_sdn_get_dn(replica_get_root(r)));
+         cl5DeleteDBSync(r);
+         replica_delete_by_name(replica_get_name(r));
++        mtnode_ext->replica = NULL;
+     }
+ 
+     PR_Unlock(s_configLock);
+-- 
+2.21.1
+

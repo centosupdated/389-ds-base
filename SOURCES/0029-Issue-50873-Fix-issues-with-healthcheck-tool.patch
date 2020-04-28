@@ -1,0 +1,79 @@
+From 717ce8b3b50c7a92cc269836a88c3015d1786120 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 31 Jan 2020 16:36:28 -0500
+Subject: [PATCH] Issue 50873 - Fix issues with healthcheck tool
+
+Description:
+
+- Wrong error code reported with result for backend check
+
+- Disk Space Monitor check crashes because it is missing "import copy"
+
+- On a non-LDAPI instance "dsctl healthcheck" does not prompt for bind dn, only for password.
+
+relates: https://pagure.io/389-ds-base/issue/50873
+
+Reviewed by: firstyear(Thanks!)
+---
+ src/lib389/lib389/cli_base/__init__.py | 16 ++++++++++------
+ src/lib389/lib389/lint.py              |  2 +-
+ src/lib389/lib389/monitor.py           |  1 +
+ 3 files changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/src/lib389/lib389/cli_base/__init__.py b/src/lib389/lib389/cli_base/__init__.py
+index e2e6c902a..7dd45b373 100644
+--- a/src/lib389/lib389/cli_base/__init__.py
++++ b/src/lib389/lib389/cli_base/__init__.py
+@@ -129,14 +129,18 @@ def connect_instance(dsrc_inst, verbose, args):
+             # No password or we chose to prompt
+             dsargs[SER_ROOT_PW] = getpass("Enter password for {} on {}: ".format(dsrc_inst['binddn'], dsrc_inst['uri']))
+     elif not ds.can_autobind():
+-        # No LDAPI, prompt for password
++        # No LDAPI, prompt for password, and bind DN if necessary
++        if dsrc_inst['binddn'] is None:
++            dn = ""
++            while dn == "":
++                dn = input("Enter Bind DN: ")
++            dsrc_inst['binddn'] = dn
+         dsargs[SER_ROOT_PW] = getpass("Enter password for {} on {}: ".format(dsrc_inst['binddn'], dsrc_inst['uri']))
+ 
+-    if 'binddn' in dsrc_inst:
+-        # Allocate is an awful interface that we should stop using, but for now
+-        # just directly map the dsrc_inst args in (remember, dsrc_inst DOES
+-        # overlay cli args into the map ...)
+-        dsargs[SER_ROOT_DN] = dsrc_inst['binddn']
++    # Allocate is an awful interface that we should stop using, but for now
++    # just directly map the dsrc_inst args in (remember, dsrc_inst DOES
++    # overlay cli args into the map ...)
++    dsargs[SER_ROOT_DN] = dsrc_inst['binddn']
+ 
+     ds = DirSrv(verbose=verbose)
+     ds.allocate(dsargs)
+diff --git a/src/lib389/lib389/lint.py b/src/lib389/lib389/lint.py
+index 736dffa14..68b729674 100644
+--- a/src/lib389/lib389/lint.py
++++ b/src/lib389/lib389/lint.py
+@@ -47,7 +47,7 @@ DSBLE0002 = {
+ }
+ 
+ DSBLE0003 = {
+-    'dsle': 'DSBLE0002',
++    'dsle': 'DSBLE0003',
+     'severity': 'LOW',
+     'items' : [],
+     'detail' : """The backend database has not been initialized yet""",
+diff --git a/src/lib389/lib389/monitor.py b/src/lib389/lib389/monitor.py
+index 290cad5e2..d6413de98 100644
+--- a/src/lib389/lib389/monitor.py
++++ b/src/lib389/lib389/monitor.py
+@@ -6,6 +6,7 @@
+ # See LICENSE for details.
+ # --- END COPYRIGHT BLOCK ---
+ 
++import copy
+ from lib389._constants import *
+ from lib389._mapped_object import DSLdapObject
+ from lib389.utils import (ds_is_older)
+-- 
+2.21.1
+

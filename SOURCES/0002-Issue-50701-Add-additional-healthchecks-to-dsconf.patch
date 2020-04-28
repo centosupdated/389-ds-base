@@ -1,0 +1,1395 @@
+From 09326585a5561480d44beb508af2cb1da52bfff6 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 18 Nov 2019 12:02:39 -0500
+Subject: [PATCH] Issue 50701 - Add additional healthchecks to dsconf
+
+Description:  New checks and several design changes have been implemented
+
+  Design changes:
+    - Moved to a "yield" design, where a lint function can return multiple results
+    - Revised the lint report so it's easier to read and distiguish between multiple
+      errors
+    - Revised most lint errors to include CLI examples on how to fix the issue
+
+  New Checks:
+    - Check TLS certs for expired/expiring
+    - Add RI plugin checks for missing indexes for RI member attributes
+    - Added Disk Space check
+    - Add Virtual Attribute index check
+    - Add replication agmt status check
+    - Add replication conflict entry check
+    - File System checks (/etc/revolv.conf, and NSS pin files)
+    - Replication changelog trimming
+
+relates: https://pagure.io/389-ds-base/issue/50701
+
+Reviewed by: firstyear, mhonek, tbordaz, and spichugi (Thanks!!!!)
+
+add suggested changes
+
+Improved the replication agreement health checks to use the new
+state levels (red, amber, green), and we use that to generate
+different reports.
+
+Also improved report example autofilling of the values, so the exact
+commands can be copied and pasted.
+
+Added a changelog trimming check as well.
+
+Updated the help section to wanr that htehealthcheck feature should
+only be run on the local instance
+
+Moved healthcheck to dsctl and added file permission checks
+---
+ src/lib389/cli/dsconf                |   2 -
+ src/lib389/cli/dsctl                 |  10 +-
+ src/lib389/lib389/_mapped_object.py  |   6 +-
+ src/lib389/lib389/agreement.py       |  67 +++++--
+ src/lib389/lib389/backend.py         | 122 +++++++++---
+ src/lib389/lib389/cli_base/dsrc.py   |   6 +-
+ src/lib389/lib389/cli_conf/health.py |  62 ------
+ src/lib389/lib389/cli_ctl/health.py  | 123 ++++++++++++
+ src/lib389/lib389/config.py          |  18 +-
+ src/lib389/lib389/dseldif.py         |  43 +++-
+ src/lib389/lib389/lint.py            | 287 +++++++++++++++++++++++----
+ src/lib389/lib389/monitor.py         |  14 ++
+ src/lib389/lib389/nss_ssl.py         |  35 +++-
+ src/lib389/lib389/plugins.py         |  46 ++++-
+ src/lib389/lib389/properties.py      |   1 +
+ src/lib389/lib389/replica.py         |  70 +++++++
+ 16 files changed, 746 insertions(+), 166 deletions(-)
+ delete mode 100644 src/lib389/lib389/cli_conf/health.py
+ create mode 100644 src/lib389/lib389/cli_ctl/health.py
+
+diff --git a/src/lib389/cli/dsconf b/src/lib389/cli/dsconf
+index 6e3ef19c3..5143756c8 100755
+--- a/src/lib389/cli/dsconf
++++ b/src/lib389/cli/dsconf
+@@ -21,7 +21,6 @@ from lib389.cli_conf import backend as cli_backend
+ from lib389.cli_conf import directory_manager as cli_directory_manager
+ from lib389.cli_conf import plugin as cli_plugin
+ from lib389.cli_conf import schema as cli_schema
+-from lib389.cli_conf import health as cli_health
+ from lib389.cli_conf import monitor as cli_monitor
+ from lib389.cli_conf import saslmappings as cli_sasl
+ from lib389.cli_conf import pwpolicy as cli_pwpolicy
+@@ -80,7 +79,6 @@ cli_backup.create_parser(subparsers)
+ cli_chaining.create_parser(subparsers)
+ cli_config.create_parser(subparsers)
+ cli_directory_manager.create_parsers(subparsers)
+-cli_health.create_parser(subparsers)
+ cli_monitor.create_parser(subparsers)
+ cli_plugin.create_parser(subparsers)
+ cli_pwpolicy.create_parser(subparsers)
+diff --git a/src/lib389/cli/dsctl b/src/lib389/cli/dsctl
+index 31e906b7d..8b86629ac 100755
+--- a/src/lib389/cli/dsctl
++++ b/src/lib389/cli/dsctl
+@@ -16,14 +16,17 @@ import sys
+ import signal
+ import os
+ from lib389.utils import get_instance_list
+-from lib389.cli_base import _get_arg, setup_script_logger, disconnect_instance
+ from lib389 import DirSrv
+ from lib389.cli_ctl import instance as cli_instance
+ from lib389.cli_ctl import dbtasks as cli_dbtasks
+-from lib389.cli_base import disconnect_instance, setup_script_logger
+-from lib389.cli_base import format_error_to_dict
+ from lib389.cli_ctl import tls as cli_tls
++from lib389.cli_ctl import health as cli_health
+ from lib389.cli_ctl.instance import instance_remove_all
++from lib389.cli_base import (
++    _get_arg,
++    disconnect_instance,
++    setup_script_logger,
++    format_error_to_dict)
+ from lib389._constants import DSRC_CONTAINER
+ 
+ parser = argparse.ArgumentParser()
+@@ -54,6 +57,7 @@ if not os.path.exists(DSRC_CONTAINER):
+     cli_instance.create_parser(subparsers)
+ cli_dbtasks.create_parser(subparsers)
+ cli_tls.create_parser(subparsers)
++cli_health.create_parser(subparsers)
+ 
+ argcomplete.autocomplete(parser)
+ 
+diff --git a/src/lib389/lib389/_mapped_object.py b/src/lib389/lib389/_mapped_object.py
+index e331b3b27..4da112d25 100644
+--- a/src/lib389/lib389/_mapped_object.py
++++ b/src/lib389/lib389/_mapped_object.py
+@@ -978,9 +978,9 @@ class DSLdapObject(DSLogging):
+             return None
+         results = []
+         for fn in self._lint_functions:
+-            result = fn()
+-            if result:
+-                results.append(result)
++            for result in fn():
++                if result is not None:
++                    results.append(result)
+         return results
+ 
+ 
+diff --git a/src/lib389/lib389/agreement.py b/src/lib389/lib389/agreement.py
+index a0d4597ec..93fd72895 100644
+--- a/src/lib389/lib389/agreement.py
++++ b/src/lib389/lib389/agreement.py
+@@ -105,6 +105,9 @@ class Agreement(DSLdapObject):
+             time.sleep(2)
+         return (done, error)
+ 
++    def get_name(self):
++        return self.get_attr_val_utf8_l('cn')
++
+     def get_agmt_maxcsn(self):
+         """Get the agreement maxcsn from the database RUV entry
+         :returns: CSN string if found, otherwise None is returned
+@@ -202,7 +205,7 @@ class Agreement(DSLdapObject):
+         consumer.close()
+         return result_msg
+ 
+-    def get_agmt_status(self, binddn=None, bindpw=None):
++    def get_agmt_status(self, binddn=None, bindpw=None, return_json=False):
+         """Return the status message
+         :param binddn: Specifies a specific bind DN to use when contacting the remote consumer
+         :type binddn: str
+@@ -211,33 +214,55 @@ class Agreement(DSLdapObject):
+         :returns: A status message about the replication agreement
+         """
+         status = "Unknown"
+-
++        con_maxcsn = "Unknown"
+         try:
+             agmt_maxcsn = self.get_agmt_maxcsn()
++            agmt_status = json.loads(self.get_attr_val_utf8_l(AGMT_UPDATE_STATUS_JSON))
+             if agmt_maxcsn is not None:
+-                con_maxcsn = self.get_consumer_maxcsn(binddn=binddn, bindpw=bindpw)
+-                if con_maxcsn:
+-                    if agmt_maxcsn == con_maxcsn:
+-                        status = "In Synchronization"
+-                    else:
+-                        # Not in sync - attempt to discover the cause
+-                        repl_msg = "Unknown"
+-                        if self.get_attr_val_utf8_l(AGMT_UPDATE_IN_PROGRESS) == 'true':
+-                            # Replication is on going - this is normal
+-                            repl_msg = "Replication still in progress"
+-                        elif "can't contact ldap" in \
+-                             self.get_attr_val_utf8_l(AGMT_UPDATE_STATUS):
+-                            # Consumer is down
+-                            repl_msg = "Consumer can not be contacted"
+-
+-                        status = ("Not in Synchronization: supplier " +
+-                                  "(%s) consumer (%s) Reason(%s)" %
+-                                  (agmt_maxcsn, con_maxcsn, repl_msg))
++                try:
++                    con_maxcsn = self.get_consumer_maxcsn(binddn=binddn, bindpw=bindpw)
++                    if con_maxcsn:
++                        if agmt_maxcsn == con_maxcsn:
++                            if return_json:
++                                return json.dumps({
++                                    'msg': "In Synchronization",
++                                    'agmt_maxcsn': agmt_maxcsn,
++                                    'con_maxcsn': con_maxcsn,
++                                    'state': agmt_status['state'],
++                                    'reason': agmt_status['message']
++                                })
++                            else:
++                                return "In Synchronization"
++                except:
++                    pass
++            else:
++                agmt_maxcsn = "Unknown"
++
++            # Not in sync - attempt to discover the cause
++            repl_msg = agmt_status['message']
++            if self.get_attr_val_utf8_l(AGMT_UPDATE_IN_PROGRESS) == 'true':
++                # Replication is on going - this is normal
++                repl_msg = "Replication still in progress"
++            elif "can't contact ldap" in agmt_status['message']:
++                    # Consumer is down
++                    repl_msg = "Consumer can not be contacted"
++
++            if return_json:
++                return json.dumps({
++                    'msg': "Not in Synchronization",
++                    'agmt_maxcsn': agmt_maxcsn,
++                    'con_maxcsn': con_maxcsn,
++                    'state': agmt_status['state'],
++                    'reason': repl_msg
++                })
++            else:
++                return ("Not in Synchronization: supplier " +
++                        "(%s) consumer (%s) State (%s) Reason (%s)" %
++                        (agmt_maxcsn, con_maxcsn, agmt_status['state'], repl_msg))
+         except ldap.INVALID_CREDENTIALS as e:
+             raise(e)
+         except ldap.LDAPError as e:
+             raise ValueError(str(e))
+-        return status
+ 
+     def get_lag_time(self, suffix, agmt_name, binddn=None, bindpw=None):
+         """Get the lag time between the supplier and the consumer
+diff --git a/src/lib389/lib389/backend.py b/src/lib389/lib389/backend.py
+index 62fd0ae94..ac2af021c 100644
+--- a/src/lib389/lib389/backend.py
++++ b/src/lib389/lib389/backend.py
+@@ -7,6 +7,7 @@
+ # --- END COPYRIGHT BLOCK ---
+ 
+ from datetime import datetime
++import copy
+ import ldap
+ from lib389._constants import *
+ from lib389.properties import *
+@@ -19,6 +20,8 @@ from lib389._mapped_object import DSLdapObjects, DSLdapObject
+ from lib389.mappingTree import MappingTrees
+ from lib389.exceptions import NoSuchEntryError, InvalidArgumentError
+ from lib389.replica import Replicas
++from lib389.cos import (CosTemplates, CosIndirectDefinitions,
++                        CosPointerDefinitions, CosClassicDefinitions)
+ 
+ # We need to be a factor to the backend monitor
+ from lib389.monitor import MonitorBackend
+@@ -30,7 +33,7 @@ from lib389.encrypted_attributes import EncryptedAttr, EncryptedAttrs
+ # This is for sample entry creation.
+ from lib389.configurations import get_sample_entries
+ 
+-from lib389.lint import DSBLE0001
++from lib389.lint import DSBLE0001, DSBLE0002, DSBLE0003, DSVIRTLE0001
+ 
+ 
+ class BackendLegacy(object):
+@@ -410,10 +413,92 @@ class Backend(DSLdapObject):
+         self._must_attributes = ['nsslapd-suffix', 'cn']
+         self._create_objectclasses = ['top', 'extensibleObject', BACKEND_OBJECTCLASS_VALUE]
+         self._protected = False
+-        self._lint_functions = [self._lint_mappingtree]
++        self._lint_functions = [self._lint_mappingtree, self._lint_search, self._lint_virt_attrs]
+         # Check if a mapping tree for this suffix exists.
+         self._mts = MappingTrees(self._instance)
+ 
++    def _lint_virt_attrs(self):
++        """Check if any virtual attribute are incorrectly indexed"""
++        indexes = self.get_indexes()
++        suffix = self.get_attr_val_utf8('nsslapd-suffix')
++
++        # First check nsrole
++        try:
++            indexes.get('nsrole')
++            report = copy.deepcopy(DSVIRTLE0001)
++            report['detail'] = report['detail'].replace('ATTR', 'nsrole')
++            report['fix'] = report['fix'].replace('ATTR', 'nsrole')
++            report['fix'] = report['fix'].replace('SUFFIX', suffix)
++            report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++            report['items'].append(suffix)
++            report['items'].append('nsrole')
++            yield report
++        except:
++            pass
++
++        # Check COS next
++        for cosDefType in [CosIndirectDefinitions, CosPointerDefinitions, CosClassicDefinitions]:
++            defs = cosDefType(self._instance, self._dn).list()
++            for cosDef in defs:
++                attrs = cosDef.get_attr_val_utf8_l("cosAttribute").split()
++                for attr in attrs:
++                    if attr in ["default", "override", "operational", "operational-default", "merge-schemes"]:
++                        # We are at the end, just break out
++                        break
++                    try:
++                        indexes.get(attr)
++                        # If we got here there is an index (bad)
++                        report = copy.deepcopy(DSVIRTLE0001)
++                        report['detail'] = report['detail'].replace('ATTR', attr)
++                        report['fix'] = report['fix'].replace('ATTR', attr)
++                        report['fix'] = report['fix'].replace('SUFFIX', suffix)
++                        report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++                        report['items'].append(suffix)
++                        report['items'].append("Class Of Service (COS)")
++                        report['items'].append("cosAttribute: " + attr)
++                        yield report
++                    except:
++                        # this is what we hope for
++                        pass
++
++    def _lint_search(self):
++        """Perform a search and make sure an entry is accessible
++        """
++        dn = self.get_attr_val_utf8('nsslapd-suffix')
++        suffix = DSLdapObject(self._instance, dn=dn)
++        try:
++            suffix.get_attr_val('objectclass')
++        except ldap.NO_SUCH_OBJECT:
++            # backend root entry not created yet
++            DSBLE0003['items'] = [dn, ]
++            yield DSBLE0003
++        except ldap.LDAPError as e:
++            # Some other error
++            DSBLE0002['detail'] = DSBLE0002['detail'].replace('ERROR', str(e))
++            DSBLE0002['items'] = [dn, ]
++            yield DSBLE0002
++
++    def _lint_mappingtree(self):
++        """Backend lint
++
++        This should check for:
++        * missing mapping tree entries for the backend
++        * missing indices if we are local and have log access?
++        """
++
++        # Check for the missing mapping tree.
++        suffix = self.get_attr_val_utf8('nsslapd-suffix')
++        bename = self.get_attr_val_bytes('cn')
++        try:
++            mt = self._mts.get(suffix)
++            if mt.get_attr_val_bytes('nsslapd-backend') != bename and mt.get_attr_val('nsslapd-state') != ensure_bytes('backend'):
++                raise ldap.NO_SUCH_OBJECT("We have a matching suffix, but not a backend or correct database name.")
++        except ldap.NO_SUCH_OBJECT:
++            result = DSBLE0001
++            result['items'] = [bename, ]
++            yield result
++        return None
++
+     def create_sample_entries(self, version):
+         """Creates sample entries under nsslapd-suffix value
+ 
+@@ -552,27 +637,6 @@ class Backend(DSLdapObject):
+         # Now remove our children, this is all ldbm config
+         self._instance.delete_branch_s(self._dn, ldap.SCOPE_SUBTREE)
+ 
+-    def _lint_mappingtree(self):
+-        """Backend lint
+-
+-        This should check for:
+-        * missing mapping tree entries for the backend
+-        * missing indices if we are local and have log access?
+-        """
+-
+-        # Check for the missing mapping tree.
+-        suffix = self.get_attr_val_utf8('nsslapd-suffix')
+-        bename = self.get_attr_val_bytes('cn')
+-        try:
+-            mt = self._mts.get(suffix)
+-            if mt.get_attr_val_bytes('nsslapd-backend') != bename and mt.get_attr_val('nsslapd-state') != ensure_bytes('backend'):
+-                raise ldap.NO_SUCH_OBJECT("We have a matching suffix, but not a backend or correct database name.")
+-        except ldap.NO_SUCH_OBJECT:
+-            result = DSBLE0001
+-            result['items'] = [bename, ]
+-            return result
+-        return None
+-
+     def get_suffix(self):
+         return self.get_attr_val_utf8_l('nsslapd-suffix')
+ 
+@@ -753,6 +817,18 @@ class Backend(DSLdapObject):
+                         break
+         return subsuffixes
+ 
++    def get_cos_indirect_defs(self):
++        return CosIndirectDefinitions(self._instance, self._dn).list()
++
++    def get_cos_pointer_defs(self):
++        return CosPointerDefinitions(self._instance, self._dn).list()
++
++    def get_cos_classic_defs(self):
++        return CosClassicDefinitions(self._instance, self._dn).list()
++
++    def get_cos_templates(self):
++        return CosTemplates(self._instance, self._dn).list()
++
+ 
+ class Backends(DSLdapObjects):
+     """DSLdapObjects that represents DN_LDBM base DN
+diff --git a/src/lib389/lib389/cli_base/dsrc.py b/src/lib389/lib389/cli_base/dsrc.py
+index bbd160e8e..20b240df5 100644
+--- a/src/lib389/lib389/cli_base/dsrc.py
++++ b/src/lib389/lib389/cli_base/dsrc.py
+@@ -41,12 +41,15 @@ def dsrc_arg_concat(args, dsrc_inst):
+             'uri': args.instance,
+             'basedn': args.basedn,
+             'binddn': args.binddn,
++            'bindpw': None,
+             'saslmech': None,
+             'tls_cacertdir': None,
+             'tls_cert': None,
+             'tls_key': None,
+             'tls_reqcert': ldap.OPT_X_TLS_HARD,
+             'starttls': args.starttls,
++            'prompt': False,
++            'pwdfile': None,
+             'args': {}
+         }
+         # Now gather the args
+@@ -137,7 +140,8 @@ def dsrc_to_ldap(path, instance_name, log):
+     else:
+         dsrc_inst['tls_reqcert'] = ldap.OPT_X_TLS_HARD
+     dsrc_inst['starttls'] = config.getboolean(instance_name, 'starttls', fallback=False)
+-
++    dsrc_inst['pwdfile'] = None
++    dsrc_inst['prompt'] = False
+     # Now gather the args
+     dsrc_inst['args'][SER_LDAP_URL] = dsrc_inst['uri']
+     dsrc_inst['args'][SER_ROOT_DN] = dsrc_inst['binddn']
+diff --git a/src/lib389/lib389/cli_conf/health.py b/src/lib389/lib389/cli_conf/health.py
+deleted file mode 100644
+index 040d85674..000000000
+--- a/src/lib389/lib389/cli_conf/health.py
++++ /dev/null
+@@ -1,62 +0,0 @@
+-# --- BEGIN COPYRIGHT BLOCK ---
+-# Copyright (C) 2016 Red Hat, Inc.
+-# All rights reserved.
+-#
+-# License: GPL (version 3 or any later version).
+-# See LICENSE for details.
+-# --- END COPYRIGHT BLOCK ---
+-
+-from lib389.backend import Backend, Backends
+-from lib389.config import Encryption, Config
+-from lib389 import plugins
+-
+-# These get all instances, then check them all.
+-CHECK_MANY_OBJECTS = [
+-    Backends,
+-]
+-
+-# These get single instances and check them.
+-CHECK_OBJECTS = [
+-    Config,
+-    Encryption,
+-    plugins.ReferentialIntegrityPlugin
+-]
+-
+-
+-def _format_check_output(log, result):
+-    log.info("==== DS Lint Error: %s ====" % result['dsle'])
+-    log.info(" Severity: %s " % result['severity'])
+-    log.info(" Affects:")
+-    for item in result['items']:
+-        log.info(" -- %s" % item)
+-    log.info(" Details:")
+-    log.info(result['detail'])
+-    log.info(" Resolution:")
+-    log.info(result['fix'])
+-
+-
+-def health_check_run(inst, basedn, log, args):
+-    log.info("Beginning lint report, this could take a while ...")
+-    report = []
+-    for lo in CHECK_MANY_OBJECTS:
+-        log.info("Checking %s ..." % lo.__name__)
+-        lo_inst = lo(inst)
+-        for clo in lo_inst.list():
+-            result = clo.lint()
+-            if result is not None:
+-                report += result
+-    for lo in CHECK_OBJECTS:
+-        log.info("Checking %s ..." % lo.__name__)
+-        lo_inst = lo(inst)
+-        result = lo_inst.lint()
+-        if result is not None:
+-            report += result
+-    log.info("Healthcheck complete!")
+-    for item in report:
+-        _format_check_output(log, item)
+-
+-
+-def create_parser(subparsers):
+-    run_healthcheck_parser = subparsers.add_parser('healthcheck', help="Run a healthcheck report on your Directory Server instance. This is a safe, read only operation.")
+-    run_healthcheck_parser.set_defaults(func=health_check_run)
+-
+diff --git a/src/lib389/lib389/cli_ctl/health.py b/src/lib389/lib389/cli_ctl/health.py
+new file mode 100644
+index 000000000..d8f3d732b
+--- /dev/null
++++ b/src/lib389/lib389/cli_ctl/health.py
+@@ -0,0 +1,123 @@
++# --- BEGIN COPYRIGHT BLOCK ---
++# Copyright (C) 2016 Red Hat, Inc.
++# All rights reserved.
++#
++# License: GPL (version 3 or any later version).
++# See LICENSE for details.
++# --- END COPYRIGHT BLOCK ---
++
++import json
++from getpass import getpass
++from lib389.cli_base import connect_instance, disconnect_instance, format_error_to_dict
++from lib389.cli_base.dsrc import dsrc_to_ldap, dsrc_arg_concat
++from lib389.backend import Backend, Backends
++from lib389.config import Encryption, Config
++from lib389.monitor import MonitorDiskSpace
++from lib389.replica import Replica, Changelog5
++from lib389.nss_ssl import NssSsl
++from lib389.dseldif import FSChecks
++from lib389 import plugins
++from lib389._constants import DSRC_HOME
++
++# These get all instances, then check them all.
++CHECK_MANY_OBJECTS = [
++    Backends,
++]
++
++# These get single instances and check them.
++CHECK_OBJECTS = [
++    Config,
++    Encryption,
++    FSChecks,
++    plugins.ReferentialIntegrityPlugin,
++    MonitorDiskSpace,
++    Replica,
++    Changelog5,
++    NssSsl,
++]
++
++
++def _format_check_output(log, result, idx):
++    log.info("\n\n[{}] DS Lint Error: {}".format(idx, result['dsle']))
++    log.info("-" * 80)
++    log.info("Severity: %s " % result['severity'])
++    log.info("Affects:")
++    for item in result['items']:
++        log.info(" -- %s" % item)
++    log.info("\nDetails:")
++    log.info('-----------')
++    log.info(result['detail'])
++    log.info("\nResolution:")
++    log.info('-----------')
++    log.info(result['fix'])
++
++
++def health_check_run(inst, log, args):
++    """Connect to the local server using LDAPI, and perform various health checks
++    """
++
++    # update the args for connect_instance()
++    args.basedn = None
++    args.binddn = None
++    args.bindpw = None
++    args.starttls = None
++    args.pwdfile = None
++    args.prompt = False
++    dsrc_inst = dsrc_to_ldap(DSRC_HOME, args.instance, log.getChild('dsrc'))
++    dsrc_inst = dsrc_arg_concat(args, dsrc_inst)
++    try:
++        inst = connect_instance(dsrc_inst=dsrc_inst, verbose=args.verbose, args=args)
++    except Exception as e:
++        raise ValueError('Failed to connect to Directory Server instance: ' + str(e))
++
++    if not args.json:
++        log.info("Beginning lint report, this could take a while ...")
++    report = []
++    for lo in CHECK_MANY_OBJECTS:
++        if not args.json:
++            log.info("Checking %s ..." % lo.__name__)
++        lo_inst = lo(inst)
++        for clo in lo_inst.list():
++            result = clo.lint()
++            if result is not None:
++                report += result
++    for lo in CHECK_OBJECTS:
++        if not args.json:
++            log.info("Checking %s ..." % lo.__name__)
++        lo_inst = lo(inst)
++        result = lo_inst.lint()
++        if result is not None:
++            report += result
++    if not args.json:
++        log.info("Healthcheck complete.")
++    count = len(report)
++    if count == 0:
++        if not args.json:
++            log.info("No issues found.")
++        else:
++            log.info(json.dumps(report))
++    else:
++        plural = ""
++        if count > 1:
++            plural = "s"
++        if not args.json:
++            log.info("{} Issue{} found!  Generating report ...".format(count, plural))
++            idx = 1
++            for item in report:
++                _format_check_output(log, item, idx)
++                idx += 1
++            log.info('\n\n===== End Of Report ({} Issue{} found) ====='.format(count, plural))
++        else:
++            log.info(json.dumps(report))
++
++    disconnect_instance(inst)
++
++
++def create_parser(subparsers):
++    run_healthcheck_parser = subparsers.add_parser('healthcheck', help=
++        "Run a healthcheck report on a local Directory Server instance. This "
++        "is a safe and read-only operation.  Do not attempt to run this on a "
++        "remote Directory Server as this tool needs access to local resources, "
++        "otherwise the report may be inaccurate.")
++    run_healthcheck_parser.set_defaults(func=health_check_run)
++
+diff --git a/src/lib389/lib389/config.py b/src/lib389/lib389/config.py
+index db5359a68..f71baf2d8 100644
+--- a/src/lib389/lib389/config.py
++++ b/src/lib389/lib389/config.py
+@@ -16,6 +16,7 @@
+    DirSrv.backend.methodName()
+ """
+ 
++import copy
+ import ldap
+ from lib389._constants import *
+ from lib389 import Entry
+@@ -199,17 +200,18 @@ class Config(DSLdapObject):
+     def _lint_hr_timestamp(self):
+         hr_timestamp = self.get_attr_val('nsslapd-logging-hr-timestamps-enabled')
+         if ensure_bytes('on') != hr_timestamp:
+-            return DSCLE0001
+-        pass # nsslapd-logging-hr-timestamps-enabled
++            report = copy.deepcopy(DSCLE0001)
++            report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++            yield report
+ 
+     def _lint_passwordscheme(self):
+         allowed_schemes = ['SSHA512', 'PBKDF2_SHA256']
+         u_password_scheme = self.get_attr_val_utf8('passwordStorageScheme')
+         u_root_scheme = self.get_attr_val_utf8('nsslapd-rootpwstoragescheme')
+         if u_root_scheme not in allowed_schemes or u_password_scheme not in allowed_schemes:
+-            return DSCLE0002
+-        return None
+-
++            report = copy.deepcopy(DSCLE0002)
++            report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++            yield report
+ 
+ class Encryption(DSLdapObject):
+     """
+@@ -237,8 +239,10 @@ class Encryption(DSLdapObject):
+     def _lint_check_tls_version(self):
+         tls_min = self.get_attr_val('sslVersionMin')
+         if tls_min < ensure_bytes('TLS1.1'):
+-            return DSELE0001
+-        return None
++            report = copy.deepcopy(DSELE0001)
++            report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++            yield report
++        yield None
+ 
+     @property
+     def ciphers(self):
+diff --git a/src/lib389/lib389/dseldif.py b/src/lib389/lib389/dseldif.py
+index dfe3b91e2..4155abcdd 100644
+--- a/src/lib389/lib389/dseldif.py
++++ b/src/lib389/lib389/dseldif.py
+@@ -1,14 +1,17 @@
+ # --- BEGIN COPYRIGHT BLOCK ---
+-# Copyright (C) 2017 Red Hat, Inc.
++# Copyright (C) 2019 Red Hat, Inc.
+ # All rights reserved.
+ #
+ # License: GPL (version 3 or any later version).
+ # See LICENSE for details.
+ # --- END COPYRIGHT BLOCK ---
+ #
++
++import copy
+ import os
++from stat import ST_MODE
+ from lib389.paths import Paths
+-
++from lib389.lint import DSPERMLE0001, DSPERMLE0002
+ 
+ class DSEldif(object):
+     """A class for working with dse.ldif file
+@@ -155,3 +158,39 @@ class DSEldif(object):
+             self._instance.log.debug("During replace operation: {}".format(e))
+         self.add(entry_dn, attr, value)
+         self._update()
++
++
++class FSChecks(object):
++    """This is for the healthcheck feature, check commonly used system config files the
++    server uses.  This is here for lack of a better place to add this class.
++    """
++    def __init__(self, dirsrv=None):
++        self.dirsrv = dirsrv
++        self._certdb = self.dirsrv.get_cert_dir()
++        self.ds_files = [
++            ('/etc/resolv.conf', '644', DSPERMLE0001),
++            (self._certdb + "/pin.txt", '600', DSPERMLE0002),
++            (self._certdb + "/pwdfile.txt", '600', DSPERMLE0002),
++        ]
++        self._lint_functions = [self._lint_file_perms]
++
++    def lint(self):
++        results = []
++        for fn in self._lint_functions:
++            for result in fn():
++                if result is not None:
++                    results.append(result)
++        return results
++
++    def _lint_file_perms(self):
++        # Check file permissions are correct
++        for ds_file in self.ds_files:
++            perms = str(oct(os.stat(ds_file[0])[ST_MODE])[-3:])
++            if perms != ds_file[1]:
++                report = copy.deepcopy(ds_file[2])
++                report['items'].append(ds_file[0])
++                report['detail'] = report['detail'].replace('FILE', ds_file[0])
++                report['detail'] = report['detail'].replace('PERMS', ds_file[1])
++                report['fix'] = report['fix'].replace('FILE', ds_file[0])
++                report['fix'] = report['fix'].replace('PERMS', ds_file[1])
++                yield report
+diff --git a/src/lib389/lib389/lint.py b/src/lib389/lib389/lint.py
+index 8c4b4dedc..515711136 100644
+--- a/src/lib389/lib389/lint.py
++++ b/src/lib389/lib389/lint.py
+@@ -1,5 +1,5 @@
+ # --- BEGIN COPYRIGHT BLOCK ---
+-# Copyright (C) 2017 Red Hat, Inc.
++# Copyright (C) 2019 Red Hat, Inc.
+ # All rights reserved.
+ #
+ # License: GPL (version 3 or any later version).
+@@ -10,12 +10,12 @@
+ # as well as some functions to help process them.
+ 
+ 
++# Database checks
+ DSBLE0001 = {
+     'dsle': 'DSBLE0001',
+     'severity': 'MEDIUM',
+     'items' : [],
+-    'detail' : """
+-This backend may be missing the correct mapping tree references. Mapping Trees allow
++    'detail' : """This backend may be missing the correct mapping tree references. Mapping Trees allow
+ the directory server to determine which backend an operation is routed to in the
+ abscence of other information. This is extremely important for correct functioning
+ of LDAP ADD for example.
+@@ -31,20 +31,35 @@ objectClass: top
+ objectClass: extensibleObject
+ objectClass: nsMappingTree
+ 
+-    """,
+-    'fix' : """
+-Either you need to create the mapping tree, or you need to repair the related
++""",
++    'fix' : """Either you need to create the mapping tree, or you need to repair the related
+ mapping tree. You will need to do this by hand by editing cn=config, or stopping
+ the instance and editing dse.ldif.
+-    """
++"""
+ }
+ 
++DSBLE0002 = {
++    'dsle': 'DSBLE0002',
++    'severity': 'HIGH',
++    'items' : [],
++    'detail' : """Unable to querying the backend.  LDAP error (ERROR)""",
++    'fix' : """Check the server's error and access logs for more information."""
++}
++
++DSBLE0003 = {
++    'dsle': 'DSBLE0002',
++    'severity': 'LOW',
++    'items' : [],
++    'detail' : """The backend database has not been initialized yet""",
++    'fix' : """You need to import an LDIF file, or create the suffix entry, in order to initialize the database."""
++}
++
++# Config checks
+ DSCLE0001 = {
+     'dsle' : 'DSCLE0001',
+     'severity' : 'LOW',
+     'items': ['cn=config', ],
+-    'detail' : """
+-nsslapd-logging-hr-timestamps-enabled changes the log format in directory server from
++    'detail' : """nsslapd-logging-hr-timestamps-enabled changes the log format in directory server from
+ 
+ [07/Jun/2017:17:15:58 +1000]
+ 
+@@ -54,18 +69,18 @@ to
+ 
+ This actually provides a performance improvement. Additionally, this setting will be
+ removed in a future release.
+-    """,
+-    'fix' : """
+-Set nsslapd-logging-hr-timestamps-enabled to on.
+-    """
++""",
++    'fix' : """Set nsslapd-logging-hr-timestamps-enabled to on.
++You can use 'dsconf' to set this attribute.  Here is an example:
++
++    # dsconf slapd-YOUR_INSTANCE config replace nsslapd-logging-hr-timestamps-enabled=on"""
+ }
+ 
+ DSCLE0002 = {
+     'dsle': 'DSCLE0002',
+     'severity': 'HIGH',
+     'items' : ['cn=config', ],
+-    'detail' : """
+-Password storage schemes in Directory Server define how passwords are hashed via a
++    'detail' : """Password storage schemes in Directory Server define how passwords are hashed via a
+ one-way mathematical function for storage. Knowing the hash it is difficult to gain
+ the input, but knowing the input you can easily compare the hash.
+ 
+@@ -79,53 +94,253 @@ for "legacy" support (SSHA512).
+ 
+ Your configuration does not use these for password storage or the root password storage
+ scheme.
+-    """,
+-    'fix': """
+-Perform a configuration reset of the values:
++""",
++    'fix': """Perform a configuration reset of the values:
+ 
+ passwordStorageScheme
+ nsslapd-rootpwstoragescheme
+ 
+ IE, stop Directory Server, and in dse.ldif delete these two lines. When Directory Server
+ is started, they will use the server provided defaults that are secure.
+-    """
++
++You can also use 'dsconf' to replace these values.  Here is an example:
++
++    # dsconf slapd-YOUR_INSTANCE config replace passwordStorageScheme=PBKDF2_SHA256 nsslapd-rootpwstoragescheme=PBKDF2_SHA256"""
+ }
+ 
++# Security checks
+ DSELE0001 = {
+     'dsle': 'DSELE0001',
+     'severity': 'MEDIUM',
+     'items' : ['cn=encryption,cn=config', ],
+-    'detail': """
+-This Directory Server may not be using strong TLS protocol versions. TLS1.0 is known to
++    'detail': """This Directory Server may not be using strong TLS protocol versions. TLS1.0 is known to
+ have a number of issues with the protocol. Please see:
+ 
+ https://tools.ietf.org/html/rfc7457
+ 
+-It is advised you set this value to the maximum possible.
+-    """,
+-    'fix' : """
+-set cn=encryption,cn=config sslVersionMin to a version greater than TLS1.0
+-    """
++It is advised you set this value to the maximum possible.""",
++    'fix' : """There are two options for setting the TLS minimum version allowed.  You,
++can set "sslVersionMin" in "cn=encryption,cn=config" to a version greater than "TLS1.0"
++You can also use 'dsconf' to set this value.  Here is an example:
++
++    # dsconf slapd-YOUR_INSTANCE security set --tls-protocol-min=TLS1.2
++
++You must restart the Directory Server for this change to take effect.
++
++Or, you can set the system wide crypto policy to FUTURE which will use a higher TLS
++minimum version, but doing this affects the entire system:
++
++    # update-crypto-policies --set FUTURE"""
+ }
+ 
++# RI plugin checks
+ DSRILE0001 = {
+     'dsle': 'DSRLE0001',
+     'severity': 'LOW',
+     'items' : ['cn=referential integrity postoperation,cn=plugins,cn=config', ],
+-    'detail': """
+-The referential integrity plugin has an asynchronous processing mode. This is controlled by the update-delay flag.
+-
+-When this value is 0, referential integrity plugin processes these changes inside of the operation that modified the entry - ie these are synchronous.
++    'detail': """The referential integrity plugin has an asynchronous processing mode.
++This is controlled by the update-delay flag.  When this value is 0, referential
++integrity plugin processes these changes inside of the operation that modified
++the entry - ie these are synchronous.
+ 
+ However, when this is > 0, these are performed asynchronously.
+ 
+-This leads to only having refint enabled on one master in MMR to prevent replication conflicts and loops.
++This leads to only having referint enabled on one master in MMR to prevent replication conflicts and loops.
+ Additionally, because these are performed in the background these updates may cause spurious update
+ delays to your server by batching changes rather than smaller updates during sync processing.
+ 
+-We advise that you set this value to 0, and enable refint on all masters as it provides a more predictable behaviour.
+-    """,
+-    'fix' : """
+-Set referint-update-delay to 0.
+-    """
++We advise that you set this value to 0, and enable referint on all masters as it provides a more predictable behaviour.
++""",
++    'fix' : """Set referint-update-delay to 0.
++
++You can use 'dsconf' to set this value.  Here is an example:
++
++    # dsconf slapd-YOUR_INSTANCE plugin referential-integrity set --update-delay 0
++
++You must restart the Directory Server for this change to take effect."""
++}
++
++# Note - ATTR and BACKEND are replaced by the reporting function
++DSRILE0002 = {
++    'dsle': 'DSRLE0002',
++    'severity': 'HIGH',
++    'items' : ['cn=referential integrity postoperation,cn=plugins,cn=config'],
++    'detail': """The referential integrity plugin is configured to use an attribute (ATTR)
++that does not have an "equality" index in backend (BACKEND).
++Failure to have the proper indexing will lead to unindexed searches which
++cause high CPU and can significantly slow the server down.""",
++    'fix' : """Check the attributes set in "referint-membership-attr" to make sure they have
++an index defined that has at least the equality "eq" index type.  You will
++need to reindex the database after adding the missing index type. Here is an
++example using dsconf:
++
++    # dsconf slapd-YOUR_INSTANCE backend index --attr=ATTR --reindex --index-type=eq BACKEND
++"""
++}
++
++# Disk Space check.  Note - PARTITION is replaced by the calling function
++DSDSLE0001 = {
++    'dsle': 'DSDSLE0001',
++    'severity': 'HIGH',
++    'items' : ['Server', 'cn=config'],
++    'detail': """The disk partition used by the server (PARTITION), either for the database, the
++configuration files, or the logs is over 90% full.  If the partition becomes
++completely filled serious problems can occur with the database or the server's
++stability.""",
++    'fix' : """Attempt to free up disk space.  Also try removing old rotated logs, or disable any
++verbose logging levels that might have been set.  You might consider enabling
++the "Disk Monitoring" feature in cn=config to help prevent a disorderly shutdown
++of the server:
++
++    nsslapd-disk-monitoring: on
++
++You can use 'dsconf' to set this value.  Here is an example:
++
++    # dsconf slapd-YOUR_INSTANCE config replace nsslapd-disk-monitoring=on
++
++You must restart the Directory Server for this change to take effect.
++
++Please see the Administration guide for more information:
++
++    https://access.redhat.com/documentation/en-us/red_hat_directory_server/10/html/administration_guide/diskmonitoring
++"""
++}
++
++# Replication check.   Note - AGMT and SUFFIX are replaced by the reporting function
++DSREPLLE0001 = {
++    'dsle': 'DSREPLLE0001',
++    'severity': 'HIGH',
++    'items' : ['Replication', 'Agreement'],
++    'detail': """The replication agreement (AGMT) under "SUFFIX" is not in synchronization.""",
++    'fix' : """You may need to reinitialize this replication agreement.  Please check the errors
++log for more information.  If you do need to reinitialize the agreement you can do so
++using dsconf.  Here is an example:
++
++    # dsconf slapd-YOUR_INSTANCE repl-agmt init "AGMT" --suffix SUFFIX"""
++}
++
++# Note - SUFFIX and COUNT will be replaced by the calling function
++DSREPLLE0002 = {
++    'dsle': 'DSREPLLE0002',
++    'severity': 'LOW',
++    'items' : ['Replication', 'Conflict Entries'],
++    'detail': """There were COUNT conflict entries found under the replication suffix "SUFFIX".
++Status message: MSG""",
++    'fix' : """While conflict entries are expected to occur in an MMR environment, they
++should be resolved.  In regards to conflict entries there is always the original/counterpart
++entry that has a normal DN, and then the conflict version of that entry.  Technically both
++entries are valid, you as the administrator, needs to decide which entry you want to keep.
++First examine/compare both entries to determine which one you want to keep or remove.  You
++can use the CLI tool "dsconf" to resolve the conflict.  Here is an example:
++
++    List the conflict entries:
++
++        # dsconf slapd-YOUR_INSTANCE  repl-conflict list dc=example,dc=com
++
++    Examine conflict entry and its counterpart entry:
++
++        # dsconf slapd-YOUR_INSTANCE  repl-conflict compare <DN of conflict entry>
++
++    Remove conflict entry and keep only the original/counterpart entry:
++
++        # dsconf slapd-YOUR_INSTANCE  repl-conflict remove <DN of conflict entry>
++
++    Replace the original/counterpart entry with the conflict entry:
++
++        # dsconf slapd-YOUR_INSTANCE  repl-conflict swap <DN of conflict entry>
++"""
++}
++
++DSREPLLE0003 = {
++    'dsle': 'DSREPLLE0003',
++    'severity': 'MEDIUM',
++    'items' : ['Replication', 'Agreement'],
++    'detail': """The replication agreement (AGMT) under "SUFFIX" is not in synchronization.
++Status message: MSG""",
++    'fix' : """Replication is not in synchronization but it may recover.  Continue to
++monitor this agreement."""
++}
++
++DSREPLLE0004 = {
++    'dsle': 'DSREPLLE0004',
++    'severity': 'MEDIUM',
++    'items' : ['Replication', 'Agreement'],
++    'detail': """Failed to get the agreement status for agreement (AGMT) under "SUFFIX".  Error (ERROR).""",
++    'fix' : """None"""
++}
++
++DSREPLLE0005 = {
++    'dsle': 'DSREPLLE0005',
++    'severity': 'MEDIUM',
++    'items' : ['Replication', 'Agreement'],
++    'detail': """The replication agreement (AGMT) under "SUFFIX" is not in synchronization,
++because the consumer server is not reachable.""",
++    'fix' : """Check if the consumer is running, and also check the errors log for more information."""
++}
++
++# Replication changelog
++DSCLLE0001 = {
++    'dsle': 'DSCLLE0001',
++    'severity': 'LOW',
++    'items' : ['Replication', 'Changelog'],
++    'detail': """The replication changelog does have any kind of trimming configured.  This will
++lead to the changelog size growing indefinitely.""",
++    'fix' : """Configure changelog trimming, preferably by setting the maximum age of a changelog
++record.  Here is an example:
++
++    # dsconf slapd-YOUR_INSTANCE replication set-changelog --max-age 30d"""
++}
++
++# Certificate checks
++DSCERTLE0001 = {
++    'dsle': 'DSCERTLE0001',
++    'severity': 'MEDIUM',
++    'items' : ['Expiring Certificate'],
++    'detail': """The certificate (CERT) will expire in less than 30 days""",
++    'fix' : """Renew the certificate before it expires to prevent disruptions with TLS connections."""
++}
++
++DSCERTLE0002 = {
++    'dsle': 'DSCERTLE0002',
++    'severity': 'HIGH',
++    'items' : ['Expired Certificate'],
++    'detail': """The certificate (CERT) has expired""",
++    'fix' : """Renew or remove the certificate."""
++}
++
++# Virtual Attrs & COS.  Note - ATTR and SUFFIX are replaced by the reporting function
++DSVIRTLE0001 = {
++    'dsle': 'DSVIRTLE0001',
++    'severity': 'HIGH',
++    'items' : ['Virtual Attributes'],
++    'detail': """You should not index virtual attributes, and as this will break searches that
++use the attribute in a filter.""",
++    'fix' : """Remove the index for this attribute from the backend configuration.
++Here is an example using 'dsconf' to remove an index:
++
++    # dsconf slapd-YOUR_INSTANCE backend index delete --attr ATTR SUFFIX"""
++}
++
++# File permissions (resolv.conf
++DSPERMLE0001 = {
++    'dsle': 'DSPERMLE0001',
++    'severity': 'MEDIUM',
++    'items' : ['File Permissions'],
++    'detail': """The file "FILE" does not have the expected permissions (PERMS).  This
++can cause issues with replication and chaining.""",
++    'fix' : """Change the file permissions:
++
++    # chmod PERMS FILE"""
++}
++
++# TLS db password/pin files
++DSPERMLE0002 = {
++    'dsle': 'DSPERMLE0002',
++    'severity': 'HIGH',
++    'items' : ['File Permissions'],
++    'detail': """The file "FILE" does not have the expected permissions (PERMS).  The
++security database pin/password files should only be readable by Directory Server user.""",
++    'fix' : """Change the file permissions:
++
++    # chmod PERMS FILE"""
+ }
+diff --git a/src/lib389/lib389/monitor.py b/src/lib389/lib389/monitor.py
+index 5ca967c64..290cad5e2 100644
+--- a/src/lib389/lib389/monitor.py
++++ b/src/lib389/lib389/monitor.py
+@@ -9,6 +9,7 @@
+ from lib389._constants import *
+ from lib389._mapped_object import DSLdapObject
+ from lib389.utils import (ds_is_older)
++from lib389.lint import DSDSLE0001
+ 
+ 
+ class Monitor(DSLdapObject):
+@@ -254,6 +255,19 @@ class MonitorDiskSpace(DSLdapObject):
+     def __init__(self, instance, dn=None):
+         super(MonitorDiskSpace, self).__init__(instance=instance, dn=dn)
+         self._dn = "cn=disk space,cn=monitor"
++        self._lint_functions = [self._lint_disk_space]
++
++    def _lint_disk_space(self):
++        partitions = self.get_attr_vals_utf8_l("dsDisk")
++        for partition in partitions:
++            parts = partition.split()
++            percent = parts[4].split('=')[1].strip('"')
++            if int(percent) >= 90:
++                # this partition is over 90% full, not good
++                report = copy.deepcopy(DSDSLE0001)
++                report['detail'] = report['detail'].replace('PARTITION', parts[0].split('=')[1].strip('"'))
++                report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++                yield report
+ 
+     def get_disks(self):
+         """Get an information about partitions which contains a Directory Server data"""
+diff --git a/src/lib389/lib389/nss_ssl.py b/src/lib389/lib389/nss_ssl.py
+index afe921385..2a7d1637c 100644
+--- a/src/lib389/lib389/nss_ssl.py
++++ b/src/lib389/lib389/nss_ssl.py
+@@ -9,6 +9,7 @@
+ """Helpers for managing NSS databases in Directory Server
+ """
+ 
++import copy
+ import os
+ import re
+ import socket
+@@ -17,10 +18,10 @@ import shutil
+ import logging
+ # from nss import nss
+ import subprocess
+-from datetime import datetime, timedelta
++from datetime import datetime, timedelta, date
+ from subprocess import check_output
+ from lib389.passwd import password_generate
+-
++from lib389.lint import DSCERTLE0001, DSCERTLE0002
+ from lib389.utils import ensure_str, format_cmd_list
+ import uuid
+ 
+@@ -58,6 +59,36 @@ class NssSsl(object):
+         self.db_files = {"dbm_backend": ["%s/%s" % (self._certdb, f) for f in ("key3.db", "cert8.db", "secmod.db")],
+                          "sql_backend": ["%s/%s" % (self._certdb, f) for f in ("key4.db", "cert9.db", "pkcs11.txt")],
+                          "support": ["%s/%s" % (self._certdb, f) for f in ("noise.txt", PIN_TXT, PWD_TXT)]}
++        self._lint_functions = [self._lint_certificate_expiration,]
++
++    def lint(self):
++        results = []
++        for fn in self._lint_functions:
++            for result in fn():
++                if result is not None:
++                    results.append(result)
++        return results
++
++    def _lint_certificate_expiration(self):
++        """Check all the certificates in the db if they will expire within 30 days
++        or have already expired.
++        """
++        cert_list = []
++        all_certs = self._rsa_cert_list()
++        for cert in all_certs:
++            cert_list.append(self.get_cert_details(cert[0]))
++
++        for cert in cert_list:
++            if date.fromisoformat(cert[3].split()[0]) - date.today() < timedelta(days=0):
++                # Expired
++                report = copy.deepcopy(DSCERTLE0002)
++                report['detail'] = report['detail'].replace('CERT', cert[0])
++                yield report
++            elif date.fromisoformat(cert[3].split()[0]) - date.today() < timedelta(days=30):
++                # Expiring
++                report = copy.deepcopy(DSCERTLE0001)
++                report['detail'] = report['detail'].replace('CERT', cert[0])
++                yield report
+ 
+     def detect_alt_names(self, alt_names=[]):
+         """Attempt to determine appropriate subject alternate names for a host.
+diff --git a/src/lib389/lib389/plugins.py b/src/lib389/lib389/plugins.py
+index a8b8985fc..97c5d1d3b 100644
+--- a/src/lib389/lib389/plugins.py
++++ b/src/lib389/lib389/plugins.py
+@@ -10,10 +10,9 @@ import collections
+ import ldap
+ import copy
+ import os.path
+-
+ from lib389 import tasks
+ from lib389._mapped_object import DSLdapObjects, DSLdapObject
+-from lib389.lint import DSRILE0001
++from lib389.lint import DSRILE0001, DSRILE0002
+ from lib389.utils import ensure_str, ensure_list_bytes
+ from lib389.schema import Schema
+ from lib389._constants import DN_PLUGIN
+@@ -432,7 +431,7 @@ class ReferentialIntegrityPlugin(Plugin):
+             'referint-logfile',
+             'referint-membership-attr',
+         ])
+-        self._lint_functions = [self._lint_update_delay]
++        self._lint_functions = [self._lint_update_delay, self._lint_attr_indexes]
+ 
+     def create(self, rdn=None, properties=None, basedn=None):
+         """Create an instance of the plugin"""
+@@ -448,7 +447,46 @@ class ReferentialIntegrityPlugin(Plugin):
+         if self.status():
+             delay = self.get_attr_val_int("referint-update-delay")
+             if delay is not None and delay != 0:
+-                return DSRILE0001
++                report = copy.deepcopy(DSRILE0001)
++                report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++                yield report
++
++    def _lint_attr_indexes(self):
++        if self.status():
++            from lib389.backend import Backends
++            backends = Backends(self._instance).list()
++            for backend in backends:
++                indexes = backend.get_indexes()
++                suffix = backend.get_attr_val_utf8_l('nsslapd-suffix')
++                attrs = self.get_attr_vals_utf8_l("referint-membership-attr")
++                for attr in attrs:
++                    report = copy.deepcopy(DSRILE0002)
++                    try:
++                        index = indexes.get(attr)
++                        types = index.get_attr_vals_utf8_l("nsIndexType")
++                        valid = False
++                        if "eq" in types:
++                            valid = True
++
++                        if not valid:
++                            report['detail'] = report['detail'].replace('ATTR', attr)
++                            report['detail'] = report['detail'].replace('BACKEND', suffix)
++                            report['fix'] = report['fix'].replace('ATTR', attr)
++                            report['fix'] = report['fix'].replace('BACKEND', suffix)
++                            report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++                            report['items'].append(suffix)
++                            report['items'].append(attr)
++                            yield report
++                    except:
++                        # No index at all, bad
++                        report['detail'] = report['detail'].replace('ATTR', attr)
++                        report['detail'] = report['detail'].replace('BACKEND', suffix)
++                        report['fix'] = report['fix'].replace('ATTR', attr)
++                        report['fix'] = report['fix'].replace('BACKEND', suffix)
++                        report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++                        report['items'].append(suffix)
++                        report['items'].append(attr)
++                        yield report
+ 
+     def get_update_delay(self):
+         """Get referint-update-delay attribute"""
+diff --git a/src/lib389/lib389/properties.py b/src/lib389/lib389/properties.py
+index d18249d20..9d7ce4161 100644
+--- a/src/lib389/lib389/properties.py
++++ b/src/lib389/lib389/properties.py
+@@ -319,6 +319,7 @@ AGMT_UPDATE_START = 'nsds5replicaLastUpdateStart'
+ AGMT_UPDATE_END = 'nsds5replicaLastUpdateEnd'
+ AGMT_CHANGES_SINCE_STARTUP = 'nsds5replicaChangesSentSinceStartup'  # base64
+ AGMT_UPDATE_STATUS = 'nsds5replicaLastUpdateStatus'
++AGMT_UPDATE_STATUS_JSON = 'nsds5replicaLastUpdateStatusJSON'
+ AGMT_UPDATE_IN_PROGRESS = 'nsds5replicaUpdateInProgress'
+ AGMT_INIT_START = 'nsds5replicaLastInitStart'
+ AGMT_INIT_END = 'nsds5replicaLastInitEnd'
+diff --git a/src/lib389/lib389/replica.py b/src/lib389/lib389/replica.py
+index 7145e86f9..9b84d8f7e 100644
+--- a/src/lib389/lib389/replica.py
++++ b/src/lib389/lib389/replica.py
+@@ -15,6 +15,7 @@ import datetime
+ import logging
+ import uuid
+ import json
++import copy
+ from operator import itemgetter
+ from itertools import permutations
+ from lib389._constants import *
+@@ -31,6 +32,9 @@ from lib389.idm.domain import Domain
+ from lib389.idm.group import Groups
+ from lib389.idm.services import ServiceAccounts
+ from lib389.idm.organizationalunit import OrganizationalUnits
++from lib389.conflicts import ConflictEntries
++from lib389.lint import (DSREPLLE0001, DSREPLLE0002, DSREPLLE0003, DSREPLLE0004,
++                         DSREPLLE0005, DSCLLE0001)
+ 
+ 
+ class ReplicaLegacy(object):
+@@ -1044,6 +1048,19 @@ class Changelog5(DSLdapObject):
+                 'extensibleobject',
+             ]
+         self._protected = False
++        self._lint_functions = [self._lint_cl_trimming]
++
++    def _lint_cl_trimming(self):
++        """Check that cl trimming is at least defined to prevent unbounded growth"""
++        try:
++            if self.get_attr_val_utf8('nsslapd-changelogmaxentries') is None and \
++                self.get_attr_val_utf8('nsslapd-changelogmaxage') is None:
++                report = copy.deepcopy(DSCLLE0001)
++                report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++                yield report
++        except:
++            # No changelog
++            pass
+ 
+     def set_max_entries(self, value):
+         """Configure the max entries the changelog can hold.
+@@ -1102,6 +1119,59 @@ class Replica(DSLdapObject):
+             self._create_objectclasses.append('extensibleobject')
+         self._protected = False
+         self._suffix = None
++        self._lint_functions = [self._lint_agmts_status, self._lint_conflicts]
++
++    def _lint_agmts_status(self):
++        replicas = Replicas(self._instance).list()
++        for replica in replicas:
++            agmts = replica.get_agreements().list()
++            suffix = replica.get_suffix()
++            for agmt in agmts:
++                try:
++                    status = json.loads(agmt.get_agmt_status(return_json=True))
++                    if "Not in Synchronization" in status['msg'] and not "Replication still in progress" in status['reason']:
++                        agmt_name = agmt.get_name()
++                        if status['state'] == 'red':
++                            # Serious error
++                            if "Consumer can not be contacted" in status['reason']:
++                                report = copy.deepcopy(DSREPLLE0005)
++                                report['detail'] = report['detail'].replace('SUFFIX', suffix)
++                                report['detail'] = report['detail'].replace('AGMT', agmt_name)
++                                yield report
++                            else:
++                                report = copy.deepcopy(DSREPLLE0001)
++                                report['detail'] = report['detail'].replace('SUFFIX', suffix)
++                                report['detail'] = report['detail'].replace('AGMT', agmt_name)
++                                report['detail'] = report['detail'].replace('MSG', status['reason'])
++                                report['fix'] = report['fix'].replace('SUFFIX', suffix)
++                                report['fix'] = report['fix'].replace('AGMT', agmt_name)
++                                report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++                                yield report
++                        elif status['state'] == 'amber':
++                            # Warning
++                            report = copy.deepcopy(DSREPLLE0003)
++                            report['detail'] = report['detail'].replace('SUFFIX', suffix)
++                            report['detail'] = report['detail'].replace('AGMT', agmt_name)
++                            report['detail'] = report['detail'].replace('MSG', status['reason'])
++                            yield report
++                except ldap.LDAPError as e:
++                    report = copy.deepcopy(DSREPLLE0004)
++                    report['detail'] = report['detail'].replace('SUFFIX', suffix)
++                    report['detail'] = report['detail'].replace('AGMT', agmt_name)
++                    report['detail'] = report['detail'].replace('ERROR', str(e))
++                    yield report
++
++    def _lint_conflicts(self):
++        replicas = Replicas(self._instance).list()
++        for replica in replicas:
++            conflicts = ConflictEntries(self._instance, replica.get_suffix()).list()
++            suffix = replica.get_suffix()
++            if len(conflicts) > 0:
++                report = copy.deepcopy(DSREPLLE0002)
++                report['detail'] = report['detail'].replace('SUFFIX', suffix)
++                report['detail'] = report['detail'].replace('COUNT', len(conflicts))
++                report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
++                yield report
+ 
+     def _validate(self, rdn, properties, basedn):
+         (tdn, str_props) = super(Replica, self)._validate(rdn, properties, basedn)
+-- 
+2.21.0
+

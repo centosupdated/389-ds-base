@@ -1,0 +1,30 @@
+From 1f4955d5e09f44f19b96dc671a1462cc43ee29a8 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 25 Nov 2019 17:24:04 -0500
+Subject: [PATCH] Issue 50701 - Fix type in lint report
+
+Description:  Fix typo introduced from the previous commit for 50701
+
+relates: https://pagure.io/389-ds-base/issue/50701
+
+Reviewed by: firstyear(Thanks!)
+---
+ src/lib389/lib389/lint.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/lib389/lib389/lint.py b/src/lib389/lib389/lint.py
+index 515711136..736dffa14 100644
+--- a/src/lib389/lib389/lint.py
++++ b/src/lib389/lib389/lint.py
+@@ -42,7 +42,7 @@ DSBLE0002 = {
+     'dsle': 'DSBLE0002',
+     'severity': 'HIGH',
+     'items' : [],
+-    'detail' : """Unable to querying the backend.  LDAP error (ERROR)""",
++    'detail' : """Unable to query the backend.  LDAP error (ERROR)""",
+     'fix' : """Check the server's error and access logs for more information."""
+ }
+ 
+-- 
+2.21.0
+

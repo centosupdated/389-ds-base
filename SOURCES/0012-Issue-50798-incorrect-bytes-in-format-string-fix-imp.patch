@@ -1,0 +1,45 @@
+From d9b1b71b87517d12b88464d5475baff4c6cc25ab Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 13 Jan 2020 17:17:40 -0500
+Subject: [PATCH] Issue 50798 - incorrect bytes in format string(fix import
+ issue)
+
+Description: The previous commit did not import ensure_list_str() from
+             utils.py
+
+relates: https://pagure.io/389-ds-base/issue/50798
+
+Reviewed by: mreynolds (one line commit rule)
+---
+ src/lib389/lib389/instance/remove.py | 2 +-
+ src/lib389/lib389/instance/setup.py  | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib389/lib389/instance/remove.py b/src/lib389/lib389/instance/remove.py
+index c9a872eb7..7a69da514 100644
+--- a/src/lib389/lib389/instance/remove.py
++++ b/src/lib389/lib389/instance/remove.py
+@@ -11,7 +11,7 @@ import shutil
+ import subprocess
+ import logging
+ from lib389.nss_ssl import NssSsl
+-from lib389.utils import selinux_label_port, assert_c
++from lib389.utils import selinux_label_port, assert_c, ensure_list_str
+ 
+ 
+ ######################## WARNING #############################
+diff --git a/src/lib389/lib389/instance/setup.py b/src/lib389/lib389/instance/setup.py
+index bb0ff32f5..61ffc32ee 100644
+--- a/src/lib389/lib389/instance/setup.py
++++ b/src/lib389/lib389/instance/setup.py
+@@ -33,6 +33,7 @@ from lib389.utils import (
+     assert_c,
+     is_a_dn,
+     ensure_str,
++    ensure_list_str,
+     normalizeDN,
+     socket_check_open,
+     selinux_label_port,
+-- 
+2.21.1
+

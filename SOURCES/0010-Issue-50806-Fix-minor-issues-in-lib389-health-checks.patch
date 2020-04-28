@@ -1,0 +1,111 @@
+From 5f4281601966e9edeabdcec0e9f934c79d4ad8ed Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 10 Jan 2020 10:29:02 -0500
+Subject: [PATCH] Issue 50806 - Fix minor issues in lib389 health checks
+
+Description:  For permissions checks, add a list of permissions
+              that is acceptable instead of single value.
+
+              For RI plugin attribute indexing checks, we now check
+              if a container scope is specified.  If it is set, we
+              skip all the other backends that are not in the scope.
+              This prevents false positives.
+
+relates: https://pagure.io/389-ds-base/issue/50806
+
+Reviewed by: mhonek(Thanks!)
+---
+ src/lib389/lib389/dseldif.py | 40 +++++++++++++++++++++++++-----------
+ src/lib389/lib389/plugins.py | 13 ++++++++++--
+ 2 files changed, 39 insertions(+), 14 deletions(-)
+
+diff --git a/src/lib389/lib389/dseldif.py b/src/lib389/lib389/dseldif.py
+index 4155abcdd..fbb50623b 100644
+--- a/src/lib389/lib389/dseldif.py
++++ b/src/lib389/lib389/dseldif.py
+@@ -168,13 +168,27 @@ class FSChecks(object):
+         self.dirsrv = dirsrv
+         self._certdb = self.dirsrv.get_cert_dir()
+         self.ds_files = [
+-            ('/etc/resolv.conf', '644', DSPERMLE0001),
+-            (self._certdb + "/pin.txt", '600', DSPERMLE0002),
+-            (self._certdb + "/pwdfile.txt", '600', DSPERMLE0002),
++            {
++                'name': '/etc/resolv.conf',
++                'perms': [644],
++                'report': DSPERMLE0001
++            },
++            {
++                'name': self._certdb + "/pin.txt",
++                'perms': [400, 600],
++                'report': DSPERMLE0002
++            },
++            {
++                'name': self._certdb + "/pwdfile.txt",
++                'perms': [400, 600],
++                'report': DSPERMLE0002
++            },
+         ]
+         self._lint_functions = [self._lint_file_perms]
+ 
+     def lint(self):
++        """Run a lint/healthcheck for this class
++        """
+         results = []
+         for fn in self._lint_functions:
+             for result in fn():
+@@ -183,14 +197,16 @@ class FSChecks(object):
+         return results
+ 
+     def _lint_file_perms(self):
+-        # Check file permissions are correct
++        """Test file permissions are safe
++        """
+         for ds_file in self.ds_files:
+-            perms = str(oct(os.stat(ds_file[0])[ST_MODE])[-3:])
+-            if perms != ds_file[1]:
+-                report = copy.deepcopy(ds_file[2])
+-                report['items'].append(ds_file[0])
+-                report['detail'] = report['detail'].replace('FILE', ds_file[0])
+-                report['detail'] = report['detail'].replace('PERMS', ds_file[1])
+-                report['fix'] = report['fix'].replace('FILE', ds_file[0])
+-                report['fix'] = report['fix'].replace('PERMS', ds_file[1])
++            perms = int(oct(os.stat(ds_file['name'])[ST_MODE])[-3:])
++            if perms not in ds_file['perms']:
++                perms = str(ds_file['perms'][0])
++                report = copy.deepcopy(ds_file['report'])
++                report['items'].append(ds_file['name'])
++                report['detail'] = report['detail'].replace('FILE', ds_file['name'])
++                report['detail'] = report['detail'].replace('PERMS', perms)
++                report['fix'] = report['fix'].replace('FILE', ds_file['name'])
++                report['fix'] = report['fix'].replace('PERMS', perms)
+                 yield report
+diff --git a/src/lib389/lib389/plugins.py b/src/lib389/lib389/plugins.py
+index 97c5d1d3b..0775e464f 100644
+--- a/src/lib389/lib389/plugins.py
++++ b/src/lib389/lib389/plugins.py
+@@ -455,10 +455,19 @@ class ReferentialIntegrityPlugin(Plugin):
+         if self.status():
+             from lib389.backend import Backends
+             backends = Backends(self._instance).list()
++            attrs = self.get_attr_vals_utf8_l("referint-membership-attr")
++            container = self.get_attr_val_utf8_l("nsslapd-plugincontainerscope")
+             for backend in backends:
+-                indexes = backend.get_indexes()
+                 suffix = backend.get_attr_val_utf8_l('nsslapd-suffix')
+-                attrs = self.get_attr_vals_utf8_l("referint-membership-attr")
++                if suffix == "cn=changelog":
++                    # Always skip retro changelog
++                    continue
++                if container is not None:
++                    # Check if this backend is in the scope
++                    if not container.endswith(suffix):
++                        # skip this backend that is not in the scope
++                        continue
++                indexes = backend.get_indexes()
+                 for attr in attrs:
+                     report = copy.deepcopy(DSRILE0002)
+                     try:
+-- 
+2.21.1
+

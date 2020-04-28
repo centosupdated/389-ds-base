@@ -1,0 +1,32 @@
+From 0513da63603cfc5730d34cc10aaf3a23beec210c Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 16 Jan 2020 15:11:34 -0500
+Subject: [PATCH] Issue 50599 - Fix memory leak when removing db region files
+
+Description:  An unnecessary flag was set in glob() that was resulting
+              in a memory leak in the DS code.  Removing this flag
+              eliminated the leak.
+
+relates: https://pagure.io/389-ds-base/issue/50599
+
+Reviewed by:
+---
+ ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c
+index 2103dac38..5a6a2a2e5 100644
+--- a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c
++++ b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c
+@@ -1072,7 +1072,7 @@ bdb_start(struct ldbminfo *li, int dbmode)
+ 
+                 /* Better wipe out the region files to help ensure a clean start */
+                 PR_snprintf(file_pattern, MAXPATHLEN, "%s/%s", region_dir, "__db.*");
+-                if (glob(file_pattern, GLOB_DOOFFS, NULL, &globbuf) == 0) {
++                if (glob(file_pattern, 0, NULL, &globbuf) == 0) {
+                     for (size_t i = 0; i < globbuf.gl_pathc; i++) {
+                         remove(globbuf.gl_pathv[i]);
+                     }
+-- 
+2.21.1
+
