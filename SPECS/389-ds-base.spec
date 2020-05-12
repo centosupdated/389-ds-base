@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.1
-Release:          %{?relprefix}5%{?prerel}%{?dist}
+Release:          %{?relprefix}9%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -161,6 +161,14 @@ Patch12:          0012-Issue-50536-Audit-log-heading-written-to-log-after-e.patc
 Patch13:          0013-Issue-50636-Crash-during-sasl-bind.patch
 Patch14:          0014-Ticket-49850-cont-fix-crash-in-ldbm_non_leaf.patch
 Patch15:          0015-Ticket-49624-cont-DB-Deadlock-on-modrdn-appears-to-c.patch
+Patch16:          0016-Ticket-50542-Entry-cache-contention-during-base-sear.patch
+Patch17:          0017-Issue-50834-Incorrectly-setting-the-NSS-default-SSL-.patch
+Patch18:          0018-Ticket-50736-RetroCL-trimming-may-crash-at-shutdown-.patch
+Patch19:          0019-Ticket-50709-Several-memory-leaks-reported-by-Valgri.patch
+Patch20:          0020-Ticket-50857-Memory-leak-in-ACI-using-IP-subject.patch
+Patch21:          0021-Ticket-50709-cont-Several-memory-leaks-reported-by-V.patch
+Patch22:          0022-fix-for-50542-crashes-in-filter-tests.patch
+Patch23:          0023-Ticket-49623-cont-cenotaph-errors-on-modrdn-operatio.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -513,6 +521,26 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Apr 6 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-9
+- Bump version to 1.3.10.1-9
+- Resolves: Bug 1817933 - cenotaph errors on modrdn operations
+
+* Fri Mar 6 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-8
+- Bump version to 1.3.10.1-8
+- Resolves: Bug 1809160 - Entry cache contention during base search (Fix crash - part 2)
+
+* Mon Mar 2 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-7
+- Bump version to 1.3.10.1-7
+- Resolves: Bug 1803023 - Several memory leaks reported by Valgrind (fix regression)
+
+* Mon Mar 2 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-6
+- Bump version to 1.3.10.1-6
+- Resolves: Bug 1801694 - ns-slapd is crashing while restarting ipactl
+- Resolves: Bug 1803023 - Several memory leaks reported by Valgrind for 389-ds 1.3.9.1-10
+- Resolves: Bug 1803052 - Memory leak in ACI using IP subject
+- Resolves: Bug 1801703 - Regression: NSS has interop problems as server when using limited cipher list
+- Resolves: Bug 1809160 - Entry cache contention during base search
+
 * Fri Feb 7 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-5
 - Bump version to 1.3.10.1-5
 - Resolves: Bug 1744623 - DB Deadlock on modrdn appears to corrupt database and entry cache(cont)
