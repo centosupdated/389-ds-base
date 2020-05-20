@@ -38,8 +38,8 @@
 
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
-Version:          1.3.10.1
-Release:          %{?relprefix}2%{?prerel}%{?dist}
+Version:          1.3.10.2
+Release:          %{?relprefix}1%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -145,14 +145,7 @@ Requires:         gperftools-libs
 Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}%{?prerel}.tar.bz2
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
-Patch00:          0000-CVE-2019-14824-BZ-1748199-deref-plugin-displays-rest.patch
-Patch01:          0001-Issue-50525-nsslapd-defaultnamingcontext-does-not-ch.patch
-Patch02:          0002-Issue-50530-Directory-Server-not-RFC-4511-compliant-.patch
-Patch03:          0003-Issue-50529-LDAP-server-returning-PWP-controls-in-di.patch
-Patch04:          0004-Issue-50538-cleanAllRUV-task-limit-is-not-enforced-f.patch
-Patch05:          0005-Issue-49624-modrdn-silently-fails-if-DB-deadlock-occ.patch
-Patch06:          0006-Issue-50572-After-running-cl-dump-dbdir-cldb-ldif.do.patch
-Patch07:          0007-Issue-50538-Fix-cherry-pick-error.patch
+
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -505,6 +498,49 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Mar 16 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-1
+- Bump version to  1.3.10.2-1
+- Resolves: Bug 1515319 - nsDS5ReplicaId cant be set to the old value it had before
+- Resolves: Bug 1700987 - 389-base-ds expected file permissions in package don't match final runtime permissions
+- Resolves: Bug 1762901 - cenotaph errors on modrdn operations
+- Resolves: Bug 1772616 - Typo in the replication debug message "error 0 for oparation 561" 
+- Resolves: Bug 1781276 - Regression: NSS has interop problems as server when using limited cipher list
+- Resolves: Bug 1787921 - Crash on startup: Bus error in __env_faultmem.isra.1.part.2
+- Resolves: Bug 1759142 - No error returned when adding an entry matching filters for a non existing automember group
+- Resolves: Bug 1763365 - ns-slapd is crashing while restarting ipactl
+- Resolves: Bug 1769418 - Several memory leaks reported by Valgrind for 389-ds 1.3.9.1-10
+- Resolves: Bug 1775165 - ldclt core dumped when run with -e genldif option
+- Resolves: Bug 1796558 - Memory leak in ACI using IP subject
+- Resolves: Bug 1769296 - cl-dump exit code is 0 even if command fails with invalid arguments
+
+* Mon Mar 2 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-7
+- Bump version to 1.3.10.1-7
+- Resolves: Bug 1803023 - Several memory leaks reported by Valgrind (fix regression)
+
+* Mon Mar 2 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-6
+- Bump version to 1.3.10.1-6
+- Resolves: Bug 1801694 - ns-slapd is crashing while restarting ipactl
+- Resolves: Bug 1803023 - Several memory leaks reported by Valgrind for 389-ds 1.3.9.1-10
+- Resolves: Bug 1803052 - Memory leak in ACI using IP subject
+- Resolves: Bug 1801703 - Regression: NSS has interop problems as server when using limited cipher list
+- Resolves: Bug 1809160 - Entry cache contention during base search
+
+* Fri Feb 7 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-5
+- Bump version to 1.3.10.1-5
+- Resolves: Bug 1744623 - DB Deadlock on modrdn appears to corrupt database and entry cache(cont)
+
+* Fri Oct 25 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-4
+- Bump version to 1.3.10.1-4
+- Resolves: Bug 1765106 - ipa-server-install is failing with ipapython.admintool: ERROR failed to create DS instance Command
+
+* Thu Oct 17 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-3
+- Bump version to 1.3.10.1-3
+- Resolves: Bug 1756182 - ns-slapd crash on concurrent SASL BINDs, connection_call_io_layer_callbacks must hold hold c_mutex
+- Resolves: Bug 1749236 - etime displayed has an order of magnitude 10 times smaller than it should be
+- Resolves: Bug 1758109 - AddressSanitizer: heap-use-after-free in import_free_job
+- Resolves: Bug 1676948 - After audit log file is rotated, DS version string is logged after each update
+- Resolves: Bug 1749595 - Extremely slow LDIF import with ldif2db
+
 * Tue Sep 3 2019 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-2
 - Bump version to 1.3.10.1-2
 - Resolves: Bug 1748199 - EMBARGOED CVE-2019-14824 389-ds-base: 389-ds and IDM: allows authenticated unprivileged user to retrieve content of userPassword field for any user 
