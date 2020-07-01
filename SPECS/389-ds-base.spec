@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.1
-Release:          %{?relprefix}9%{?prerel}%{?dist}
+Release:          %{?relprefix}14%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -169,6 +169,10 @@ Patch20:          0020-Ticket-50857-Memory-leak-in-ACI-using-IP-subject.patch
 Patch21:          0021-Ticket-50709-cont-Several-memory-leaks-reported-by-V.patch
 Patch22:          0022-fix-for-50542-crashes-in-filter-tests.patch
 Patch23:          0023-Ticket-49623-cont-cenotaph-errors-on-modrdn-operatio.patch
+Patch24:          0024-Ticket-50905-intermittent-SSL-hang-with-rhds.patch
+# Patch25:          0025-Issue-50940-Permissions-of-some-shipped-directories-.patch
+Patch26:          0026-Ticket-51068-deadlock-when-updating-the-schema.patch
+Patch27:          0027-Issue-50745-ns-slapd-hangs-during-CleanAllRUV-tests.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -308,7 +312,7 @@ popd
 sed -i -e 's|#{{PERL-EXEC}}|#!/usr/bin/perl|' $RPM_BUILD_ROOT%{_datadir}/%{pkgname}/script-templates/template-*.pl
 
 # exclude 32-bit platforms from running tests
-%if %{_arch} != "s390x" && %{_arch} != "s390" && %{_arch} != "i386" && %{_arch} != "ppc"
+%if %{_arch} == "x86_64"
 %check
 # This checks the code, if it fails it prints why, then re-raises the fail to shortcircuit the rpm build.
 if ! make DESTDIR="$RPM_BUILD_ROOT" check; then cat ./test-suite.log && false; fi
@@ -521,6 +525,27 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Jun 15 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-14
+- Bump version to 1.3.10.1-14
+- Resolves: Bug 1814603 - revert patch as it conflicts with 389-admin package
+
+* Thu Jun 4 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-13
+- Bump version to 1.3.10.1-13
+- Resolves: Bug 1842469 - ns-slapd hangs during CleanAllRUV tests
+ 
+* Fri May 29 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-12
+- Bump version to 1.3.10.1-12
+- Resolves: Bug 1814603 - 389-base-ds expected file permissions
+
+* Fri May 29 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-11
+- Bump version to 1.3.10.1-11
+- Resolves: Bug 1839173 - ipa ns-slapd 3 threads deadlock, db pages, state_change lock, write vattr lock
+
+* Tue May 19 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-10
+- Bump version to 1.3.10.1-10
+- Resolves: Bug 1814603 - 389-base-ds expected file permissions in package don't match final runtime permissions
+- Resolves: Bug 1836171 - intermittent SSL hang with rhds
+
 * Mon Apr 6 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-9
 - Bump version to 1.3.10.1-9
 - Resolves: Bug 1817933 - cenotaph errors on modrdn operations

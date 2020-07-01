@@ -1,0 +1,60 @@
+From 14e3bea927c33a97ca8aed937b6edd9ce4557d24 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Fri, 3 Apr 2020 15:23:10 +0200
+Subject: [PATCH] Ticket 50905 - intermittent SSL hang with rhds
+
+Bug Description:
+	On a successfull sasl bind, a new IO layer (sasl_io_enable) is registered on top of
+	the connection. Then sasl bind sends the successful result. Registration is
+	done while sasl bind thread holds c_mutex but result is sent while the c_mutex
+	is released.
+
+	If a new operation comes in just after c_mutex was released it is
+	possible that sasl bind sends the result while the new IO layer is pushed.
+        IO layers is partially initialized at that time. It can create sigseg or
+	deadlock or...
+
+Fix Description:
+	The fix is to protect the send result from IO layer push.
+	i.e. move send_ldap_result into c_mutex
+
+https://pagure.io/389-ds-base/issue/50905
+
+Reviewed by: Mark Reynolds (Thanks !!)
+
+Platforms tested: F29
+
+Flag Day: no
+
+Doc impact: no
+---
+ ldap/servers/slapd/saslbind.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/saslbind.c b/ldap/servers/slapd/saslbind.c
+index 0907c623f..ef29acf71 100644
+--- a/ldap/servers/slapd/saslbind.c
++++ b/ldap/servers/slapd/saslbind.c
+@@ -1118,12 +1118,16 @@ sasl_check_result:
+             /* Enable SASL I/O on the connection */
+             PR_EnterMonitor(pb_conn->c_mutex);
+             connection_set_io_layer_cb(pb_conn, sasl_io_enable, NULL, NULL);
++
++            /* send successful result before sasl_io_enable can be pushed by another incoming op */
++            send_ldap_result(pb, LDAP_SUCCESS, NULL, NULL, 0, NULL);
++
+             PR_ExitMonitor(pb_conn->c_mutex);
++        } else {
++            /* send successful result */
++            send_ldap_result(pb, LDAP_SUCCESS, NULL, NULL, 0, NULL);
+         }
+ 
+-        /* send successful result */
+-        send_ldap_result(pb, LDAP_SUCCESS, NULL, NULL, 0, NULL);
+-
+         /* remove the sasl data from the pblock */
+         slapi_pblock_set(pb, SLAPI_BIND_RET_SASLCREDS, NULL);
+ 
+-- 
+2.25.4
+

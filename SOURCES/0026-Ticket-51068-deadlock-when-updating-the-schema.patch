@@ -1,0 +1,224 @@
+From 3b589a2bfc33f407cf2c23dc6896566bb8e2acdf Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Tue, 5 May 2020 17:44:01 +0200
+Subject: [PATCH] Ticket 51068 - deadlock when updating the schema
+
+Bug Description:
+        It exists a 3 threads deadlock scenario. It involves state change plugins when it
+        calls schema_changed_callback. So the trigger is a change of schema (direct or via
+        replication). The scenario is
+      MOD(cn=schema)    hold StateChange lock   wait for vattr lock
+      SRCH              hold vattr lock         wait for DB page
+      MOD               hold DB page            wait for StateChange lock
+
+Fix Description:
+        Statechange lock protects the list of registered callbacks.
+        lock is a mutex where actually registration of callback is only done
+        at startup. Later the list is only lookup.
+        Making statechange lock a rwlock suppresses the deadlock scenario
+        as MODs will only acquire in read StateChange lock.
+        It should also improve performance as at the moment all MODs are serialized
+        on that lock
+	In order to prevent writer starvation a new slapi_new_rwlock_prio
+        create rwlock with priority to writers.
+
+https://pagure.io/389-ds-base/issue/51068
+
+Reviewed by: Mark Reynolds, William Brown
+
+Platforms tested: 30
+
+Flag Day: no
+
+Doc impact: no
+---
+ .../servers/plugins/statechange/statechange.c | 24 ++++++++++--------
+ ldap/servers/slapd/slapi-plugin.h             | 16 ++++++++++++
+ ldap/servers/slapd/slapi2nspr.c               | 25 +++++++++++++++++++
+ ldap/servers/slapd/vattr.c                    |  2 +-
+ 4 files changed, 55 insertions(+), 12 deletions(-)
+
+diff --git a/ldap/servers/plugins/statechange/statechange.c b/ldap/servers/plugins/statechange/statechange.c
+index f89b394c6..0a3838b5e 100644
+--- a/ldap/servers/plugins/statechange/statechange.c
++++ b/ldap/servers/plugins/statechange/statechange.c
+@@ -40,7 +40,7 @@ static SCNotify *head; /* a place to start in the list */
+ #define SCN_PLUGIN_SUBSYSTEM "statechange-plugin" /* used for logging */
+ 
+ static void *api[5];
+-static Slapi_Mutex *buffer_lock = 0;
++static Slapi_RWLock *buffer_lock = 0;
+ static PRUint64 g_plugin_started = 0;
+ 
+ /*
+@@ -140,7 +140,7 @@ statechange_start(Slapi_PBlock *pb __attribute__((unused)))
+     api[3] = (void *)_statechange_unregister_all;
+     api[4] = (void *)_statechange_vattr_cache_invalidator_callback;
+ 
+-    if (0 == (buffer_lock = slapi_new_mutex())) /* we never free this mutex */
++    if (0 == (buffer_lock = slapi_new_rwlock()))
+     {
+         /* badness */
+         slapi_log_err(SLAPI_LOG_ERR, SCN_PLUGIN_SUBSYSTEM, "statechange_start - Failed to create lock\n");
+@@ -180,7 +180,9 @@ statechange_close(Slapi_PBlock *pb __attribute__((unused)))
+     slapi_counter_destroy(&op_counter);
+ 
+     slapi_apib_unregister(StateChange_v1_0_GUID);
+-    slapi_destroy_mutex(buffer_lock);
++    if (buffer_lock) {
++        slapi_destroy_rwlock(buffer_lock);
++    }
+     buffer_lock = NULL;
+ 
+     slapi_log_err(SLAPI_LOG_TRACE, SCN_PLUGIN_SUBSYSTEM, "<-- statechange_close\n");
+@@ -240,7 +242,7 @@ statechange_post_op(Slapi_PBlock *pb, int modtype)
+     slapi_log_err(SLAPI_LOG_TRACE, SCN_PLUGIN_SUBSYSTEM, "--> statechange_post_op\n");
+ 
+     /* evaluate this operation against the notification entries */
+-    slapi_lock_mutex(buffer_lock);
++    slapi_rwlock_rdlock(buffer_lock);
+     if (head) {
+         slapi_pblock_get(pb, SLAPI_TARGET_SDN, &sdn);
+         if (NULL == sdn) {
+@@ -290,7 +292,7 @@ statechange_post_op(Slapi_PBlock *pb, int modtype)
+         } while (notify && notify != head);
+     }
+ bail:
+-    slapi_unlock_mutex(buffer_lock);
++    slapi_rwlock_unlock(buffer_lock);
+     slapi_log_err(SLAPI_LOG_TRACE, SCN_PLUGIN_SUBSYSTEM, "<-- statechange_post_op\n");
+ 
+     return SLAPI_PLUGIN_SUCCESS; /* always succeed */
+@@ -338,7 +340,7 @@ _statechange_register(char *caller_id, char *dn, char *filter, void *caller_data
+         }
+         item->func = func;
+ 
+-        slapi_lock_mutex(buffer_lock);
++        slapi_rwlock_wrlock(buffer_lock);
+         if (head == NULL) {
+             head = item;
+             head->next = head;
+@@ -349,7 +351,7 @@ _statechange_register(char *caller_id, char *dn, char *filter, void *caller_data
+             head->prev = item;
+             item->prev->next = item;
+         }
+-        slapi_unlock_mutex(buffer_lock);
++        slapi_rwlock_unlock(buffer_lock);
+         slapi_ch_free_string(&writable_filter);
+ 
+         ret = SLAPI_PLUGIN_SUCCESS;
+@@ -371,7 +373,7 @@ _statechange_unregister(char *dn, char *filter, notify_callback thefunc)
+         return ret;
+     }
+ 
+-    slapi_lock_mutex(buffer_lock);
++    slapi_rwlock_wrlock(buffer_lock);
+ 
+     if ((func = statechange_find_notify(dn, filter, thefunc))) {
+         func->prev->next = func->next;
+@@ -392,7 +394,7 @@ _statechange_unregister(char *dn, char *filter, notify_callback thefunc)
+         slapi_ch_free((void **)&func);
+     }
+ 
+-    slapi_unlock_mutex(buffer_lock);
++    slapi_rwlock_unlock(buffer_lock);
+     slapi_counter_decrement(op_counter);
+ 
+     return ret;
+@@ -410,7 +412,7 @@ _statechange_unregister_all(char *caller_id, caller_data_free_callback callback)
+         return;
+     }
+ 
+-    slapi_lock_mutex(buffer_lock);
++    slapi_rwlock_wrlock(buffer_lock);
+ 
+     if (notify) {
+         do {
+@@ -441,7 +443,7 @@ _statechange_unregister_all(char *caller_id, caller_data_free_callback callback)
+         } while (notify != start_notify && notify != NULL);
+     }
+ 
+-    slapi_unlock_mutex(buffer_lock);
++    slapi_rwlock_unlock(buffer_lock);
+     slapi_counter_decrement(op_counter);
+ }
+ 
+diff --git a/ldap/servers/slapd/slapi-plugin.h b/ldap/servers/slapd/slapi-plugin.h
+index 679bdbb5c..865d83b9b 100644
+--- a/ldap/servers/slapd/slapi-plugin.h
++++ b/ldap/servers/slapd/slapi-plugin.h
+@@ -6126,6 +6126,22 @@ void slapi_destroy_condvar(Slapi_CondVar *cvar);
+ int slapi_wait_condvar(Slapi_CondVar *cvar, struct timeval *timeout);
+ int slapi_notify_condvar(Slapi_CondVar *cvar, int notify_all);
+ 
++/**
++ * Creates a new read/write lock
++ * If prio_writer the rwlock gives priority on writers
++ * else it give priority on readers (default)
++ *
++ * \return A pointer to a \c Slapi_RWLock
++ *
++ * \note Free the returned lock by calling slapi_destroy_rwlock() when finished
++ *
++ * \see slapi_destroy_rwlock()
++ * \see slapi_rwlock_rdlock()
++ * \see slapi_rwlock_wrlock()
++ * \see slapi_rwlock_unlock()
++ */
++Slapi_RWLock *slapi_new_rwlock_prio(int32_t prio_writer);
++
+ /**
+  * Creates a new read/write lock.
+  *
+diff --git a/ldap/servers/slapd/slapi2nspr.c b/ldap/servers/slapd/slapi2nspr.c
+index b3e6d94c2..232d1599e 100644
+--- a/ldap/servers/slapd/slapi2nspr.c
++++ b/ldap/servers/slapd/slapi2nspr.c
+@@ -181,6 +181,31 @@ slapi_notify_condvar(Slapi_CondVar *cvar, int notify_all)
+     return (prrc == PR_SUCCESS ? 1 : 0);
+ }
+ 
++Slapi_RWLock *
++slapi_new_rwlock_prio(int32_t prio_writer)
++{
++#ifdef USE_POSIX_RWLOCKS
++    pthread_rwlock_t *rwlock = NULL;
++    pthread_rwlockattr_t attr;
++
++    pthread_rwlockattr_init(&attr);
++    if (prio_writer) {
++        pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
++    } else {
++        pthread_rwlockattr_setkind_np(&attr, PTHREAD_RWLOCK_PREFER_READER_NP);
++    }
++
++    rwlock = (pthread_rwlock_t *)slapi_ch_malloc(sizeof(pthread_rwlock_t));
++    if (rwlock) {
++        pthread_rwlock_init(rwlock, &attr);
++    }
++
++    return ((Slapi_RWLock *)rwlock);
++#else
++    return ((Slapi_RWLock *)PR_NewRWLock(PR_RWLOCK_RANK_NONE, "slapi_rwlock"));
++#endif
++}
++
+ Slapi_RWLock *
+ slapi_new_rwlock(void)
+ {
+diff --git a/ldap/servers/slapd/vattr.c b/ldap/servers/slapd/vattr.c
+index 852a887ce..eef444270 100644
+--- a/ldap/servers/slapd/vattr.c
++++ b/ldap/servers/slapd/vattr.c
+@@ -1996,7 +1996,7 @@ vattr_map_create(void)
+         return ENOMEM;
+     }
+ 
+-    the_map->lock = slapi_new_rwlock();
++    the_map->lock = slapi_new_rwlock_prio(1 /* priority on writers */);
+     if (NULL == the_map) {
+         slapd_nasty(sourcefile, 3, 0);
+         return ENOMEM;
+-- 
+2.26.2
+

@@ -1,0 +1,70 @@
+From b69687377d6afd973a8bc27d8d34bf8069943a9d Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 19 May 2020 11:25:13 -0400
+Subject: [PATCH] Issue 50745: ns-slapd hangs during CleanAllRUV tests
+
+Bug Description:
+	The hang condition:
+		- is not systematic
+		- occurs in rare case, for example here during the deletion of a replica.
+		- a thread is waiting for a dblock that an other thread "forgot" to
+		  release.
+		- have always existed, at least since 1.4.0 but likely since 1.2.x
+
+	When deleting a replica, the replica is retrieved from
+	mapping tree structure (mtnode).
+	The replica is also retrieved through the mapping tree
+	when writing updates to the changelog.
+
+	When deleting the replica, mapping tree structure is cleared
+	after the changelog is deleted (that can take some cycles).
+	There is a window where an update can retrieve the replica,
+	from the not yet cleared MT, while the changelog being removed.
+
+	At the end, the update will update the changelog that is
+	currently removed and keeps an unfree lock in the DB.
+
+Fix description:
+	Ideally mapping tree should be protected by a lock but it
+	is not done systematically (e.g.  slapi_get_mapping_tree_node).
+	Using a lock looks an overkill and can probably introduce
+	deadlock and performance hit.
+	The idea of the fix is to reduce the window, moving the
+	mapping tree clear before the changelog removal.
+
+https://pagure.io/389-ds-base/issue/50745
+
+Reviewed by: Mark Reynolds, Ludwig Krispenz
+---
+ ldap/servers/plugins/replication/repl5_replica_config.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica_config.c b/ldap/servers/plugins/replication/repl5_replica_config.c
+index 80a079784..95b7fa50e 100644
+--- a/ldap/servers/plugins/replication/repl5_replica_config.c
++++ b/ldap/servers/plugins/replication/repl5_replica_config.c
+@@ -735,18 +735,18 @@ replica_config_delete(Slapi_PBlock *pb __attribute__((unused)),
+     PR_ASSERT(mtnode_ext);
+ 
+     if (mtnode_ext->replica) {
++        Object *repl_obj = mtnode_ext->replica;
+         /* remove object from the hash */
+         r = (Replica *)object_get_data(mtnode_ext->replica);
++        mtnode_ext->replica = NULL;
+         PR_ASSERT(r);
+         /* The changelog for this replica is no longer valid, so we should remove it. */
+         slapi_log_err(SLAPI_LOG_WARNING, repl_plugin_name, "replica_config_delete - "
+                                                            "The changelog for replica %s is no longer valid since "
+                                                            "the replica config is being deleted.  Removing the changelog.\n",
+                       slapi_sdn_get_dn(replica_get_root(r)));
+-        cl5DeleteDBSync(mtnode_ext->replica);
++        cl5DeleteDBSync(repl_obj);
+         replica_delete_by_name(replica_get_name(r));
+-        object_release(mtnode_ext->replica);
+-        mtnode_ext->replica = NULL;
+     }
+ 
+     PR_Unlock(s_configLock);
+-- 
+2.26.2
+
