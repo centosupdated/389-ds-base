@@ -1,0 +1,943 @@
+From f13d630ff98eb5b5505f1db3e7f207175b51b237 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 12 May 2020 13:48:30 -0400
+Subject: [PATCH 04/12] Issue 51076 - remove unnecessary slapi entry dups
+
+Description:  So the problem is that slapi_search_internal_get_entry()
+              duplicates the entry twice.  It does that as a convenience
+              where it will allocate a pblock, do the search, copy
+              the entry, free search results from the pblock, and then
+              free the pblock itself.  I basically split this function
+              into two functions.  One function allocates the pblock,
+              does the search and returns the entry.  The other function
+              frees the entries and pblock.
+
+              99% of time when we call slapi_search_internal_get_entry()
+              we are just reading it and freeing it.  It's not being
+              consumed.  In these cases we can use the two function
+              approach eliminates an extra slapi_entry_dup().  Over the
+              time of an operation/connection we can save quite a bit
+              of mallocing/freeing.  This could also help with memory
+              fragmentation.
+
+ASAN: passed
+
+relates: https://pagure.io/389-ds-base/issue/51076
+
+Reviewed by: firstyear & tbordaz(Thanks!)
+---
+ ldap/servers/plugins/acctpolicy/acct_config.c |  6 +--
+ ldap/servers/plugins/acctpolicy/acct_plugin.c | 36 +++++++-------
+ ldap/servers/plugins/acctpolicy/acct_util.c   |  6 +--
+ ldap/servers/plugins/automember/automember.c  | 17 +++----
+ ldap/servers/plugins/dna/dna.c                | 23 ++++-----
+ ldap/servers/plugins/memberof/memberof.c      | 16 +++----
+ .../plugins/pam_passthru/pam_ptconfig.c       | 10 ++--
+ .../servers/plugins/pam_passthru/pam_ptimpl.c |  7 +--
+ .../plugins/pam_passthru/pam_ptpreop.c        |  9 ++--
+ .../plugins/replication/repl5_tot_protocol.c  |  5 +-
+ ldap/servers/plugins/uiduniq/uid.c            | 23 ++++-----
+ ldap/servers/slapd/daemon.c                   | 11 ++---
+ ldap/servers/slapd/modify.c                   | 12 +++--
+ ldap/servers/slapd/plugin_internal_op.c       | 48 +++++++++++++++++++
+ ldap/servers/slapd/resourcelimit.c            | 13 ++---
+ ldap/servers/slapd/schema.c                   |  7 ++-
+ ldap/servers/slapd/slapi-plugin.h             | 23 ++++++++-
+ 17 files changed, 161 insertions(+), 111 deletions(-)
+
+diff --git a/ldap/servers/plugins/acctpolicy/acct_config.c b/ldap/servers/plugins/acctpolicy/acct_config.c
+index fe35ba5a0..01e4f319f 100644
+--- a/ldap/servers/plugins/acctpolicy/acct_config.c
++++ b/ldap/servers/plugins/acctpolicy/acct_config.c
+@@ -37,6 +37,7 @@ static int acct_policy_entry2config(Slapi_Entry *e,
+ int
+ acct_policy_load_config_startup(Slapi_PBlock *pb __attribute__((unused)), void *plugin_id)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     acctPluginCfg *newcfg;
+     Slapi_Entry *config_entry = NULL;
+     Slapi_DN *config_sdn = NULL;
+@@ -44,8 +45,7 @@ acct_policy_load_config_startup(Slapi_PBlock *pb __attribute__((unused)), void *
+ 
+     /* Retrieve the config entry */
+     config_sdn = slapi_sdn_new_normdn_byref(PLUGIN_CONFIG_DN);
+-    rc = slapi_search_internal_get_entry(config_sdn, NULL, &config_entry,
+-                                         plugin_id);
++    rc = slapi_search_get_entry(&entry_pb, config_sdn, NULL, &config_entry, plugin_id);
+     slapi_sdn_free(&config_sdn);
+ 
+     if (rc != LDAP_SUCCESS || config_entry == NULL) {
+@@ -60,7 +60,7 @@ acct_policy_load_config_startup(Slapi_PBlock *pb __attribute__((unused)), void *
+     rc = acct_policy_entry2config(config_entry, newcfg);
+     config_unlock();
+ 
+-    slapi_entry_free(config_entry);
++    slapi_search_get_entry_done(&entry_pb);
+ 
+     return (rc);
+ }
+diff --git a/ldap/servers/plugins/acctpolicy/acct_plugin.c b/ldap/servers/plugins/acctpolicy/acct_plugin.c
+index 2a876ad72..c3c32b074 100644
+--- a/ldap/servers/plugins/acctpolicy/acct_plugin.c
++++ b/ldap/servers/plugins/acctpolicy/acct_plugin.c
+@@ -209,6 +209,7 @@ done:
+ int
+ acct_bind_preop(Slapi_PBlock *pb)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     const char *dn = NULL;
+     Slapi_DN *sdn = NULL;
+     Slapi_Entry *target_entry = NULL;
+@@ -236,8 +237,7 @@ acct_bind_preop(Slapi_PBlock *pb)
+         goto done;
+     }
+ 
+-    ldrc = slapi_search_internal_get_entry(sdn, NULL, &target_entry,
+-                                           plugin_id);
++    ldrc = slapi_search_get_entry(&entry_pb, sdn, NULL, &target_entry, plugin_id);
+ 
+     /* There was a problem retrieving the entry */
+     if (ldrc != LDAP_SUCCESS) {
+@@ -275,7 +275,7 @@ done:
+         slapi_send_ldap_result(pb, LDAP_UNWILLING_TO_PERFORM, NULL, NULL, 0, NULL);
+     }
+ 
+-    slapi_entry_free(target_entry);
++    slapi_search_get_entry_done(&entry_pb);
+ 
+     free_acctpolicy(&policy);
+ 
+@@ -293,6 +293,7 @@ done:
+ int
+ acct_bind_postop(Slapi_PBlock *pb)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     char *dn = NULL;
+     int ldrc, tracklogin = 0;
+     int rc = 0; /* Optimistic default */
+@@ -327,8 +328,7 @@ acct_bind_postop(Slapi_PBlock *pb)
+        covered by an account policy to decide whether we should track */
+     if (tracklogin == 0) {
+         sdn = slapi_sdn_new_normdn_byref(dn);
+-        ldrc = slapi_search_internal_get_entry(sdn, NULL, &target_entry,
+-                                               plugin_id);
++        ldrc = slapi_search_get_entry(&entry_pb, sdn, NULL, &target_entry, plugin_id);
+ 
+         if (ldrc != LDAP_SUCCESS) {
+             slapi_log_err(SLAPI_LOG_ERR, POST_PLUGIN_NAME,
+@@ -355,7 +355,7 @@ done:
+         slapi_send_ldap_result(pb, LDAP_UNWILLING_TO_PERFORM, NULL, NULL, 0, NULL);
+     }
+ 
+-    slapi_entry_free(target_entry);
++    slapi_search_get_entry_done(&entry_pb);
+ 
+     slapi_sdn_free(&sdn);
+ 
+@@ -370,11 +370,11 @@ done:
+ static int
+ acct_pre_op(Slapi_PBlock *pb, int modop)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     Slapi_DN *sdn = 0;
+     Slapi_Entry *e = 0;
+     Slapi_Mods *smods = 0;
+     LDAPMod **mods;
+-    int free_entry = 0;
+     char *errstr = NULL;
+     int ret = SLAPI_PLUGIN_SUCCESS;
+ 
+@@ -384,28 +384,25 @@ acct_pre_op(Slapi_PBlock *pb, int modop)
+ 
+     if (acct_policy_dn_is_config(sdn)) {
+         /* Validate config changes, but don't apply them.
+-     * This allows us to reject invalid config changes
+-     * here at the pre-op stage.  Applying the config
+-     * needs to be done at the post-op stage. */
++         * This allows us to reject invalid config changes
++         * here at the pre-op stage.  Applying the config
++         * needs to be done at the post-op stage. */
+ 
+         if (LDAP_CHANGETYPE_ADD == modop) {
+             slapi_pblock_get(pb, SLAPI_ADD_ENTRY, &e);
+ 
+-            /* If the entry doesn't exist, just bail and
+-     * let the server handle it. */
++            /* If the entry doesn't exist, just bail and let the server handle it. */
+             if (e == NULL) {
+                 goto bail;
+             }
+         } else if (LDAP_CHANGETYPE_MODIFY == modop) {
+             /* Fetch the entry being modified so we can
+-     * create the resulting entry for validation. */
++             * create the resulting entry for validation. */
+             if (sdn) {
+-                slapi_search_internal_get_entry(sdn, 0, &e, get_identity());
+-                free_entry = 1;
++                slapi_search_get_entry(&entry_pb, sdn, 0, &e, get_identity());
+             }
+ 
+-            /* If the entry doesn't exist, just bail and
+-     * let the server handle it. */
++            /* If the entry doesn't exist, just bail and let the server handle it. */
+             if (e == NULL) {
+                 goto bail;
+             }
+@@ -418,7 +415,7 @@ acct_pre_op(Slapi_PBlock *pb, int modop)
+             /* Apply the  mods to create the resulting entry. */
+             if (mods && (slapi_entry_apply_mods(e, mods) != LDAP_SUCCESS)) {
+                 /* The mods don't apply cleanly, so we just let this op go
+-     * to let the main server handle it. */
++                 * to let the main server handle it. */
+                 goto bailmod;
+             }
+         } else if (modop == LDAP_CHANGETYPE_DELETE) {
+@@ -439,8 +436,7 @@ bailmod:
+     }
+ 
+ bail:
+-    if (free_entry && e)
+-        slapi_entry_free(e);
++    slapi_search_get_entry_done(&entry_pb);
+ 
+     if (ret) {
+         slapi_log_err(SLAPI_LOG_PLUGIN, PRE_PLUGIN_NAME,
+diff --git a/ldap/servers/plugins/acctpolicy/acct_util.c b/ldap/servers/plugins/acctpolicy/acct_util.c
+index f25a3202d..f432092fe 100644
+--- a/ldap/servers/plugins/acctpolicy/acct_util.c
++++ b/ldap/servers/plugins/acctpolicy/acct_util.c
+@@ -85,6 +85,7 @@ get_attr_string_val(Slapi_Entry *target_entry, char *attr_name)
+ int
+ get_acctpolicy(Slapi_PBlock *pb __attribute__((unused)), Slapi_Entry *target_entry, void *plugin_id, acctPolicy **policy)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     Slapi_DN *sdn = NULL;
+     Slapi_Entry *policy_entry = NULL;
+     Slapi_Attr *attr;
+@@ -123,8 +124,7 @@ get_acctpolicy(Slapi_PBlock *pb __attribute__((unused)), Slapi_Entry *target_ent
+     }
+ 
+     sdn = slapi_sdn_new_dn_byref(policy_dn);
+-    ldrc = slapi_search_internal_get_entry(sdn, NULL, &policy_entry,
+-                                           plugin_id);
++    ldrc = slapi_search_get_entry(&entry_pb, sdn, NULL, &policy_entry, plugin_id);
+     slapi_sdn_free(&sdn);
+ 
+     /* There should be a policy but it can't be retrieved; fatal error */
+@@ -160,7 +160,7 @@ dopolicy:
+ done:
+     config_unlock();
+     slapi_ch_free_string(&policy_dn);
+-    slapi_entry_free(policy_entry);
++    slapi_search_get_entry_done(&entry_pb);
+     return (rc);
+ }
+ 
+diff --git a/ldap/servers/plugins/automember/automember.c b/ldap/servers/plugins/automember/automember.c
+index 7c875c852..39350ad53 100644
+--- a/ldap/servers/plugins/automember/automember.c
++++ b/ldap/servers/plugins/automember/automember.c
+@@ -1629,13 +1629,12 @@ automember_update_member_value(Slapi_Entry *member_e, const char *group_dn, char
+     char *member_value = NULL;
+     int rc = 0;
+     Slapi_DN *group_sdn;
+-    Slapi_Entry *group_entry = NULL;
+ 
+     /* First thing check that the group still exists */
+     group_sdn = slapi_sdn_new_dn_byval(group_dn);
+-    rc = slapi_search_internal_get_entry(group_sdn, NULL, &group_entry, automember_get_plugin_id());
++    rc = slapi_search_internal_get_entry(group_sdn, NULL, NULL, automember_get_plugin_id());
+     slapi_sdn_free(&group_sdn);
+-    if (rc != LDAP_SUCCESS || group_entry == NULL) {
++    if (rc != LDAP_SUCCESS) {
+         if (rc == LDAP_NO_SUCH_OBJECT) {
+             /* the automember group (default or target) does not exist, just skip this definition */
+             slapi_log_err(SLAPI_LOG_INFO, AUTOMEMBER_PLUGIN_SUBSYSTEM,
+@@ -1647,10 +1646,8 @@ automember_update_member_value(Slapi_Entry *member_e, const char *group_dn, char
+                       "automember_update_member_value - group (default or target) can not be retrieved (%s) err=%d\n",
+                       group_dn, rc);
+         }
+-        slapi_entry_free(group_entry);
+         return rc;
+     }
+-    slapi_entry_free(group_entry);
+ 
+     /* If grouping_value is dn, we need to fetch the dn instead. */
+     if (slapi_attr_type_cmp(grouping_value, "dn", SLAPI_TYPE_CMP_EXACT) == 0) {
+@@ -1752,11 +1749,11 @@ out:
+ static int
+ automember_pre_op(Slapi_PBlock *pb, int modop)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     Slapi_DN *sdn = 0;
+     Slapi_Entry *e = 0;
+     Slapi_Mods *smods = 0;
+     LDAPMod **mods;
+-    int free_entry = 0;
+     char *errstr = NULL;
+     int ret = SLAPI_PLUGIN_SUCCESS;
+ 
+@@ -1784,8 +1781,7 @@ automember_pre_op(Slapi_PBlock *pb, int modop)
+             /* Fetch the entry being modified so we can
+              * create the resulting entry for validation. */
+             if (sdn) {
+-                slapi_search_internal_get_entry(sdn, 0, &e, automember_get_plugin_id());
+-                free_entry = 1;
++                slapi_search_get_entry(&entry_pb, sdn, 0, &e, automember_get_plugin_id());
+             }
+ 
+             /* If the entry doesn't exist, just bail and
+@@ -1799,7 +1795,7 @@ automember_pre_op(Slapi_PBlock *pb, int modop)
+             smods = slapi_mods_new();
+             slapi_mods_init_byref(smods, mods);
+ 
+-            /* Apply the  mods to create the resulting entry. */
++            /* Apply the mods to create the resulting entry. */
+             if (mods && (slapi_entry_apply_mods(e, mods) != LDAP_SUCCESS)) {
+                 /* The mods don't apply cleanly, so we just let this op go
+                  * to let the main server handle it. */
+@@ -1831,8 +1827,7 @@ bailmod:
+     }
+ 
+ bail:
+-    if (free_entry && e)
+-        slapi_entry_free(e);
++    slapi_search_get_entry_done(&entry_pb);
+ 
+     if (ret) {
+         slapi_log_err(SLAPI_LOG_PLUGIN, AUTOMEMBER_PLUGIN_SUBSYSTEM,
+diff --git a/ldap/servers/plugins/dna/dna.c b/ldap/servers/plugins/dna/dna.c
+index 1ee271359..16c625bb0 100644
+--- a/ldap/servers/plugins/dna/dna.c
++++ b/ldap/servers/plugins/dna/dna.c
+@@ -1178,7 +1178,6 @@ dna_parse_config_entry(Slapi_PBlock *pb, Slapi_Entry *e, int apply)
+ 
+     value = slapi_entry_attr_get_charptr(e, DNA_SHARED_CFG_DN);
+     if (value) {
+-        Slapi_Entry *shared_e = NULL;
+         Slapi_DN *sdn = NULL;
+         char *normdn = NULL;
+         char *attrs[2];
+@@ -1197,10 +1196,8 @@ dna_parse_config_entry(Slapi_PBlock *pb, Slapi_Entry *e, int apply)
+         /* We don't need attributes */
+         attrs[0] = "cn";
+         attrs[1] = NULL;
+-        slapi_search_internal_get_entry(sdn, attrs, &shared_e, getPluginID());
+-
+         /* Make sure that the shared config entry exists. */
+-        if (!shared_e) {
++        if(slapi_search_internal_get_entry(sdn, attrs, NULL, getPluginID()) != LDAP_SUCCESS) {
+             /* We didn't locate the shared config container entry. Log
+              * a message and skip this config entry. */
+             slapi_log_err(SLAPI_LOG_ERR, DNA_PLUGIN_SUBSYSTEM,
+@@ -1210,9 +1207,6 @@ dna_parse_config_entry(Slapi_PBlock *pb, Slapi_Entry *e, int apply)
+             ret = DNA_FAILURE;
+             slapi_sdn_free(&sdn);
+             goto bail;
+-        } else {
+-            slapi_entry_free(shared_e);
+-            shared_e = NULL;
+         }
+ 
+         normdn = (char *)slapi_sdn_get_dn(sdn);
+@@ -1539,6 +1533,7 @@ dna_delete_shared_servers(PRCList **servers)
+ static int
+ dna_load_host_port(void)
+ {
++    Slapi_PBlock *pb = NULL;
+     int status = DNA_SUCCESS;
+     Slapi_Entry *e = NULL;
+     Slapi_DN *config_dn = NULL;
+@@ -1554,7 +1549,7 @@ dna_load_host_port(void)
+ 
+     config_dn = slapi_sdn_new_ndn_byref("cn=config");
+     if (config_dn) {
+-        slapi_search_internal_get_entry(config_dn, attrs, &e, getPluginID());
++        slapi_search_get_entry(&pb, config_dn, attrs, &e, getPluginID());
+         slapi_sdn_free(&config_dn);
+     }
+ 
+@@ -1562,8 +1557,8 @@ dna_load_host_port(void)
+         hostname = slapi_entry_attr_get_charptr(e, "nsslapd-localhost");
+         portnum = slapi_entry_attr_get_charptr(e, "nsslapd-port");
+         secureportnum = slapi_entry_attr_get_charptr(e, "nsslapd-secureport");
+-        slapi_entry_free(e);
+     }
++    slapi_search_get_entry_done(&pb);
+ 
+     if (!hostname || !portnum) {
+         status = DNA_FAILURE;
+@@ -2876,6 +2871,7 @@ bail:
+ static int
+ dna_is_replica_bind_dn(char *range_dn, char *bind_dn)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     char *replica_dn = NULL;
+     Slapi_DN *replica_sdn = NULL;
+     Slapi_DN *range_sdn = NULL;
+@@ -2912,8 +2908,7 @@ dna_is_replica_bind_dn(char *range_dn, char *bind_dn)
+         attrs[2] = 0;
+ 
+         /* Find cn=replica entry via search */
+-        slapi_search_internal_get_entry(replica_sdn, attrs, &e, getPluginID());
+-
++        slapi_search_get_entry(&entry_pb, replica_sdn, attrs, &e, getPluginID());
+         if (e) {
+             /* Check if the passed in bind dn matches any of the replica bind dns. */
+             Slapi_Value *bind_dn_sv = slapi_value_new_string(bind_dn);
+@@ -2927,6 +2922,7 @@ dna_is_replica_bind_dn(char *range_dn, char *bind_dn)
+                 attrs[0] = "member";
+                 attrs[1] = "uniquemember";
+                 attrs[2] = 0;
++                slapi_search_get_entry_done(&entry_pb);
+                 for (i = 0; bind_group_dn != NULL && bind_group_dn[i] != NULL; i++) {
+                     if (ret) {
+                         /* already found a member, just free group */
+@@ -2934,14 +2930,14 @@ dna_is_replica_bind_dn(char *range_dn, char *bind_dn)
+                         continue;
+                     }
+                     bind_group_sdn = slapi_sdn_new_normdn_passin(bind_group_dn[i]);
+-                    slapi_search_internal_get_entry(bind_group_sdn, attrs, &bind_group_entry, getPluginID());
++                    slapi_search_get_entry(&entry_pb, bind_group_sdn, attrs, &bind_group_entry, getPluginID());
+                     if (bind_group_entry) {
+                         ret = slapi_entry_attr_has_syntax_value(bind_group_entry, "member", bind_dn_sv);
+                         if (ret == 0) {
+                             ret = slapi_entry_attr_has_syntax_value(bind_group_entry, "uniquemember", bind_dn_sv);
+                         }
+                     }
+-                    slapi_entry_free(bind_group_entry);
++                    slapi_search_get_entry_done(&entry_pb);
+                     slapi_sdn_free(&bind_group_sdn);
+                 }
+                 slapi_ch_free((void **)&bind_group_dn);
+@@ -2956,7 +2952,6 @@ dna_is_replica_bind_dn(char *range_dn, char *bind_dn)
+     }
+ 
+ done:
+-    slapi_entry_free(e);
+     slapi_sdn_free(&range_sdn);
+     slapi_sdn_free(&replica_sdn);
+ 
+diff --git a/ldap/servers/plugins/memberof/memberof.c b/ldap/servers/plugins/memberof/memberof.c
+index 40bd4b380..e9e1ec4c7 100644
+--- a/ldap/servers/plugins/memberof/memberof.c
++++ b/ldap/servers/plugins/memberof/memberof.c
+@@ -884,7 +884,7 @@ memberof_postop_modrdn(Slapi_PBlock *pb)
+             pre_sdn = slapi_entry_get_sdn(pre_e);
+             post_sdn = slapi_entry_get_sdn(post_e);
+         }
+-        
++
+         if (pre_sdn && post_sdn && slapi_sdn_compare(pre_sdn, post_sdn) == 0) {
+             /* Regarding memberof plugin, this rename is a no-op
+              * but it can be expensive to process it. So skip it
+@@ -1466,6 +1466,7 @@ memberof_modop_one_r(Slapi_PBlock *pb, MemberOfConfig *config, int mod_op, Slapi
+ int
+ memberof_modop_one_replace_r(Slapi_PBlock *pb, MemberOfConfig *config, int mod_op, Slapi_DN *group_sdn, Slapi_DN *op_this_sdn, Slapi_DN *replace_with_sdn, Slapi_DN *op_to_sdn, memberofstringll *stack)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     int rc = 0;
+     LDAPMod mod;
+     LDAPMod replace_mod;
+@@ -1515,8 +1516,7 @@ memberof_modop_one_replace_r(Slapi_PBlock *pb, MemberOfConfig *config, int mod_o
+     }
+ 
+     /* determine if this is a group op or single entry */
+-    slapi_search_internal_get_entry(op_to_sdn, config->groupattrs,
+-                                    &e, memberof_get_plugin_id());
++    slapi_search_get_entry(&entry_pb, op_to_sdn, config->groupattrs, &e, memberof_get_plugin_id());
+     if (!e) {
+         /* In the case of a delete, we need to worry about the
+          * missing entry being a nested group.  There's a small
+@@ -1751,7 +1751,7 @@ memberof_modop_one_replace_r(Slapi_PBlock *pb, MemberOfConfig *config, int mod_o
+ bail:
+     slapi_value_free(&to_dn_val);
+     slapi_value_free(&this_dn_val);
+-    slapi_entry_free(e);
++    slapi_search_get_entry_done(&entry_pb);
+     return rc;
+ }
+ 
+@@ -2368,6 +2368,7 @@ bail:
+ int
+ memberof_is_direct_member(MemberOfConfig *config, Slapi_Value *groupdn, Slapi_Value *memberdn)
+ {
++    Slapi_PBlock *pb = NULL;
+     int rc = 0;
+     Slapi_DN *sdn = 0;
+     Slapi_Entry *group_e = 0;
+@@ -2376,8 +2377,8 @@ memberof_is_direct_member(MemberOfConfig *config, Slapi_Value *groupdn, Slapi_Va
+ 
+     sdn = slapi_sdn_new_normdn_byref(slapi_value_get_string(groupdn));
+ 
+-    slapi_search_internal_get_entry(sdn, config->groupattrs,
+-                                    &group_e, memberof_get_plugin_id());
++    slapi_search_get_entry(&pb, sdn, config->groupattrs,
++                           &group_e, memberof_get_plugin_id());
+ 
+     if (group_e) {
+         /* See if memberdn is referred to by any of the group attributes. */
+@@ -2388,9 +2389,8 @@ memberof_is_direct_member(MemberOfConfig *config, Slapi_Value *groupdn, Slapi_Va
+                 break;
+             }
+         }
+-
+-        slapi_entry_free(group_e);
+     }
++    slapi_search_get_entry_done(&pb);
+ 
+     slapi_sdn_free(&sdn);
+     return rc;
+diff --git a/ldap/servers/plugins/pam_passthru/pam_ptconfig.c b/ldap/servers/plugins/pam_passthru/pam_ptconfig.c
+index 46a76d884..cbec2ec40 100644
+--- a/ldap/servers/plugins/pam_passthru/pam_ptconfig.c
++++ b/ldap/servers/plugins/pam_passthru/pam_ptconfig.c
+@@ -749,22 +749,22 @@ pam_passthru_get_config(Slapi_DN *bind_sdn)
+             if (pam_passthru_check_suffix(cfg, bind_sdn) == LDAP_SUCCESS) {
+                 if (cfg->slapi_filter) {
+                     /* A filter is configured, so see if the bind entry is a match. */
++                    Slapi_PBlock *entry_pb = NULL;
+                     Slapi_Entry *test_e = NULL;
+ 
+                     /* Fetch the bind entry */
+-                    slapi_search_internal_get_entry(bind_sdn, NULL, &test_e,
+-                                                    pam_passthruauth_get_plugin_identity());
++                    slapi_search_get_entry(&entry_pb, bind_sdn, NULL, &test_e,
++                                           pam_passthruauth_get_plugin_identity());
+ 
+                     /* If the entry doesn't exist, just fall through to the main server code */
+                     if (test_e) {
+                         /* Evaluate the filter. */
+                         if (LDAP_SUCCESS == slapi_filter_test_simple(test_e, cfg->slapi_filter)) {
+                             /* This is a match. */
+-                            slapi_entry_free(test_e);
++                            slapi_search_get_entry_done(&entry_pb);
+                             goto done;
+                         }
+-
+-                        slapi_entry_free(test_e);
++                        slapi_search_get_entry_done(&entry_pb);
+                     }
+                 } else {
+                     /* There is no filter to check, so this is a match. */
+diff --git a/ldap/servers/plugins/pam_passthru/pam_ptimpl.c b/ldap/servers/plugins/pam_passthru/pam_ptimpl.c
+index 7f5fb02c4..5b43f8d1f 100644
+--- a/ldap/servers/plugins/pam_passthru/pam_ptimpl.c
++++ b/ldap/servers/plugins/pam_passthru/pam_ptimpl.c
+@@ -81,11 +81,12 @@ derive_from_bind_dn(Slapi_PBlock *pb __attribute__((unused)), const Slapi_DN *bi
+ static char *
+ derive_from_bind_entry(Slapi_PBlock *pb, const Slapi_DN *bindsdn, MyStrBuf *pam_id, char *map_ident_attr, int *locked)
+ {
++	Slapi_PBlock *entry_pb = NULL;
+     Slapi_Entry *entry = NULL;
+     char *attrs[] = {NULL, NULL};
+     attrs[0] = map_ident_attr;
+-    int rc = slapi_search_internal_get_entry((Slapi_DN *)bindsdn, attrs, &entry,
+-                                             pam_passthruauth_get_plugin_identity());
++    int32_t rc = slapi_search_get_entry(&entry_pb, (Slapi_DN *)bindsdn, attrs, &entry,
++                                        pam_passthruauth_get_plugin_identity());
+ 
+     if (rc != LDAP_SUCCESS) {
+         slapi_log_err(SLAPI_LOG_ERR, PAM_PASSTHRU_PLUGIN_SUBSYSTEM,
+@@ -108,7 +109,7 @@ derive_from_bind_entry(Slapi_PBlock *pb, const Slapi_DN *bindsdn, MyStrBuf *pam_
+         init_my_str_buf(pam_id, val);
+     }
+ 
+-    slapi_entry_free(entry);
++    slapi_search_get_entry_done(&entry_pb);
+ 
+     return pam_id->str;
+ }
+diff --git a/ldap/servers/plugins/pam_passthru/pam_ptpreop.c b/ldap/servers/plugins/pam_passthru/pam_ptpreop.c
+index 3d0067531..5bca823ff 100644
+--- a/ldap/servers/plugins/pam_passthru/pam_ptpreop.c
++++ b/ldap/servers/plugins/pam_passthru/pam_ptpreop.c
+@@ -526,6 +526,7 @@ done:
+ static int
+ pam_passthru_preop(Slapi_PBlock *pb, int modtype)
+ {
++	Slapi_PBlock *entry_pb = NULL;
+     Slapi_DN *sdn = NULL;
+     Slapi_Entry *e = NULL;
+     LDAPMod **mods;
+@@ -555,8 +556,8 @@ pam_passthru_preop(Slapi_PBlock *pb, int modtype)
+         case LDAP_CHANGETYPE_MODIFY:
+             /* Fetch the entry being modified so we can
+              * create the resulting entry for validation. */
+-            slapi_search_internal_get_entry(sdn, 0, &e,
+-                                            pam_passthruauth_get_plugin_identity());
++            slapi_search_get_entry(&entry_pb, sdn, 0, &e,
++                                   pam_passthruauth_get_plugin_identity());
+ 
+             /* If the entry doesn't exist, just bail and
+              * let the server handle it. */
+@@ -576,9 +577,6 @@ pam_passthru_preop(Slapi_PBlock *pb, int modtype)
+                     /* Don't bail here, as we need to free the entry. */
+                 }
+             }
+-
+-            /* Free the entry. */
+-            slapi_entry_free(e);
+             break;
+         case LDAP_CHANGETYPE_DELETE:
+         case LDAP_CHANGETYPE_MODDN:
+@@ -591,6 +589,7 @@ pam_passthru_preop(Slapi_PBlock *pb, int modtype)
+     }
+ 
+ bail:
++    slapi_search_get_entry_done(&entry_pb);
+     /* If we are refusing the operation, return the result to the client. */
+     if (ret) {
+         slapi_send_ldap_result(pb, ret, NULL, returntext, 0, NULL);
+diff --git a/ldap/servers/plugins/replication/repl5_tot_protocol.c b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+index 3b65d6b20..a25839f21 100644
+--- a/ldap/servers/plugins/replication/repl5_tot_protocol.c
++++ b/ldap/servers/plugins/replication/repl5_tot_protocol.c
+@@ -469,7 +469,8 @@ retry:
+          */
+         /* Get suffix */
+         Slapi_Entry *suffix = NULL;
+-        rc = slapi_search_internal_get_entry(area_sdn, NULL, &suffix, repl_get_plugin_identity(PLUGIN_MULTIMASTER_REPLICATION));
++        Slapi_PBlock *suffix_pb = NULL;
++        rc = slapi_search_get_entry(&suffix_pb, area_sdn, NULL, &suffix, repl_get_plugin_identity(PLUGIN_MULTIMASTER_REPLICATION));
+         if (rc) {
+             slapi_log_err(SLAPI_LOG_ERR, repl_plugin_name, "repl5_tot_run -  Unable to "
+                                                            "get the suffix entry \"%s\".\n",
+@@ -517,7 +518,7 @@ retry:
+                                      LDAP_SCOPE_SUBTREE, "(parentid>=1)", NULL, 0, ctrls, NULL,
+                                      repl_get_plugin_identity(PLUGIN_MULTIMASTER_REPLICATION), OP_FLAG_BULK_IMPORT);
+         cb_data.num_entries = 0UL;
+-        slapi_entry_free(suffix);
++        slapi_search_get_entry_done(&suffix_pb);
+     } else {
+         /* Original total update */
+         /* we need to provide managedsait control so that referral entries can
+diff --git a/ldap/servers/plugins/uiduniq/uid.c b/ldap/servers/plugins/uiduniq/uid.c
+index d7ccf0e07..e69012204 100644
+--- a/ldap/servers/plugins/uiduniq/uid.c
++++ b/ldap/servers/plugins/uiduniq/uid.c
+@@ -1254,6 +1254,7 @@ preop_modify(Slapi_PBlock *pb)
+ static int
+ preop_modrdn(Slapi_PBlock *pb)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     int result = LDAP_SUCCESS;
+     Slapi_Entry *e = NULL;
+     Slapi_Value *sv_requiredObjectClass = NULL;
+@@ -1351,7 +1352,7 @@ preop_modrdn(Slapi_PBlock *pb)
+ 
+     /* Get the entry that is being renamed so we can make a dummy copy
+      * of what it will look like after the rename. */
+-    err = slapi_search_internal_get_entry(sdn, NULL, &e, plugin_identity);
++    err = slapi_search_get_entry(&entry_pb, sdn, NULL, &e, plugin_identity);
+     if (err != LDAP_SUCCESS) {
+         result = uid_op_error(35);
+         /* We want to return a no such object error if the target doesn't exist. */
+@@ -1371,24 +1372,24 @@ preop_modrdn(Slapi_PBlock *pb)
+ 
+ 
+     /*
+-         * Check if it has the required object class
+-         */
++     * Check if it has the required object class
++     */
+     if (requiredObjectClass &&
+         !slapi_entry_attr_has_syntax_value(e, SLAPI_ATTR_OBJECTCLASS, sv_requiredObjectClass)) {
+         break;
+     }
+ 
+     /*
+-         * Find any unique attribute data in the new RDN
+-         */
++     * Find any unique attribute data in the new RDN
++     */
+     for (i = 0; attrNames && attrNames[i]; i++) {
+         err = slapi_entry_attr_find(e, attrNames[i], &attr);
+         if (!err) {
+             /*
+-                 * Passed all the requirements - this is an operation we
+-                 * need to enforce uniqueness on. Now find all parent entries
+-                 * with the marker object class, and do a search for each one.
+-                 */
++             * Passed all the requirements - this is an operation we
++             * need to enforce uniqueness on. Now find all parent entries
++             * with the marker object class, and do a search for each one.
++             */
+             if (NULL != markerObjectClass) {
+                 /* Subtree defined by location of marker object class */
+                 result = findSubtreeAndSearch(slapi_entry_get_sdn(e), attrNames, attr, NULL,
+@@ -1407,8 +1408,8 @@ preop_modrdn(Slapi_PBlock *pb)
+     END
+         /* Clean-up */
+         slapi_value_free(&sv_requiredObjectClass);
+-    if (e)
+-        slapi_entry_free(e);
++
++    slapi_search_get_entry_done(&entry_pb);
+ 
+     if (result) {
+         slapi_log_err(SLAPI_LOG_PLUGIN, plugin_name,
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index 65f23363a..a70f40316 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -1916,18 +1916,13 @@ slapd_bind_local_user(Connection *conn)
+             char *root_dn = config_get_ldapi_root_dn();
+ 
+             if (root_dn) {
++                Slapi_PBlock *entry_pb = NULL;
+                 Slapi_DN *edn = slapi_sdn_new_dn_byref(
+                     slapi_dn_normalize(root_dn));
+                 Slapi_Entry *e = 0;
+ 
+                 /* root might be locked too! :) */
+-                ret = slapi_search_internal_get_entry(
+-                    edn, 0,
+-                    &e,
+-                    (void *)plugin_get_default_component_id()
+-
+-                        );
+-
++                ret = slapi_search_get_entry(&entry_pb, edn, 0, &e, (void *)plugin_get_default_component_id());
+                 if (0 == ret && e) {
+                     ret = slapi_check_account_lock(
+                         0, /* pb not req */
+@@ -1955,7 +1950,7 @@ slapd_bind_local_user(Connection *conn)
+             root_map_free:
+                 /* root_dn consumed by bind creds set */
+                 slapi_sdn_free(&edn);
+-                slapi_entry_free(e);
++                slapi_search_get_entry_done(&entry_pb);
+                 ret = 0;
+             }
+         }
+diff --git a/ldap/servers/slapd/modify.c b/ldap/servers/slapd/modify.c
+index bbc0ab71a..259bedfff 100644
+--- a/ldap/servers/slapd/modify.c
++++ b/ldap/servers/slapd/modify.c
+@@ -592,6 +592,7 @@ modify_internal_pb(Slapi_PBlock *pb)
+ static void
+ op_shared_modify(Slapi_PBlock *pb, int pw_change, char *old_pw)
+ {
++    Slapi_PBlock *entry_pb = NULL;
+     Slapi_Backend *be = NULL;
+     Slapi_Entry *pse;
+     Slapi_Entry *referral;
+@@ -723,7 +724,7 @@ op_shared_modify(Slapi_PBlock *pb, int pw_change, char *old_pw)
+      * 2. If yes, then if the mods contain any passwdpolicy specific attributes.
+      * 3. If yes, then it invokes corrosponding checking function.
+      */
+-    if (!repl_op && !internal_op && normdn && (e = get_entry(pb, normdn))) {
++    if (!repl_op && !internal_op && normdn && slapi_search_get_entry(&entry_pb, sdn, NULL, &e, NULL) == LDAP_SUCCESS) {
+         Slapi_Value target;
+         slapi_value_init(&target);
+         slapi_value_set_string(&target, "passwordpolicy");
+@@ -1072,7 +1073,7 @@ free_and_return : {
+     slapi_entry_free(epre);
+     slapi_entry_free(epost);
+ }
+-    slapi_entry_free(e);
++    slapi_search_get_entry_done(&entry_pb);
+ 
+     if (be)
+         slapi_be_Unlock(be);
+@@ -1202,12 +1203,13 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+     if (!internal_op) {
+         /* slapi_acl_check_mods needs an array of LDAPMods, but
+          * we're really only interested in the one password mod. */
++        Slapi_PBlock *entry_pb = NULL;
+         LDAPMod *mods[2];
+         mods[0] = mod;
+         mods[1] = NULL;
+ 
+         /* We need to actually fetch the target here to use for ACI checking. */
+-        slapi_search_internal_get_entry(&sdn, NULL, &e, (void *)plugin_get_default_component_id());
++        slapi_search_get_entry(&entry_pb, &sdn, NULL, &e, NULL);
+ 
+         /* Create a bogus entry with just the target dn if we were unable to
+          * find the actual entry.  This will only be used for checking the ACIs. */
+@@ -1238,9 +1240,12 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+             }
+             send_ldap_result(pb, res, NULL, errtxt, 0, NULL);
+             slapi_ch_free_string(&errtxt);
++            slapi_search_get_entry_done(&entry_pb);
+             rc = -1;
+             goto done;
+         }
++        /* done with slapi entry e */
++        slapi_search_get_entry_done(&entry_pb);
+ 
+         /*
+          * If this mod is being performed by a password administrator/rootDN,
+@@ -1353,7 +1358,6 @@ op_shared_allow_pw_change(Slapi_PBlock *pb, LDAPMod *mod, char **old_pw, Slapi_M
+     valuearray_free(&values);
+ 
+ done:
+-    slapi_entry_free(e);
+     slapi_sdn_done(&sdn);
+     slapi_ch_free_string(&proxydn);
+     slapi_ch_free_string(&proxystr);
+diff --git a/ldap/servers/slapd/plugin_internal_op.c b/ldap/servers/slapd/plugin_internal_op.c
+index 9da266b61..a140e7988 100644
+--- a/ldap/servers/slapd/plugin_internal_op.c
++++ b/ldap/servers/slapd/plugin_internal_op.c
+@@ -882,3 +882,51 @@ slapi_search_internal_get_entry(Slapi_DN *dn, char **attrs, Slapi_Entry **ret_en
+     int_search_pb = NULL;
+     return rc;
+ }
++
++int32_t
++slapi_search_get_entry(Slapi_PBlock **pb, Slapi_DN *dn, char **attrs, Slapi_Entry **ret_entry, void *component_identity)
++{
++    Slapi_Entry **entries = NULL;
++    int32_t rc = 0;
++    void *component = component_identity;
++
++    if (ret_entry) {
++        *ret_entry = NULL;
++    }
++
++    if (component == NULL) {
++        component = (void *)plugin_get_default_component_id();
++    }
++
++    if (*pb == NULL) {
++        *pb = slapi_pblock_new();
++    }
++    slapi_search_internal_set_pb(*pb, slapi_sdn_get_dn(dn), LDAP_SCOPE_BASE,
++        "(|(objectclass=*)(objectclass=ldapsubentry))",
++        attrs, 0, NULL, NULL, component, 0 );
++    slapi_search_internal_pb(*pb);
++    slapi_pblock_get(*pb, SLAPI_PLUGIN_INTOP_RESULT, &rc);
++    if (LDAP_SUCCESS == rc) {
++        slapi_pblock_get(*pb, SLAPI_PLUGIN_INTOP_SEARCH_ENTRIES, &entries);
++        if (NULL != entries && NULL != entries[0]) {
++            /* Only need to dup the entry if the caller passed ret_entry in. */
++            if (ret_entry) {
++                *ret_entry = entries[0];
++            }
++        } else {
++            rc = LDAP_NO_SUCH_OBJECT;
++        }
++    }
++
++    return rc;
++}
++
++void
++slapi_search_get_entry_done(Slapi_PBlock **pb)
++{
++    if (pb && *pb) {
++        slapi_free_search_results_internal(*pb);
++        slapi_pblock_destroy(*pb);
++        *pb = NULL;
++    }
++}
+diff --git a/ldap/servers/slapd/resourcelimit.c b/ldap/servers/slapd/resourcelimit.c
+index 705344c84..9c2619716 100644
+--- a/ldap/servers/slapd/resourcelimit.c
++++ b/ldap/servers/slapd/resourcelimit.c
+@@ -305,22 +305,17 @@ reslimit_get_ext(Slapi_Connection *conn, const char *logname, SLAPIResLimitConnD
+ int
+ reslimit_update_from_dn(Slapi_Connection *conn, Slapi_DN *dn)
+ {
+-    Slapi_Entry *e;
++    Slapi_PBlock *pb = NULL;
++    Slapi_Entry *e = NULL;
+     int rc;
+ 
+-    e = NULL;
+     if (dn != NULL) {
+-
+         char **attrs = reslimit_get_registered_attributes();
+-        (void)slapi_search_internal_get_entry(dn, attrs, &e, reslimit_componentid);
++        slapi_search_get_entry(&pb, dn, attrs, &e, reslimit_componentid);
+         charray_free(attrs);
+     }
+-
+     rc = reslimit_update_from_entry(conn, e);
+-
+-    if (NULL != e) {
+-        slapi_entry_free(e);
+-    }
++    slapi_search_get_entry_done(&pb);
+ 
+     return (rc);
+ }
+diff --git a/ldap/servers/slapd/schema.c b/ldap/servers/slapd/schema.c
+index d44b03b0e..bf7e59f75 100644
+--- a/ldap/servers/slapd/schema.c
++++ b/ldap/servers/slapd/schema.c
+@@ -341,6 +341,7 @@ schema_policy_add_action(Slapi_Entry *entry, char *attrName, schema_item_t **lis
+ static void
+ schema_load_repl_policy(const char *dn, repl_schema_policy_t *replica)
+ {
++    Slapi_PBlock *pb = NULL;
+     Slapi_DN sdn;
+     Slapi_Entry *entry = NULL;
+     schema_item_t *schema_item, *next;
+@@ -369,8 +370,7 @@ schema_load_repl_policy(const char *dn, repl_schema_policy_t *replica)
+ 
+     /* Load the replication policy of the schema  */
+     slapi_sdn_init_dn_byref(&sdn, dn);
+-    if (slapi_search_internal_get_entry(&sdn, NULL, &entry, plugin_get_default_component_id()) == LDAP_SUCCESS) {
+-
++    if (slapi_search_get_entry(&pb, &sdn, NULL, &entry, plugin_get_default_component_id()) == LDAP_SUCCESS) {
+         /* fill the policies (accept/reject) regarding objectclass */
+         schema_policy_add_action(entry, ATTR_SCHEMA_UPDATE_OBJECTCLASS_ACCEPT, &replica->objectclasses);
+         schema_policy_add_action(entry, ATTR_SCHEMA_UPDATE_OBJECTCLASS_REJECT, &replica->objectclasses);
+@@ -378,9 +378,8 @@ schema_load_repl_policy(const char *dn, repl_schema_policy_t *replica)
+         /* fill the policies (accept/reject) regarding attribute */
+         schema_policy_add_action(entry, ATTR_SCHEMA_UPDATE_ATTRIBUTE_ACCEPT, &replica->attributes);
+         schema_policy_add_action(entry, ATTR_SCHEMA_UPDATE_ATTRIBUTE_REJECT, &replica->attributes);
+-
+-        slapi_entry_free(entry);
+     }
++    slapi_search_get_entry_done(&pb);
+     slapi_sdn_done(&sdn);
+ }
+ 
+diff --git a/ldap/servers/slapd/slapi-plugin.h b/ldap/servers/slapd/slapi-plugin.h
+index 0e3857068..be1e52e4d 100644
+--- a/ldap/servers/slapd/slapi-plugin.h
++++ b/ldap/servers/slapd/slapi-plugin.h
+@@ -5972,7 +5972,7 @@ void slapi_seq_internal_set_pb(Slapi_PBlock *pb, char *ibase, int type, char *at
+ 
+ /*
+  * slapi_search_internal_get_entry() finds an entry given a dn.  It returns
+- * an LDAP error code (LDAP_SUCCESS if all goes well).
++ * an LDAP error code (LDAP_SUCCESS if all goes well).  Caller must free ret_entry
+  */
+ int slapi_search_internal_get_entry(Slapi_DN *dn, char **attrlist, Slapi_Entry **ret_entry, void *caller_identity);
+ 
+@@ -8296,6 +8296,27 @@ uint64_t slapi_atomic_decr_64(uint64_t *ptr, int memorder);
+ /* helper function */
+ const char * slapi_fetch_attr(Slapi_Entry *e, const char *attrname, char *default_val);
+ 
++/**
++ * Get a Slapi_Entry via an internal search.  The caller then needs to call
++ * slapi_get_entry_done() to free any resources allocated to get the entry
++ *
++ * \param pb - slapi_pblock pointer (the function will allocate if necessary)
++ * \param dn - Slapi_DN of the entry to retrieve
++ * \param attrs - char list of attributes to get
++ * \param ret_entry - pointer to a Slapi_entry wer the returned entry is stored
++ * \param component_identity - plugin component
++ *
++ * \return - ldap result code
++ */
++int32_t slapi_search_get_entry(Slapi_PBlock **pb, Slapi_DN *dn, char **attrs, Slapi_Entry **ret_entry, void *component_identity);
++
++/**
++ * Free the resources allocated by slapi_search_get_entry()
++ *
++ * \param pb - slapi_pblock pointer
++ */
++void slapi_search_get_entry_done(Slapi_PBlock **pb);
++
+ #ifdef __cplusplus
+ }
+ #endif
+-- 
+2.26.2
+

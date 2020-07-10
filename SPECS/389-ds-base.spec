@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.8
-Release:          %{?relprefix}2%{?prerel}%{?dist}
+Release:          %{?relprefix}4%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -174,6 +174,28 @@ Source2:          %{name}-devel.README
 %if %{bundle_jemalloc}
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
+Patch01:          0001-Issue-51076-prevent-unnecessarily-duplication-of-the.patch
+Patch02:          0002-Ticket-51082-abort-when-a-empty-valueset-is-freed.patch
+Patch03:          0003-Issue-51091-healthcheck-json-report-fails-when-mappi.patch
+Patch04:          0004-Issue-51076-remove-unnecessary-slapi-entry-dups.patch
+Patch05:          0005-Issue-51086-Improve-dscreate-instance-name-validatio.patch
+Patch06:          0006-Issue-51102-RFE-ds-replcheck-make-online-timeout-con.patch
+Patch07:          0007-Issue-51110-Fix-ASAN-ODR-warnings.patch
+Patch08:          0008-Issue-51095-abort-operation-if-CSN-can-not-be-genera.patch
+Patch09:          0009-Issue-51113-Allow-using-uid-for-replication-manager-.patch
+Patch10:          0010-Issue-50931-RFE-AD-filter-rewriter-for-ObjectCategor.patch
+Patch11:          0011-Issue-50746-Add-option-to-healthcheck-to-list-all-th.patch
+Patch12:          0012-Issue-50984-Memory-leaks-in-disk-monitoring.patch
+Patch13:          0013-Issue-50984-Memory-leaks-in-disk-monitoring.patch
+Patch14:          0014-Issue-50201-nsIndexIDListScanLimit-accepts-any-value.patch
+Patch15:          0015-Issue-51157-Reindex-task-may-create-abandoned-index-.patch
+Patch16:          0016-Issue-51165-add-new-access-log-keywords-for-wtime-an.patch
+Patch17:          0017-Issue-50912-pwdReset-can-be-modified-by-a-user.patch
+Patch18:          0018-Issue-50791-Healthcheck-should-look-for-notes-A-F-in.patch
+Patch19:          0019-Issue-51144-dsctl-fails-with-instance-names-that-con.patch
+Patch20:          0020-Ticket-49859-A-distinguished-value-can-be-missing-in.patch
+Patch21:          0021-Issue-49256-log-warning-when-thread-number-is-very-d.patch
+Patch22:          0022-Issue-51188-db2ldif-crashes-when-LDIF-file-can-t-be-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -413,7 +435,7 @@ popd
 
 mkdir -p $RPM_BUILD_ROOT/var/log/%{pkgname}
 mkdir -p $RPM_BUILD_ROOT/var/lib/%{pkgname}
-mkdir -p $RPM_BUILD_ROOT/var/lock/%{pkgname}
+mkdir -p $RPM_BUILD_ROOT/var/3lock/%{pkgname}
 
 # for systemd
 mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/systemd/system/%{groupname}.wants
@@ -791,6 +813,33 @@ exit 0
 %doc README.md
 
 %changelog
+* Fri Jun 26 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-4
+- Bump version to 1.4.3.8-4
+- Resolves: Bug 1806978 - ns-slapd crashes during db2ldif
+- Resolves: Bug 1450863 - Log warning when tuning of nsslapd-threadnumber above or below the optimal value
+- Resolves: Bug 1647017 - A distinguished value of a single valued attribute can be missing in an entry
+- Resolves: Bug 1806573 - Dsctl healthcheck doesn't work when using instance name with 'slapd-'
+- Resolves: Bug 1807773 - dsctl healthcheck : typo in DSREPLLE0002 Lint error suggested resolution commands
+- Resolves: Bug 1843567 - Healthcheck to find notes=F
+- Resolves: Bug 1845094 - User/Directory Manager can modify Password Policy attribute "pwdReset"
+- Resolves: Bug 1850275 - Add new access log keywords for time spent in work queue and actual operation time
+- Resolves: Bug 1442386 - Recreating an index while changing case will create an indexfile with the old name (different case) and after restart the indexfile is abandoned
+- Resolves: Bug 1672574 - nsIndexIDListScanLimit accepts any value
+- Resolves: Bug 1800529 - Memory leaks in disk monitoring
+
+* Fri Jun 5 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-3
+- Bump version to 1.4.3.8-3
+- Resolves: Bug 1835619 - Healthcheck with --json option reports "Object of type 'bytes' is not JSON serializable" when mapping tree is deleted 
+- Resolves: Bug 1836428 - Directory Server ds-replcheck RFE to add a timeout command-line arg/value to wait longer when connecting to a replica server
+- Resolves: Bug 1843090 - abort when a empty valueset is freed
+- Resolves: Bug 1843156 - Prevent unnecessarily duplication of the target entry
+- Resolves: Bug 1843157 - Check for clock errors and time skew
+- Resolves: Bug 1843159 - RFE AD filter rewriter for ObjectCategory
+- Resolves: Bug 1843162 - Creating Replication Manager fails if uid=repman is used
+- Resolves: Bug 1816851 - Add option to healthcheck to list all the lint reports
+- Resolves: Bug 1748227 - Instance name length is not enforced
+- Resolves: Bug 1748244 - dscreate doesn't sanitize instance name
+
 * Mon May 11 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-2
 - Bump version to 1.4.3.8-2
 - Resolves: Bug 1833350 - Remove cockpit dependancies that are breaking builds

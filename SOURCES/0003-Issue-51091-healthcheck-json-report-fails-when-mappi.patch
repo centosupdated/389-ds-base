@@ -1,0 +1,45 @@
+From 7a62e72b81d75ebb844835619ecc97dbf5e21058 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 14 May 2020 09:38:20 -0400
+Subject: [PATCH 03/12] Issue 51091 - healthcheck json report fails when
+ mapping tree is deleted
+
+Description:  We were passing the bename in bytes and not as a utf8 string.
+              This caused the json dumping to fail.
+
+relates: https://pagure.io/389-ds-base/issue/51091
+
+Reviewed by: firstyear(Thanks!)
+---
+ src/lib389/lib389/backend.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/lib389/lib389/backend.py b/src/lib389/lib389/backend.py
+index e472d3de5..4f752f414 100644
+--- a/src/lib389/lib389/backend.py
++++ b/src/lib389/lib389/backend.py
+@@ -11,7 +11,7 @@ import copy
+ import ldap
+ from lib389._constants import *
+ from lib389.properties import *
+-from lib389.utils import normalizeDN, ensure_str, ensure_bytes,  assert_c
++from lib389.utils import normalizeDN, ensure_str, assert_c
+ from lib389 import Entry
+ 
+ # Need to fix this ....
+@@ -488,10 +488,10 @@ class Backend(DSLdapObject):
+ 
+         # Check for the missing mapping tree.
+         suffix = self.get_attr_val_utf8('nsslapd-suffix')
+-        bename = self.get_attr_val_bytes('cn')
++        bename = self.get_attr_val_utf8('cn')
+         try:
+             mt = self._mts.get(suffix)
+-            if mt.get_attr_val_bytes('nsslapd-backend') != bename and mt.get_attr_val('nsslapd-state') != ensure_bytes('backend'):
++            if mt.get_attr_val_utf8('nsslapd-backend') != bename and mt.get_attr_val_utf8('nsslapd-state') != 'backend':
+                 raise ldap.NO_SUCH_OBJECT("We have a matching suffix, but not a backend or correct database name.")
+         except ldap.NO_SUCH_OBJECT:
+             result = DSBLE0001
+-- 
+2.26.2
+

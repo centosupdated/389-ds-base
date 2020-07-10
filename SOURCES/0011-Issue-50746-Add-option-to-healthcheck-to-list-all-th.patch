@@ -1,0 +1,1218 @@
+From 21ed5224d63e3118a39ddd5ea438367532541a8f Mon Sep 17 00:00:00 2001
+From: Matus Honek <mhonek@redhat.com>
+Date: Mon, 2 Dec 2019 14:53:31 +0100
+Subject: [PATCH 11/12] Issue 50746 - Add option to healthcheck to list all the
+ lint reports
+
+Bug Description:
+Healthcheck lacks a way to find out what checks are available.
+
+Fix Description:
+Add dsctl healthcheck options to list available checks, known error
+codes, and ability to run cehcks selectively. The checks are rather
+hierarchically structured and in some cases matchable by patterns (by
+use of asterisk).
+
+Fixes https://pagure.io/389-ds-base/issue/50746
+
+Author: Matus Honek <mhonek@redhat.com>
+
+Review by: Mark, William, Simon (thanks for the patience!)
+
+(cherry picked from commit 4a55322c7bdb0b9ff57428ad0dc2e4d943572a69)
+---
+ src/lib389/cli/dsctl                          |   1 +
+ src/lib389/lib389/_mapped_object.py           |  34 +---
+ src/lib389/lib389/_mapped_object_lint.py      | 157 ++++++++++++++++++
+ src/lib389/lib389/backend.py                  |  13 +-
+ src/lib389/lib389/cli_ctl/health.py           | 116 +++++++++----
+ src/lib389/lib389/config.py                   |  13 +-
+ src/lib389/lib389/dseldif.py                  |  29 +---
+ src/lib389/lib389/encrypted_attributes.py     |   1 -
+ src/lib389/lib389/index.py                    |   3 -
+ src/lib389/lib389/lint.py                     | 125 ++++++++------
+ src/lib389/lib389/monitor.py                  |   5 +-
+ src/lib389/lib389/nss_ssl.py                  |  23 ++-
+ src/lib389/lib389/plugins.py                  |   5 +-
+ src/lib389/lib389/replica.py                  |  10 +-
+ .../lib389/tests/mapped_object_lint_test.py   |  78 +++++++++
+ 15 files changed, 448 insertions(+), 165 deletions(-)
+ create mode 100644 src/lib389/lib389/_mapped_object_lint.py
+ create mode 100644 src/lib389/lib389/tests/mapped_object_lint_test.py
+
+diff --git a/src/lib389/cli/dsctl b/src/lib389/cli/dsctl
+index fd9bd87c1..9deda7039 100755
+--- a/src/lib389/cli/dsctl
++++ b/src/lib389/cli/dsctl
+@@ -64,6 +64,7 @@ cli_dbgen.create_parser(subparsers)
+ 
+ argcomplete.autocomplete(parser)
+ 
++
+ # handle a control-c gracefully
+ def signal_handler(signal, frame):
+     print('\n\nExiting...')
+diff --git a/src/lib389/lib389/_mapped_object.py b/src/lib389/lib389/_mapped_object.py
+index ce0ebfeb8..c60837601 100644
+--- a/src/lib389/lib389/_mapped_object.py
++++ b/src/lib389/lib389/_mapped_object.py
+@@ -15,6 +15,7 @@ import json
+ from functools import partial
+ from lib389._entry import Entry
+ from lib389._constants import DIRSRV_STATE_ONLINE
++from lib389._mapped_object_lint import DSLint, DSLints
+ from lib389.utils import (
+         ensure_bytes, ensure_str, ensure_int, ensure_list_bytes, ensure_list_str,
+         ensure_list_int, display_log_value, display_log_data
+@@ -82,7 +83,7 @@ class DSLogging(object):
+             self._log.setLevel(logging.INFO)
+ 
+ 
+-class DSLdapObject(DSLogging):
++class DSLdapObject(DSLogging, DSLint):
+     """A single instance of DSLdapObjects
+ 
+     :param instance: An instance
+@@ -107,7 +108,6 @@ class DSLdapObject(DSLogging):
+         self._must_attributes = None
+         # attributes, we don't want to compare
+         self._compare_exclude = ['entryid', 'modifytimestamp', 'nsuniqueid']
+-        self._lint_functions = None
+         self._server_controls = None
+         self._client_controls = None
+         self._object_filter = '(objectClass=*)'
+@@ -985,38 +985,10 @@ class DSLdapObject(DSLogging):
+         """
+         return self._create(rdn, properties, basedn, ensure=True)
+ 
+-    def lint(self):
+-        """Override this to create a linter for a type. This means that we can detect
+-        and report common administrative errors in the server from our cli and
+-        rest tools.
+-
+-        The structure of a result is::
+-
+-          {
+-            dsle: '<identifier>'. dsle == ds lint error. Will be a code unique to
+-                                this module for the error, IE DSBLE0001.
+-            severity: '[HIGH:MEDIUM:LOW]'. severity of the error.
+-            items: '(dn,dn,dn)'. List of affected DNs or names.
+-            detail: 'msg ...'. An explination of the error.
+-            fix: 'msg ...'. Steps to resolve the error.
+-          }
+-
+-        :returns: An array of these dicts, on None if there are no errors.
+-        """
+-
+-        if not self._lint_functions:
+-            return None
+-        results = []
+-        for fn in self._lint_functions:
+-            for result in fn():
+-                if result is not None:
+-                    results.append(result)
+-        return results
+-
+ 
+ # A challenge of this, is how do we manage indexes? They have two naming attributes....
+ 
+-class DSLdapObjects(DSLogging):
++class DSLdapObjects(DSLogging, DSLints):
+     """The object represents the next idea: "Everything is an instance of something
+     that exists in this way", i.e. we unite LDAP entries by some
+     set of parameters with the object.
+diff --git a/src/lib389/lib389/_mapped_object_lint.py b/src/lib389/lib389/_mapped_object_lint.py
+new file mode 100644
+index 000000000..2d03de98f
+--- /dev/null
++++ b/src/lib389/lib389/_mapped_object_lint.py
+@@ -0,0 +1,157 @@
++from abc import ABC, abstractmethod
++from functools import partial
++from inspect import signature
++from typing import (
++    Callable,
++    List,
++    Optional,
++    Tuple,
++    Union,
++    Type,
++    Generator,
++    Any
++)
++
++
++DSLintSpec = Tuple[str, Callable]
++DSLintParsedSpec = Tuple[Optional[str], Optional[str]]
++DSLintClassSpec = Generator[DSLintSpec, None, None]
++DSLintMethodSpec = Union[str, None, Type[List]]
++DSLintResults = Generator[Any, None, None]
++
++
++class DSLint():
++    """In a super-class, create a method with name beginning with `_lint_`
++    which would yield results (as described below). Such a method will
++    then be available to the `lint()` method of the class.
++
++    `lint_list`: takes a spec and yields available lints, recursively
++    `lint`:      takes a spac and runs lints according to it, yielding results if any
++
++    `spec`: is a colon-separated string, with prefix matching a method name and suffix
++            being passed down to the method.
++
++    A class inheriting from hereby class shall implement a method named `lint_uid()` which
++    returns a pretty name of the object. This is to be used by a higher level code.
++
++    Each lint method has to have a name prefix with _lint_. It may accept an optional
++    parameter `spec` in which case:
++    - it has to accept typing.List class as a parameter, in which case it shall yield
++      all possible lint specs for that method
++    - it receives the suffix provided to the `spec` of hereby `lint` method (as mentioned above)
++
++    This means that we can detect and report common administrative errors
++    in the server from our cli and rest tools.
++
++    The structure of a result shall be:
++
++        {
++        dsle: '<identifier>'. dsle == ds lint error. Will be a code unique to
++                            this module for the error, IE DSBLE0001.
++        severity: '[HIGH:MEDIUM:LOW]'. severity of the error.
++        items: '(dn,dn,dn)'. List of affected DNs or names.
++        detail: 'msg ...'. An explination of the error.
++        fix: 'msg ...'. Steps to resolve the error.
++        }
++    """
++
++    @classmethod
++    def _dslint_fname(cls, method: Callable) -> Optional[str]:
++        """Return a pretty name for a method."""
++        if callable(method) and method.__name__.startswith('_lint_'):
++            return method.__name__[len('_lint_'):]
++        else:
++            return None
++
++    @staticmethod
++    def _dslint_parse_spec(spec: Optional[str]) -> DSLintParsedSpec:
++        """Split `spec` to prefix and suffix."""
++        wanted, *rest = spec.split(':', 1) if spec else (None, None)
++        return (wanted if wanted not in [None, '*'] else None,
++                rest[0] if rest else None)
++
++    @classmethod
++    def _dslint_make_spec(cls, method: Callable, spec: Optional[str] = None) -> str:
++        """Build a new spec from prefix (`method` name) and suffix (`spec`)."""
++        fname = cls._dslint_fname(method)
++        return f'{fname}:{spec}' if spec else fname
++
++    def lint_list(self, spec: Optional[str] = None) -> DSLintClassSpec:
++        """Yield specs the object provides.
++
++        This yields from each lint method yielding all specs it can provide.
++        """
++
++        assert hasattr(self, 'lint_uid')
++
++        # Find _lint_ methods
++        # NOTE: There is a caveat: don't you dare try to getattr on a @property, or
++        #       you get it executed. That's why the following line's complexity.
++        fs = [getattr(self, f) for f in dir(self)
++              if f.startswith('_lint_') and self._dslint_fname(getattr(self, f))]
++
++        # Filter acording to the `spec`
++        wanted, rest = self._dslint_parse_spec(spec)
++        if wanted:
++            try:
++                fs = [next(filter(lambda f: self._dslint_fname(f) == wanted, fs))]
++            except StopIteration:
++                raise ValueError('there is no such lint function')
++
++        # Yield known specs
++        for f in fs:
++            fspec_t = signature(f).parameters.get('spec', None)
++            if fspec_t:
++                assert fspec_t.annotation == DSLintMethodSpec
++                for fspec in [rest] if rest else f(spec=List):
++                    yield self._dslint_make_spec(f, fspec), partial(f, spec=fspec)
++            else:
++                yield self._dslint_make_spec(f, rest), f
++
++    def lint(self, spec: DSLintMethodSpec = None) -> DSLintResults:
++        """Lint the object according to the `spec`."""
++
++        if spec == List:
++            yield from self.lint_list()
++        else:
++            for fn, f in self.lint_list(spec):
++                yield from f()
++
++
++class DSLints():
++    """This is a meta class to provide lint functionality to classes that provide
++    method `list` which returns list of objects that inherit from DSLint.
++
++    Calling `lint` or `lint_list` method yields from respective object's methods.
++
++    The `spec` is a colon-separated string. Its prefix matches the respective object's
++    `lint_uid` (or all when asterisk); the suffix is passed down to the respective
++    object's method.
++    """
++
++    def lint_list(self, spec: Optional[str] = None) -> DSLintClassSpec:
++        """Yield specs the objects returned by `list` method provide."""
++
++        assert hasattr(self, 'list')
++
++        # Filter acording to the `spec`
++        wanted, rest_spec = DSLint._dslint_parse_spec(spec)
++        if wanted in [None, '*']:
++            clss = self.list()
++        else:
++            clss = (cls for cls in self.list() if cls.lint_uid() == wanted)
++
++        # Yield known specs
++        for cls in clss:
++            for fn, f in cls.lint_list(spec=rest_spec):
++                yield (f'{cls.lint_uid()}:{fn}',
++                       partial(f, rest_spec) if rest_spec else f)
++
++    def lint(self, spec: DSLintMethodSpec = None) -> DSLintResults:
++        """Lint the objects returned by `list` method according to the `spec`."""
++
++        if spec == List:
++            yield from self.lint_list()
++        else:
++            for obj in self.list():
++                yield from obj.lint()
+diff --git a/src/lib389/lib389/backend.py b/src/lib389/lib389/backend.py
+index 4f752f414..8863ad1a8 100644
+--- a/src/lib389/lib389/backend.py
++++ b/src/lib389/lib389/backend.py
+@@ -393,6 +393,10 @@ class BackendLegacy(object):
+         replace = [(ldap.MOD_REPLACE, 'nsslapd-require-index', 'on')]
+         self.modify_s(dn, replace)
+ 
++    @classmethod
++    def lint_uid(cls):
++        return 'backends'
++
+ 
+ class Backend(DSLdapObject):
+     """Backend DSLdapObject with:
+@@ -413,10 +417,12 @@ class Backend(DSLdapObject):
+         self._must_attributes = ['nsslapd-suffix', 'cn']
+         self._create_objectclasses = ['top', 'extensibleObject', BACKEND_OBJECTCLASS_VALUE]
+         self._protected = False
+-        self._lint_functions = [self._lint_mappingtree, self._lint_search, self._lint_virt_attrs]
+         # Check if a mapping tree for this suffix exists.
+         self._mts = MappingTrees(self._instance)
+ 
++    def lint_uid(self):
++        return self.get_attr_val_utf8_l('cn').lower()
++
+     def _lint_virt_attrs(self):
+         """Check if any virtual attribute are incorrectly indexed"""
+         indexes = self.get_indexes()
+@@ -497,7 +503,6 @@ class Backend(DSLdapObject):
+             result = DSBLE0001
+             result['items'] = [bename, ]
+             yield result
+-        return None
+ 
+     def create_sample_entries(self, version):
+         """Creates sample entries under nsslapd-suffix value
+@@ -848,6 +853,10 @@ class Backends(DSLdapObjects):
+         self._childobject = Backend
+         self._basedn = DN_LDBM
+ 
++    @classmethod
++    def lint_uid(cls):
++        return 'backends'
++
+     def import_ldif(self, be_name, ldifs, chunk_size=None, encrypted=False, gen_uniq_id=None, only_core=False,
+                     include_suffixes=None, exclude_suffixes=None):
+         """Do an import of the suffix"""
+diff --git a/src/lib389/lib389/cli_ctl/health.py b/src/lib389/lib389/cli_ctl/health.py
+index 3d15ad85e..6333a753a 100644
+--- a/src/lib389/lib389/cli_ctl/health.py
++++ b/src/lib389/lib389/cli_ctl/health.py
+@@ -7,6 +7,9 @@
+ # --- END COPYRIGHT BLOCK ---
+ 
+ import json
++import re
++from lib389._mapped_object import DSLdapObjects
++from lib389._mapped_object_lint import DSLint
+ from lib389.cli_base import connect_instance, disconnect_instance
+ from lib389.cli_base.dsrc import dsrc_to_ldap, dsrc_arg_concat
+ from lib389.backend import Backends
+@@ -15,17 +18,17 @@ from lib389.monitor import MonitorDiskSpace
+ from lib389.replica import Replica, Changelog5
+ from lib389.nss_ssl import NssSsl
+ from lib389.dseldif import FSChecks, DSEldif
++from lib389 import lint
+ from lib389 import plugins
+ from lib389._constants import DSRC_HOME
++from functools import partial
++from typing import Iterable
+ 
+-# These get all instances, then check them all.
+-CHECK_MANY_OBJECTS = [
+-    Backends,
+-]
+ 
+ # These get single instances and check them.
+ CHECK_OBJECTS = [
+     Config,
++    Backends,
+     Encryption,
+     FSChecks,
+     plugins.ReferentialIntegrityPlugin,
+@@ -52,44 +55,51 @@ def _format_check_output(log, result, idx):
+     log.info(result['fix'])
+ 
+ 
+-def health_check_run(inst, log, args):
+-    """Connect to the local server using LDAPI, and perform various health checks
+-    """
++def _list_targets(inst):
++    for c in CHECK_OBJECTS:
++        o = c(inst)
++        yield o.lint_uid(), o
++
++
++def _list_errors(log):
++    for r in map(partial(getattr, lint),
++                 filter(partial(re.match, r'^DS'),
++                        dir(lint))):
++        log.info(f"{r['dsle']} :: {r['description']}")
+ 
+-    # update the args for connect_instance()
+-    args.basedn = None
+-    args.binddn = None
+-    args.bindpw = None
+-    args.starttls = None
+-    args.pwdfile = None
+-    args.prompt = False
+-    dsrc_inst = dsrc_to_ldap(DSRC_HOME, args.instance, log.getChild('dsrc'))
+-    dsrc_inst = dsrc_arg_concat(args, dsrc_inst)
+-    try:
+-        inst = connect_instance(dsrc_inst=dsrc_inst, verbose=args.verbose, args=args)
+-    except Exception as e:
+-        raise ValueError('Failed to connect to Directory Server instance: ' + str(e))
+ 
++def _list_checks(inst, specs: Iterable[str]):
++    o_uids = dict(_list_targets(inst))
++    for s in specs:
++        wanted, rest = DSLint._dslint_parse_spec(s)
++        if wanted == '*':
++            raise ValueError('Unexpected spec selector asterisk')
++
++        if wanted in o_uids:
++            for l in o_uids[wanted].lint_list(rest):
++                yield o_uids[wanted], l
++        else:
++            raise ValueError('No such object specifier')
++
++
++def _print_checks(inst, specs: Iterable[str]) -> None:
++    for o, s in _list_checks(inst, specs):
++        print(f'{o.lint_uid()}:{s[0]}')
++
++
++def _run(inst, log, args, checks):
+     if not args.json:
+         log.info("Beginning lint report, this could take a while ...")
++
+     report = []
+-    for lo in CHECK_MANY_OBJECTS:
++    for o, s in checks:
+         if not args.json:
+-            log.info("Checking %s ..." % lo.__name__)
+-        lo_inst = lo(inst)
+-        for clo in lo_inst.list():
+-            result = clo.lint()
+-            if result is not None:
+-                report += result
+-    for lo in CHECK_OBJECTS:
+-        if not args.json:
+-            log.info("Checking %s ..." % lo.__name__)
+-        lo_inst = lo(inst)
+-        result = lo_inst.lint()
+-        if result is not None:
+-            report += result
++            log.info(f"Checking {o.lint_uid()}:{s[0]} ...")
++        report += o.lint(s[0]) or []
++
+     if not args.json:
+         log.info("Healthcheck complete.")
++
+     count = len(report)
+     if count == 0:
+         if not args.json:
+@@ -110,6 +120,37 @@ def health_check_run(inst, log, args):
+         else:
+             log.info(json.dumps(report, indent=4))
+ 
++
++def health_check_run(inst, log, args):
++    """Connect to the local server using LDAPI, and perform various health checks
++    """
++
++    if args.list_errors:
++        _list_errors(log)
++        return
++
++    # update the args for connect_instance()
++    args.basedn = None
++    args.binddn = None
++    args.bindpw = None
++    args.starttls = None
++    args.pwdfile = None
++    args.prompt = False
++    dsrc_inst = dsrc_to_ldap(DSRC_HOME, args.instance, log.getChild('dsrc'))
++    dsrc_inst = dsrc_arg_concat(args, dsrc_inst)
++    try:
++        inst = connect_instance(dsrc_inst=dsrc_inst, verbose=args.verbose, args=args)
++    except Exception as e:
++        raise ValueError('Failed to connect to Directory Server instance: ' + str(e))
++
++    checks = args.check or dict(_list_targets(inst)).keys()
++
++    if args.list_checks or args.dry_run:
++        _print_checks(inst, checks)
++        return
++
++    _run(inst, log, args, _list_checks(inst, checks))
++
+     disconnect_instance(inst)
+ 
+ 
+@@ -120,4 +161,9 @@ def create_parser(subparsers):
+         "remote Directory Server as this tool needs access to local resources, "
+         "otherwise the report may be inaccurate.")
+     run_healthcheck_parser.set_defaults(func=health_check_run)
+-
++    run_healthcheck_parser.add_argument('--list-checks', action='store_true', help='List of known checks')
++    run_healthcheck_parser.add_argument('--list-errors', action='store_true', help='List of known error codes')
++    run_healthcheck_parser.add_argument('--dry-run', action='store_true', help='Do not execute the actual check, only list what would be done')
++    run_healthcheck_parser.add_argument('--check', nargs='+', default=None,
++                                        help='Areas to check. These can be obtained by --list-checks. Every element on the left of the colon (:)'
++                                             ' may be replaced by an asterisk if multiple options on the right are available.')
+diff --git a/src/lib389/lib389/config.py b/src/lib389/lib389/config.py
+index a29d0244c..aa4c92beb 100644
+--- a/src/lib389/lib389/config.py
++++ b/src/lib389/lib389/config.py
+@@ -54,7 +54,6 @@ class Config(DSLdapObject):
+         ]
+         self._compare_exclude  = self._compare_exclude + config_compare_exclude
+         self._rdn_attribute = 'cn'
+-        self._lint_functions = [self._lint_hr_timestamp, self._lint_passwordscheme]
+ 
+     @property
+     def dn(self):
+@@ -197,6 +196,10 @@ class Config(DSLdapObject):
+         fields = 'nsslapd-security nsslapd-ssl-check-hostname'.split()
+         return self._instance.getEntry(DN_CONFIG, attrlist=fields)
+ 
++    @classmethod
++    def lint_uid(cls):
++        return 'config'
++
+     def _lint_hr_timestamp(self):
+         hr_timestamp = self.get_attr_val('nsslapd-logging-hr-timestamps-enabled')
+         if ensure_bytes('on') != hr_timestamp:
+@@ -242,20 +245,22 @@ class Encryption(DSLdapObject):
+         self._rdn_attribute = 'cn'
+         self._must_attributes = ['cn']
+         self._protected = True
+-        self._lint_functions = [self._lint_check_tls_version]
+ 
+     def create(self, rdn=None, properties={'cn': 'encryption', 'nsSSLClientAuth': 'allowed'}):
+         if rdn is not None:
+             self._log.debug("dn on cn=encryption is not None. This is a mistake.")
+         super(Encryption, self).create(properties=properties)
+ 
++    @classmethod
++    def lint_uid(cls):
++        return 'encryption'
++
+     def _lint_check_tls_version(self):
+         tls_min = self.get_attr_val('sslVersionMin')
+         if tls_min is not None and tls_min < ensure_bytes('TLS1.1'):
+             report = copy.deepcopy(DSELE0001)
+             report['fix'] = report['fix'].replace('YOUR_INSTANCE', self._instance.serverid)
+             yield report
+-        yield None
+ 
+     @property
+     def ciphers(self):
+@@ -487,7 +492,6 @@ class LDBMConfig(DSLdapObject):
+         self._dn = DN_CONFIG_LDBM
+         # config_compare_exclude = []
+         self._rdn_attribute = 'cn'
+-        self._lint_functions = []
+         self._protected = True
+ 
+ 
+@@ -506,5 +510,4 @@ class BDB_LDBMConfig(DSLdapObject):
+         self._dn = DN_CONFIG_LDBM_BDB
+         self._config_compare_exclude = []
+         self._rdn_attribute = 'cn'
+-        self._lint_functions = []
+         self._protected = True
+diff --git a/src/lib389/lib389/dseldif.py b/src/lib389/lib389/dseldif.py
+index 5378e6ee9..96c9af9d1 100644
+--- a/src/lib389/lib389/dseldif.py
++++ b/src/lib389/lib389/dseldif.py
+@@ -16,6 +16,7 @@ from datetime import timedelta
+ from stat import ST_MODE
+ # from lib389.utils import print_nice_time
+ from lib389.paths import Paths
++from lib389._mapped_object_lint import DSLint
+ from lib389.lint import (
+     DSPERMLE0001,
+     DSPERMLE0002,
+@@ -25,7 +26,7 @@ from lib389.lint import (
+ )
+ 
+ 
+-class DSEldif(object):
++class DSEldif(DSLint):
+     """A class for working with dse.ldif file
+ 
+     :param instance: An instance
+@@ -58,15 +59,10 @@ class DSEldif(object):
+                         processed_line = line
+                 else:
+                     processed_line = processed_line[:-1] + line[1:]
+-        self._lint_functions = [self._lint_nsstate]
+ 
+-    def lint(self):
+-        results = []
+-        for fn in self._lint_functions:
+-            for result in fn():
+-                if result is not None:
+-                    results.append(result)
+-        return results
++    @classmethod
++    def lint_uid(cls):
++        return 'dseldif'
+ 
+     def _lint_nsstate(self):
+         suffixes = self.readNsState()
+@@ -320,7 +316,7 @@ class DSEldif(object):
+         return states
+ 
+ 
+-class FSChecks(object):
++class FSChecks(DSLint):
+     """This is for the healthcheck feature, check commonly used system config files the
+     server uses.  This is here for lack of a better place to add this class.
+     """
+@@ -344,17 +340,10 @@ class FSChecks(object):
+                 'report': DSPERMLE0002
+             },
+         ]
+-        self._lint_functions = [self._lint_file_perms]
+ 
+-    def lint(self):
+-        """Run a lint/healthcheck for this class
+-        """
+-        results = []
+-        for fn in self._lint_functions:
+-            for result in fn():
+-                if result is not None:
+-                    results.append(result)
+-        return results
++    @classmethod
++    def lint_uid(cls):
++        return 'fschecks'
+ 
+     def _lint_file_perms(self):
+         """Test file permissions are safe
+diff --git a/src/lib389/lib389/encrypted_attributes.py b/src/lib389/lib389/encrypted_attributes.py
+index 9afd2e66b..2fa26cef9 100644
+--- a/src/lib389/lib389/encrypted_attributes.py
++++ b/src/lib389/lib389/encrypted_attributes.py
+@@ -27,7 +27,6 @@ class EncryptedAttr(DSLdapObject):
+         self._must_attributes = ['cn', 'nsEncryptionAlgorithm']
+         self._create_objectclasses = ['top', 'nsAttributeEncryption']
+         self._protected = False
+-        self._lint_functions = []
+ 
+ 
+ class EncryptedAttrs(DSLdapObjects):
+diff --git a/src/lib389/lib389/index.py b/src/lib389/lib389/index.py
+index 6932883b7..a3d019d27 100644
+--- a/src/lib389/lib389/index.py
++++ b/src/lib389/lib389/index.py
+@@ -41,7 +41,6 @@ class Index(DSLdapObject):
+         self._must_attributes = ['cn', 'nsSystemIndex', 'nsIndexType']
+         self._create_objectclasses = ['top', 'nsIndex']
+         self._protected = False
+-        self._lint_functions = []
+ 
+ 
+ class Indexes(DSLdapObjects):
+@@ -77,7 +76,6 @@ class VLVSearch(DSLdapObject):
+         self._must_attributes = ['cn', 'vlvbase', 'vlvscope', 'vlvfilter']
+         self._create_objectclasses = ['top', 'vlvSearch']
+         self._protected = False
+-        self._lint_functions = []
+         self._be_name = None
+ 
+     def get_sorts(self):
+@@ -163,7 +161,6 @@ class VLVIndex(DSLdapObject):
+         self._must_attributes = ['cn', 'vlvsort']
+         self._create_objectclasses = ['top', 'vlvIndex']
+         self._protected = False
+-        self._lint_functions = []
+ 
+ 
+ class VLVIndexes(DSLdapObjects):
+diff --git a/src/lib389/lib389/lint.py b/src/lib389/lib389/lint.py
+index b5a305bc3..a103feec7 100644
+--- a/src/lib389/lib389/lint.py
++++ b/src/lib389/lib389/lint.py
+@@ -14,8 +14,9 @@
+ DSBLE0001 = {
+     'dsle': 'DSBLE0001',
+     'severity': 'MEDIUM',
+-    'items' : [],
+-    'detail' : """This backend may be missing the correct mapping tree references. Mapping Trees allow
++    'description': 'Possibly incorrect mapping tree.',
++    'items': [],
++    'detail': """This backend may be missing the correct mapping tree references. Mapping Trees allow
+ the directory server to determine which backend an operation is routed to in the
+ abscence of other information. This is extremely important for correct functioning
+ of LDAP ADD for example.
+@@ -32,7 +33,7 @@ objectClass: extensibleObject
+ objectClass: nsMappingTree
+ 
+ """,
+-    'fix' : """Either you need to create the mapping tree, or you need to repair the related
++    'fix': """Either you need to create the mapping tree, or you need to repair the related
+ mapping tree. You will need to do this by hand by editing cn=config, or stopping
+ the instance and editing dse.ldif.
+ """
+@@ -41,25 +42,28 @@ the instance and editing dse.ldif.
+ DSBLE0002 = {
+     'dsle': 'DSBLE0002',
+     'severity': 'HIGH',
+-    'items' : [],
+-    'detail' : """Unable to query the backend.  LDAP error (ERROR)""",
+-    'fix' : """Check the server's error and access logs for more information."""
++    'description': 'Unable to query backend.',
++    'items': [],
++    'detail': """Unable to query the backend.  LDAP error (ERROR)""",
++    'fix': """Check the server's error and access logs for more information."""
+ }
+ 
+ DSBLE0003 = {
+     'dsle': 'DSBLE0003',
+     'severity': 'LOW',
+-    'items' : [],
+-    'detail' : """The backend database has not been initialized yet""",
+-    'fix' : """You need to import an LDIF file, or create the suffix entry, in order to initialize the database."""
++    'description': 'Uninitialized backend database.',
++    'items': [],
++    'detail': """The backend database has not been initialized yet""",
++    'fix': """You need to import an LDIF file, or create the suffix entry, in order to initialize the database."""
+ }
+ 
+ # Config checks
+ DSCLE0001 = {
+-    'dsle' : 'DSCLE0001',
+-    'severity' : 'LOW',
++    'dsle': 'DSCLE0001',
++    'severity': 'LOW',
++    'description': 'Different log timestamp format.',
+     'items': ['cn=config', ],
+-    'detail' : """nsslapd-logging-hr-timestamps-enabled changes the log format in directory server from
++    'detail': """nsslapd-logging-hr-timestamps-enabled changes the log format in directory server from
+ 
+ [07/Jun/2017:17:15:58 +1000]
+ 
+@@ -70,7 +74,7 @@ to
+ This actually provides a performance improvement. Additionally, this setting will be
+ removed in a future release.
+ """,
+-    'fix' : """Set nsslapd-logging-hr-timestamps-enabled to on.
++    'fix': """Set nsslapd-logging-hr-timestamps-enabled to on.
+ You can use 'dsconf' to set this attribute.  Here is an example:
+ 
+     # dsconf slapd-YOUR_INSTANCE config replace nsslapd-logging-hr-timestamps-enabled=on"""
+@@ -79,8 +83,9 @@ You can use 'dsconf' to set this attribute.  Here is an example:
+ DSCLE0002 = {
+     'dsle': 'DSCLE0002',
+     'severity': 'HIGH',
+-    'items' : ['cn=config', ],
+-    'detail' : """Password storage schemes in Directory Server define how passwords are hashed via a
++    'description': 'Weak passwordStorageScheme.',
++    'items': ['cn=config', ],
++    'detail': """Password storage schemes in Directory Server define how passwords are hashed via a
+ one-way mathematical function for storage. Knowing the hash it is difficult to gain
+ the input, but knowing the input you can easily compare the hash.
+ 
+@@ -112,14 +117,15 @@ You can also use 'dsconf' to replace these values.  Here is an example:
+ DSELE0001 = {
+     'dsle': 'DSELE0001',
+     'severity': 'MEDIUM',
+-    'items' : ['cn=encryption,cn=config', ],
++    'description': 'Weak TLS protocol version.',
++    'items': ['cn=encryption,cn=config', ],
+     'detail': """This Directory Server may not be using strong TLS protocol versions. TLS1.0 is known to
+ have a number of issues with the protocol. Please see:
+ 
+ https://tools.ietf.org/html/rfc7457
+ 
+ It is advised you set this value to the maximum possible.""",
+-    'fix' : """There are two options for setting the TLS minimum version allowed.  You,
++    'fix': """There are two options for setting the TLS minimum version allowed.  You,
+ can set "sslVersionMin" in "cn=encryption,cn=config" to a version greater than "TLS1.0"
+ You can also use 'dsconf' to set this value.  Here is an example:
+ 
+@@ -137,7 +143,8 @@ minimum version, but doing this affects the entire system:
+ DSRILE0001 = {
+     'dsle': 'DSRILE0001',
+     'severity': 'LOW',
+-    'items' : ['cn=referential integrity postoperation,cn=plugins,cn=config', ],
++    'description': 'Referential integrity plugin may be slower.',
++    'items': ['cn=referential integrity postoperation,cn=plugins,cn=config', ],
+     'detail': """The referential integrity plugin has an asynchronous processing mode.
+ This is controlled by the update-delay flag.  When this value is 0, referential
+ integrity plugin processes these changes inside of the operation that modified
+@@ -151,7 +158,7 @@ delays to your server by batching changes rather than smaller updates during syn
+ 
+ We advise that you set this value to 0, and enable referint on all masters as it provides a more predictable behaviour.
+ """,
+-    'fix' : """Set referint-update-delay to 0.
++    'fix': """Set referint-update-delay to 0.
+ 
+ You can use 'dsconf' to set this value.  Here is an example:
+ 
+@@ -164,12 +171,13 @@ You must restart the Directory Server for this change to take effect."""
+ DSRILE0002 = {
+     'dsle': 'DSRILE0002',
+     'severity': 'HIGH',
+-    'items' : ['cn=referential integrity postoperation,cn=plugins,cn=config'],
++    'description': 'Referential integrity plugin configured with unindexed attribute.',
++    'items': ['cn=referential integrity postoperation,cn=plugins,cn=config'],
+     'detail': """The referential integrity plugin is configured to use an attribute (ATTR)
+ that does not have an "equality" index in backend (BACKEND).
+ Failure to have the proper indexing will lead to unindexed searches which
+ cause high CPU and can significantly slow the server down.""",
+-    'fix' : """Check the attributes set in "referint-membership-attr" to make sure they have
++    'fix': """Check the attributes set in "referint-membership-attr" to make sure they have
+ an index defined that has at least the equality "eq" index type.  You will
+ need to reindex the database after adding the missing index type. Here is an
+ example using dsconf:
+@@ -182,12 +190,13 @@ example using dsconf:
+ DSDSLE0001 = {
+     'dsle': 'DSDSLE0001',
+     'severity': 'HIGH',
+-    'items' : ['Server', 'cn=config'],
++    'description': 'Low disk space.',
++    'items': ['Server', 'cn=config'],
+     'detail': """The disk partition used by the server (PARTITION), either for the database, the
+ configuration files, or the logs is over 90% full.  If the partition becomes
+ completely filled serious problems can occur with the database or the server's
+ stability.""",
+-    'fix' : """Attempt to free up disk space.  Also try removing old rotated logs, or disable any
++    'fix': """Attempt to free up disk space.  Also try removing old rotated logs, or disable any
+ verbose logging levels that might have been set.  You might consider enabling
+ the "Disk Monitoring" feature in cn=config to help prevent a disorderly shutdown
+ of the server:
+@@ -210,9 +219,10 @@ Please see the Administration guide for more information:
+ DSREPLLE0001 = {
+     'dsle': 'DSREPLLE0001',
+     'severity': 'HIGH',
+-    'items' : ['Replication', 'Agreement'],
++    'description': 'Replication agreement not set to be synchronized.',
++    'items': ['Replication', 'Agreement'],
+     'detail': """The replication agreement (AGMT) under "SUFFIX" is not in synchronization.""",
+-    'fix' : """You may need to reinitialize this replication agreement.  Please check the errors
++    'fix': """You may need to reinitialize this replication agreement.  Please check the errors
+ log for more information.  If you do need to reinitialize the agreement you can do so
+ using dsconf.  Here is an example:
+ 
+@@ -223,9 +233,10 @@ using dsconf.  Here is an example:
+ DSREPLLE0002 = {
+     'dsle': 'DSREPLLE0002',
+     'severity': 'LOW',
+-    'items' : ['Replication', 'Conflict Entries'],
++    'description': 'Replication conflict entries found.',
++    'items': ['Replication', 'Conflict Entries'],
+     'detail': "There were COUNT conflict entries found under the replication suffix \"SUFFIX\".",
+-    'fix' : """While conflict entries are expected to occur in an MMR environment, they
++    'fix': """While conflict entries are expected to occur in an MMR environment, they
+ should be resolved.  In regards to conflict entries there is always the original/counterpart
+ entry that has a normal DN, and then the conflict version of that entry.  Technically both
+ entries are valid, you as the administrator, needs to decide which entry you want to keep.
+@@ -253,38 +264,42 @@ can use the CLI tool "dsconf" to resolve the conflict.  Here is an example:
+ DSREPLLE0003 = {
+     'dsle': 'DSREPLLE0003',
+     'severity': 'MEDIUM',
+-    'items' : ['Replication', 'Agreement'],
++    'description': 'Unsynchronized replication agreement.',
++    'items': ['Replication', 'Agreement'],
+     'detail': """The replication agreement (AGMT) under "SUFFIX" is not in synchronization.
+ Status message: MSG""",
+-    'fix' : """Replication is not in synchronization but it may recover.  Continue to
++    'fix': """Replication is not in synchronization but it may recover.  Continue to
+ monitor this agreement."""
+ }
+ 
+ DSREPLLE0004 = {
+     'dsle': 'DSREPLLE0004',
+     'severity': 'MEDIUM',
+-    'items' : ['Replication', 'Agreement'],
++    'description': 'Unable to get replication agreement status.',
++    'items': ['Replication', 'Agreement'],
+     'detail': """Failed to get the agreement status for agreement (AGMT) under "SUFFIX".  Error (ERROR).""",
+-    'fix' : """None"""
++    'fix': """None"""
+ }
+ 
+ DSREPLLE0005 = {
+     'dsle': 'DSREPLLE0005',
+     'severity': 'MEDIUM',
+-    'items' : ['Replication', 'Agreement'],
++    'description': 'Replication consumer not reachable.',
++    'items': ['Replication', 'Agreement'],
+     'detail': """The replication agreement (AGMT) under "SUFFIX" is not in synchronization,
+ because the consumer server is not reachable.""",
+-    'fix' : """Check if the consumer is running, and also check the errors log for more information."""
++    'fix': """Check if the consumer is running, and also check the errors log for more information."""
+ }
+ 
+ # Replication changelog
+ DSCLLE0001 = {
+     'dsle': 'DSCLLE0001',
+     'severity': 'LOW',
+-    'items' : ['Replication', 'Changelog'],
++    'description': 'Changelog trimming not configured.',
++    'items': ['Replication', 'Changelog'],
+     'detail': """The replication changelog does have any kind of trimming configured.  This will
+ lead to the changelog size growing indefinitely.""",
+-    'fix' : """Configure changelog trimming, preferably by setting the maximum age of a changelog
++    'fix': """Configure changelog trimming, preferably by setting the maximum age of a changelog
+ record.  Here is an example:
+ 
+     # dsconf slapd-YOUR_INSTANCE replication set-changelog --max-age 30d"""
+@@ -294,27 +309,30 @@ record.  Here is an example:
+ DSCERTLE0001 = {
+     'dsle': 'DSCERTLE0001',
+     'severity': 'MEDIUM',
+-    'items' : ['Expiring Certificate'],
++    'description': 'Certificate about to expire.',
++    'items': ['Expiring Certificate'],
+     'detail': """The certificate (CERT) will expire in less than 30 days""",
+-    'fix' : """Renew the certificate before it expires to prevent disruptions with TLS connections."""
++    'fix': """Renew the certificate before it expires to prevent disruptions with TLS connections."""
+ }
+ 
+ DSCERTLE0002 = {
+     'dsle': 'DSCERTLE0002',
+     'severity': 'HIGH',
+-    'items' : ['Expired Certificate'],
++    'description': 'Certificate expired.',
++    'items': ['Expired Certificate'],
+     'detail': """The certificate (CERT) has expired""",
+-    'fix' : """Renew or remove the certificate."""
++    'fix': """Renew or remove the certificate."""
+ }
+ 
+ # Virtual Attrs & COS.  Note - ATTR and SUFFIX are replaced by the reporting function
+ DSVIRTLE0001 = {
+     'dsle': 'DSVIRTLE0001',
+     'severity': 'HIGH',
+-    'items' : ['Virtual Attributes'],
++    'description': 'Virtual attribute indexed.',
++    'items': ['Virtual Attributes'],
+     'detail': """You should not index virtual attributes, and as this will break searches that
+ use the attribute in a filter.""",
+-    'fix' : """Remove the index for this attribute from the backend configuration.
++    'fix': """Remove the index for this attribute from the backend configuration.
+ Here is an example using 'dsconf' to remove an index:
+ 
+     # dsconf slapd-YOUR_INSTANCE backend index delete --attr ATTR SUFFIX"""
+@@ -324,10 +342,11 @@ Here is an example using 'dsconf' to remove an index:
+ DSPERMLE0001 = {
+     'dsle': 'DSPERMLE0001',
+     'severity': 'MEDIUM',
+-    'items' : ['File Permissions'],
++    'description': 'Incorrect file permissions.',
++    'items': ['File Permissions'],
+     'detail': """The file "FILE" does not have the expected permissions (PERMS).  This
+ can cause issues with replication and chaining.""",
+-    'fix' : """Change the file permissions:
++    'fix': """Change the file permissions:
+ 
+     # chmod PERMS FILE"""
+ }
+@@ -336,10 +355,11 @@ can cause issues with replication and chaining.""",
+ DSPERMLE0002 = {
+     'dsle': 'DSPERMLE0002',
+     'severity': 'HIGH',
+-    'items' : ['File Permissions'],
++    'description': 'Incorrect security database file permissions.',
++    'items': ['File Permissions'],
+     'detail': """The file "FILE" does not have the expected permissions (PERMS).  The
+ security database pin/password files should only be readable by Directory Server user.""",
+-    'fix' : """Change the file permissions:
++    'fix': """Change the file permissions:
+ 
+     # chmod PERMS FILE"""
+ }
+@@ -348,11 +368,12 @@ security database pin/password files should only be readable by Directory Server
+ DSSKEWLE0001 = {
+     'dsle': 'DSSKEWLE0001',
+     'severity': 'Low',
+-    'items' : ['Replication'],
++    'description': 'Medium time skew.',
++    'items': ['Replication'],
+     'detail': """The time skew is over 6 hours.  If this time skew continues to increase
+ to 24 hours then replication can potentially stop working.  Please continue to
+ monitor the time skew offsets for increasing values.""",
+-    'fix' : """Monitor the time skew and avoid making changes to the system time.
++    'fix': """Monitor the time skew and avoid making changes to the system time.
+ Also look at https://access.redhat.com/documentation/en-us/red_hat_directory_server/11/html/administration_guide/managing_replication-troubleshooting_replication_related_problems
+ and find the paragraph "Too much time skew"."""
+ }
+@@ -360,13 +381,14 @@ and find the paragraph "Too much time skew"."""
+ DSSKEWLE0002 = {
+     'dsle': 'DSSKEWLE0002',
+     'severity': 'Medium',
+-    'items' : ['Replication'],
++    'description': 'Major time skew.',
++    'items': ['Replication'],
+     'detail': """The time skew is over 12 hours.  If this time skew continues to increase
+ to 24 hours then replication can potentially stop working.  Please continue to
+ monitor the time skew offsets for increasing values.  Setting nsslapd-ignore-time-skew
+ to "on" on each replica will allow replication to continue, but if the time skew
+ continues to increase other more serious replication problems can occur.""",
+-    'fix' : """Monitor the time skew and avoid making changes to the system time.
++    'fix': """Monitor the time skew and avoid making changes to the system time.
+ If you get close to 24 hours of time skew replication may stop working.
+ In that case configure the server to ignore the time skew until the system
+ times can be fixed/synchronized:
+@@ -380,12 +402,13 @@ and find the paragraph "Too much time skew"."""
+ DSSKEWLE0003 = {
+     'dsle': 'DSSKEWLE0003',
+     'severity': 'High',
+-    'items' : ['Replication'],
++    'description': 'Extensive time skew.',
++    'items': ['Replication'],
+     'detail': """The time skew is over 24 hours.  Setting nsslapd-ignore-time-skew
+ to "on" on each replica will allow replication to continue, but if the
+ time skew continues to increase other serious replication problems can
+ occur.""",
+-    'fix' : """Avoid making changes to the system time, and make sure the clocks
++    'fix': """Avoid making changes to the system time, and make sure the clocks
+ on all the replicas are correct.  If you haven't set the server's
+ "ignore time skew" setting then do the following on all the replicas
+ until the time issues have been resolved:
+diff --git a/src/lib389/lib389/monitor.py b/src/lib389/lib389/monitor.py
+index 73750c3c2..4ac7d7174 100644
+--- a/src/lib389/lib389/monitor.py
++++ b/src/lib389/lib389/monitor.py
+@@ -358,7 +358,10 @@ class MonitorDiskSpace(DSLdapObject):
+     def __init__(self, instance, dn=None):
+         super(MonitorDiskSpace, self).__init__(instance=instance, dn=dn)
+         self._dn = "cn=disk space,cn=monitor"
+-        self._lint_functions = [self._lint_disk_space]
++
++    @classmethod
++    def lint_uid(cls):
++        return 'monitor-disk-space'
+ 
+     def _lint_disk_space(self):
+         partitions = self.get_attr_vals_utf8_l("dsDisk")
+diff --git a/src/lib389/lib389/nss_ssl.py b/src/lib389/lib389/nss_ssl.py
+index d14e7ce6f..e257424fd 100644
+--- a/src/lib389/lib389/nss_ssl.py
++++ b/src/lib389/lib389/nss_ssl.py
+@@ -21,6 +21,7 @@ import subprocess
+ from datetime import datetime, timedelta
+ from subprocess import check_output, run, PIPE
+ from lib389.passwd import password_generate
++from lib389._mapped_object_lint import DSLint
+ from lib389.lint import DSCERTLE0001, DSCERTLE0002
+ from lib389.utils import ensure_str, format_cmd_list
+ import uuid
+@@ -42,7 +43,7 @@ VALID_MIN = 61  # Days
+ log = logging.getLogger(__name__)
+ 
+ 
+-class NssSsl(object):
++class NssSsl(DSLint):
+     def __init__(self, dirsrv=None, dbpassword=None, dbpath=None):
+         self.dirsrv = dirsrv
+         self._certdb = dbpath
+@@ -56,18 +57,14 @@ class NssSsl(object):
+         else:
+             self.dbpassword = dbpassword
+ 
+-        self.db_files = {"dbm_backend": ["%s/%s" % (self._certdb, f) for f in ("key3.db", "cert8.db", "secmod.db")],
+-                         "sql_backend": ["%s/%s" % (self._certdb, f) for f in ("key4.db", "cert9.db", "pkcs11.txt")],
+-                         "support": ["%s/%s" % (self._certdb, f) for f in ("noise.txt", PIN_TXT, PWD_TXT)]}
+-        self._lint_functions = [self._lint_certificate_expiration,]
+-
+-    def lint(self):
+-        results = []
+-        for fn in self._lint_functions:
+-            for result in fn():
+-                if result is not None:
+-                    results.append(result)
+-        return results
++        self.db_files = {group: [f"{self._certdb}/{f}" for f in files]
++                         for group, files in {"dbm_backend": ("key3.db", "cert8.db", "secmod.db"),
++                                              "sql_backend": ("key4.db", "cert9.db", "pkcs11.txt"),
++                                              "support": ("noise.txt", PIN_TXT, PWD_TXT)}.items()}
++
++    @classmethod
++    def lint_uid(cls):
++        return 'ssl'
+ 
+     def _lint_certificate_expiration(self):
+         """Check all the certificates in the db if they will expire within 30 days
+diff --git a/src/lib389/lib389/plugins.py b/src/lib389/lib389/plugins.py
+index f68a1d114..89e660287 100644
+--- a/src/lib389/lib389/plugins.py
++++ b/src/lib389/lib389/plugins.py
+@@ -431,7 +431,6 @@ class ReferentialIntegrityPlugin(Plugin):
+             'referint-logfile',
+             'referint-membership-attr',
+         ])
+-        self._lint_functions = [self._lint_update_delay, self._lint_attr_indexes]
+ 
+     def create(self, rdn=None, properties=None, basedn=None):
+         """Create an instance of the plugin"""
+@@ -443,6 +442,10 @@ class ReferentialIntegrityPlugin(Plugin):
+             properties['referint-logfile'] = referint_log
+         return super(ReferentialIntegrityPlugin, self).create(rdn, properties, basedn)
+ 
++    @classmethod
++    def lint_uid(cls):
++        return 'refint'
++
+     def _lint_update_delay(self):
+         if self.status():
+             delay = self.get_attr_val_int("referint-update-delay")
+diff --git a/src/lib389/lib389/replica.py b/src/lib389/lib389/replica.py
+index f8adb3ce2..f575e58d5 100644
+--- a/src/lib389/lib389/replica.py
++++ b/src/lib389/lib389/replica.py
+@@ -1049,7 +1049,10 @@ class Changelog5(DSLdapObject):
+                 'extensibleobject',
+             ]
+         self._protected = False
+-        self._lint_functions = [self._lint_cl_trimming]
++
++    @classmethod
++    def lint_uid(cls):
++        return 'changelog'
+ 
+     def _lint_cl_trimming(self):
+         """Check that cl trimming is at least defined to prevent unbounded growth"""
+@@ -1120,7 +1123,10 @@ class Replica(DSLdapObject):
+             self._create_objectclasses.append('extensibleobject')
+         self._protected = False
+         self._suffix = None
+-        self._lint_functions = [self._lint_agmts_status, self._lint_conflicts]
++
++    @classmethod
++    def lint_uid(cls):
++        return 'replication'
+ 
+     def _lint_agmts_status(self):
+         replicas = Replicas(self._instance).list()
+diff --git a/src/lib389/lib389/tests/mapped_object_lint_test.py b/src/lib389/lib389/tests/mapped_object_lint_test.py
+new file mode 100644
+index 000000000..a4ca0ea3c
+--- /dev/null
++++ b/src/lib389/lib389/tests/mapped_object_lint_test.py
+@@ -0,0 +1,78 @@
++from typing import List
++
++import pytest
++
++from lib389._mapped_object_lint import (
++    DSLint,
++    DSLints,
++    DSLintMethodSpec
++)
++
++
++def test_dslint():
++    class DS(DSLint):
++        def lint_uid(self) -> str:
++            return self.param
++
++        def __init__(self, param):
++            self.param = param
++            self.suffixes = ['suffixA', 'suffixB']
++
++        def _lint_nsstate(self, spec: DSLintMethodSpec = None):
++            if spec == List:
++                yield from self.suffixes
++            else:
++                to_lint = [spec] if spec else self._lint_nsstate(spec=List)
++                for tl in to_lint:
++                    if tl == 'suffixA':
++                        pass
++                    elif tl == 'suffixB':
++                        yield 'suffixB is bad'
++                    else:
++                        raise ValueError('There is no such suffix')
++
++        def _lint_second(self):
++            yield from ()
++
++        def _lint_third(self):
++            yield from ['this is a fail']
++
++    class DSs(DSLints):
++        def list(self):
++            for i in [DS("ma"), DS("mb")]:
++                yield i
++
++    # single
++    inst = DS("a")
++    inst_lints = {'nsstate:suffixA', 'nsstate:suffixB', 'second', 'third'}
++
++    assert inst.param == "a"
++
++    assert set(dict(inst.lint_list()).keys()) == inst_lints
++
++    assert set(dict(inst.lint_list('nsstate')).keys()) \
++        == {f'nsstate:suffix{s}' for s in "AB"}
++
++    assert list(inst._lint_nsstate(spec=List)) == ['suffixA', 'suffixB']
++    assert list(inst.lint()) == ['suffixB is bad', 'this is a fail']
++
++    assert list(inst.lint('nsstate')) == ['suffixB is bad']
++    assert list(inst.lint('nsstate:suffixA')) == []
++    assert list(inst.lint('nsstate:suffixB')) == ['suffixB is bad']
++    with pytest.raises(ValueError):
++        list(inst.lint('nonexistent'))
++
++    # multiple
++    insts = DSs()
++
++    assert insts.lint_list
++    assert insts.lint
++
++    assert set(dict(insts.lint_list()).keys()) \
++        == {f'{m}:{s}' for m in ['ma', 'mb'] for s in inst_lints}
++    assert set(dict(insts.lint_list('*')).keys()) \
++        == {f'{m}:{s}' for m in ['ma', 'mb'] for s in inst_lints}
++    assert set(dict(insts.lint_list('*:nsstate')).keys()) \
++        == {f'{m}:nsstate:suffix{s}' for m in ['ma', 'mb'] for s in "AB"}
++    assert set(dict(insts.lint_list('mb:nsstate')).keys()) \
++        == {f'mb:nsstate:suffix{s}' for s in "AB"}
+-- 
+2.26.2
+
