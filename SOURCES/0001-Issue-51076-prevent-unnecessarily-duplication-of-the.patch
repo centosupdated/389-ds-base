@@ -1,0 +1,43 @@
+From 97ecf0190f264a2d87750bc2d26ebf011542e3e1 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 8 May 2020 10:52:43 -0400
+Subject: [PATCH 01/12] Issue 51076 - prevent unnecessarily duplication of the
+ target entry
+
+Bug Description:  For any update operation the MEP plugin was calling
+                  slapi_search_internal_get_entry() which duplicates
+                  the entry it returns.  In this case the entry is just
+                  read from and discarded, but this entry is already
+                  in the pblock (the PRE OP ENTRY).
+
+Fix Description:  Just grab the PRE OP ENTRY from the pblock and use
+                  that to read the attribute values from.  This saves
+                  two entry duplications for every update operation
+                  from MEP.
+
+fixes:  https://pagure.io/389-ds-base/issue/51076
+
+Reviewed by: tbordaz & firstyear(Thanks!!)
+---
+ ldap/servers/plugins/mep/mep.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/ldap/servers/plugins/mep/mep.c b/ldap/servers/plugins/mep/mep.c
+index ca9a64b3b..401d95e3a 100644
+--- a/ldap/servers/plugins/mep/mep.c
++++ b/ldap/servers/plugins/mep/mep.c
+@@ -2165,9 +2165,8 @@ mep_pre_op(Slapi_PBlock *pb, int modop)
+                 if (e && free_entry) {
+                     slapi_entry_free(e);
+                 }
+-
+-                slapi_search_internal_get_entry(sdn, 0, &e, mep_get_plugin_id());
+-                free_entry = 1;
++                slapi_pblock_get(pb, SLAPI_ENTRY_PRE_OP, &e);
++                free_entry = 0;
+             }
+ 
+             if (e && mep_is_managed_entry(e)) {
+-- 
+2.26.2
+

@@ -1,0 +1,51 @@
+From 2844d4ad90cbbd23ae75309e50ae4d7145586bb7 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 10 Jun 2020 14:07:24 -0400
+Subject: [PATCH] Issue 51144 - dsctl fails with instance names that contain
+ slapd-
+
+Bug Description:  If an instance name contains 'slapd-' the CLI breaks:
+
+                      slapd-test-slapd
+
+Fix Description:  Only strip off "slapd-" from the front of the instance
+                  name.
+
+relates: https://pagure.io/389-ds-base/issue/51144
+
+Reviewed by: firstyear(Thanks!)
+---
+ src/lib389/lib389/__init__.py | 2 +-
+ src/lib389/lib389/dseldif.py  | 3 ++-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/lib389/lib389/__init__.py b/src/lib389/lib389/__init__.py
+index 0ff1ab173..63d44b60a 100644
+--- a/src/lib389/lib389/__init__.py
++++ b/src/lib389/lib389/__init__.py
+@@ -710,7 +710,7 @@ class DirSrv(SimpleLDAPObject, object):
+         # Don't need a default value now since it's set in init.
+         if serverid is None and hasattr(self, 'serverid'):
+             serverid = self.serverid
+-        elif serverid is not None:
++        elif serverid is not None and serverid.startswith('slapd-'):
+             serverid = serverid.replace('slapd-', '', 1)
+ 
+         if self.serverid is None:
+diff --git a/src/lib389/lib389/dseldif.py b/src/lib389/lib389/dseldif.py
+index 96c9af9d1..f2725add9 100644
+--- a/src/lib389/lib389/dseldif.py
++++ b/src/lib389/lib389/dseldif.py
+@@ -40,7 +40,8 @@ class DSEldif(DSLint):
+         if serverid:
+             # Get the dse.ldif from the instance name
+             prefix = os.environ.get('PREFIX', ""),
+-            serverid = serverid.replace("slapd-", "")
++            if serverid.startswith("slapd-"):
++                serverid = serverid.replace("slapd-", "", 1)
+             self.path = "{}/etc/dirsrv/slapd-{}/dse.ldif".format(prefix[0], serverid)
+         else:
+             ds_paths = Paths(self._instance.serverid, self._instance)
+-- 
+2.26.2
+

@@ -1,0 +1,34 @@
+From d24381488a997dda0006b603fb2b452b726757c0 Mon Sep 17 00:00:00 2001
+From: Simon Pichugin <simon.pichugin@gmail.com>
+Date: Thu, 25 Jun 2020 10:45:16 +0200
+Subject: [PATCH] Issue 51188 - db2ldif crashes when LDIF file can't be
+ accessed
+
+Bug Description: db2ldif crashes when we set '-a LDIF_PATH' to a place that
+can't be accessed by the user (dirsrv by default)
+
+Fix Description: Don't attempt to close DB if we bail after a failed
+attempt to open LDIF file.
+
+https://pagure.io/389-ds-base/issue/51188
+
+Reviewed by: mreynolds (Thanks!)
+---
+ ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c
+index 542147c3d..9ffd877cb 100644
+--- a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c
++++ b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c
+@@ -871,6 +871,7 @@ bdb_db2ldif(Slapi_PBlock *pb)
+             slapi_log_err(SLAPI_LOG_ERR, "bdb_db2ldif",
+                     "db2ldif: %s: can't open %s: %d (%s) while running as user \"%s\"\n",
+                     inst->inst_name, fname, errno, dblayer_strerror(errno), slapdFrontendConfig->localuserinfo->pw_name);
++            we_start_the_backends = 0;
+             return_value = -1;
+             goto bye;
+         }
+-- 
+2.26.2
+

@@ -1,0 +1,54 @@
+From 2540354b7eb6fa03db7d36a5b755001b0852aa1b Mon Sep 17 00:00:00 2001
+From: Simon Pichugin <spichugi@redhat.com>
+Date: Thu, 26 Mar 2020 19:33:47 +0100
+Subject: [PATCH] Issue 50984 - Memory leaks in disk monitoring
+
+Description: Memory leaks are reported by the disk monitoring test suite.
+The direct leak is related to char **dirs array which is not freed at all.
+Free the array when we clean up or go to shutdown.
+Fix disk_monitoring_test.py::test_below_half_of_the_threshold_not_starting_after_shutdown.
+It should accept different exception when the instance is not started.
+
+https://pagure.io/389-ds-base/issue/50984
+
+Reviewed by: firstyear (Thanks!)
+---
+ ldap/servers/slapd/daemon.c | 2 --
+ ldap/servers/slapd/main.c   | 1 -
+ 2 files changed, 3 deletions(-)
+
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index a70f40316..542d31037 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -613,7 +613,6 @@ disk_monitoring_thread(void *nothing __attribute__((unused)))
+                         }
+                     }
+                     slapi_ch_array_free(dirs);
+-                    dirs = NULL;
+                     return;
+                 }
+                 /*
+@@ -713,7 +712,6 @@ disk_monitoring_thread(void *nothing __attribute__((unused)))
+             }
+         }
+         slapi_ch_array_free(dirs);
+-        dirs = NULL; /* now it is not needed but the code may be changed in the future and it'd better be more robust */
+         g_set_shutdown(SLAPI_SHUTDOWN_DISKFULL);
+         return;
+ }
+diff --git a/ldap/servers/slapd/main.c b/ldap/servers/slapd/main.c
+index e54b8e1c5..1f8b01959 100644
+--- a/ldap/servers/slapd/main.c
++++ b/ldap/servers/slapd/main.c
+@@ -958,7 +958,6 @@ main(int argc, char **argv)
+             goto cleanup;
+         }
+         slapi_ch_array_free(dirs);
+-        dirs = NULL;
+     }
+     /* log the max fd limit as it is typically set in env/systemd */
+     slapi_log_err(SLAPI_LOG_INFO, "main",
+-- 
+2.26.2
+
