@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.8
-Release:          %{?relprefix}4%{?prerel}%{?dist}
+Release:          %{?relprefix}5%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -196,6 +196,9 @@ Patch19:          0019-Issue-51144-dsctl-fails-with-instance-names-that-con.patc
 Patch20:          0020-Ticket-49859-A-distinguished-value-can-be-missing-in.patch
 Patch21:          0021-Issue-49256-log-warning-when-thread-number-is-very-d.patch
 Patch22:          0022-Issue-51188-db2ldif-crashes-when-LDIF-file-can-t-be-.patch
+Patch23:          0023-Issue-51086-Fix-instance-name-length-for-interactive.patch
+Patch24:          0024-Issue-51129-SSL-alert-The-value-of-sslVersionMax-TLS.patch
+Patch25:          0025-Issue-50984-Memory-leaks-in-disk-monitoring.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -813,6 +816,13 @@ exit 0
 %doc README.md
 
 %changelog
+* Wed Aug 5 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-5
+- Bump version to 1.4.3.8-5
+- Resolves: Bug 1841086 - SSL alert: The value of sslVersionMax "TLS1.3" is higher than the supported version
+- Resolves: Bug 1800529 - Memory leaks in disk monitoring
+- Resolves: Bug 1748227 - Instance name length is not enforced
+- Resolves: Bug 1849418 - python3-lib389 pulls unnecessary bash-completion package
+
 * Fri Jun 26 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-4
 - Bump version to 1.4.3.8-4
 - Resolves: Bug 1806978 - ns-slapd crashes during db2ldif
