@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.2.4
-Release:          %{?relprefix}8%{?prerel}%{?dist}
+Release:          %{?relprefix}10%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -118,8 +118,6 @@ BuildRequires:    python%{python3_pkgversion}-libselinux
 
 # For cockpit
 BuildRequires:    rsync
-BuildRequires:    npm
-BuildRequires:    nodejs
 
 Requires:         %{name}-libs = %{version}-%{release}
 Requires:         python%{python3_pkgversion}-lib389 = %{version}-%{release}
@@ -211,6 +209,8 @@ Patch31:          0031-Issue-50886-Typo-in-the-replication-debug-message.patch
 Patch32:          0032-Issue-50882-Fix-healthcheck-errors-for-instances-tha.patch
 Patch33:          0033-Ticket-50490-objects-and-memory-leaks.patch
 Patch34:          0034-Issue-50780-Fix-UI-issues.patch
+Patch35:          0035-Issue-51129-SSL-alert-The-value-of-sslVersionMax-TLS.patch
+Patch36:          0036-Issue-49731-undo-db_home_dir-under-dev-shm-dirsrv-fo.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -309,7 +309,7 @@ Group:            Development/Libraries
 Requires: openssl
 Requires: iproute
 Requires: platform-python
-Requires: bash-completion
+Recommends: bash-completion
 Requires: python%{python3_pkgversion}-ldap
 Requires: python%{python3_pkgversion}-six
 Requires: python%{python3_pkgversion}-pyasn1
@@ -808,6 +808,16 @@ exit 0
 %doc README.md
 
 %changelog
+* Mon Aug 24 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-10
+- Bump version to 1.4.2.4-10
+- Resolves: Bug 1862170 - fix default.ini file
+
+* Fri Aug 21 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-9
+- Bump version to 1.4.2.4-9
+- Resolves: Bug 1867097 - Memory leak in ACI using IP subject
+- Resolves: Bug 1862170 - python3-lib389 pulls unnecessary bash-completion package
+- Resolves: Bug 1867988 - SSL alert: The value of sslVersionMax "TLS1.3" is higher than the supported version
+
 * Fri Mar 6 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-8
 - Bump version to 1.4.2.4-8
 - Resolves: Bug 1807971 - dsctl healthcheck fails at checking replica when conflict entries are present

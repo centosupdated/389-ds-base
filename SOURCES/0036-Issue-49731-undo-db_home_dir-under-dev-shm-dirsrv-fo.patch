@@ -1,0 +1,76 @@
+From 9ab266c88350c3387a8521897cd599f80b0ec6be Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 21 Apr 2020 14:48:11 -0400
+Subject: [PATCH] Issue 49731 - undo db_home_dir under /dev/shm/dirsrv for now
+
+Bug Description:  There are several issues with using /dec/shm/disrv/
+                  for the db home directory.  Cantainers have issues,
+                  and system reboots can cause issues too.
+
+Fix Description:  Using just /dev/shm/slapd-INST solves all the permission
+                  issues, but that requires a new selinux label, so
+                  for now we will just set the db home directory to the
+                  database directory (effectively disabling the change).
+
+relates: https://pagure.io/389-ds-base/issue/49731
+
+Reviewed by: firstyear & tbordaz(Thanks!)
+---
+ ldap/admin/src/defaults.inf.in      |  1 +
+ ldap/servers/slapd/util.c           | 11 +++++++++++
+ src/lib389/lib389/instance/setup.py |  5 +++--
+ 3 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/admin/src/defaults.inf.in b/ldap/admin/src/defaults.inf.in
+index f74929581..d60f24cda 100644
+--- a/ldap/admin/src/defaults.inf.in
++++ b/ldap/admin/src/defaults.inf.in
+@@ -57,6 +57,7 @@ access_log = @localstatedir@/log/dirsrv/slapd-{instance_name}/access
+ audit_log = @localstatedir@/log/dirsrv/slapd-{instance_name}/audit
+ error_log = @localstatedir@/log/dirsrv/slapd-{instance_name}/errors
+ db_dir = @localstatedir@/lib/dirsrv/slapd-{instance_name}/db
++db_home_dir = @localstatedir@/lib/dirsrv/slapd-{instance_name}/db
+ backup_dir = @localstatedir@/lib/dirsrv/slapd-{instance_name}/bak
+ ldif_dir = @localstatedir@/lib/dirsrv/slapd-{instance_name}/ldif
+ 
+diff --git a/ldap/servers/slapd/util.c b/ldap/servers/slapd/util.c
+index e1219c555..78ee68da9 100644
+--- a/ldap/servers/slapd/util.c
++++ b/ldap/servers/slapd/util.c
+@@ -467,6 +467,17 @@ slapi_escape_filter_value(char *filter_str, int len)
+     }
+ }
+ 
++/* replace c with c2 in str */
++void
++replace_char(char *str, char c, char c2)
++{
++    for (size_t i = 0; (str != NULL) && (str[i] != '\0'); i++) {
++        if (c == str[i]) {
++            str[i] = c2;
++        }
++    }
++}
++
+ /*
+ ** This function takes a quoted attribute value of the form "abc",
+ ** and strips off the enclosing quotes.  It also deals with quoted
+diff --git a/src/lib389/lib389/instance/setup.py b/src/lib389/lib389/instance/setup.py
+index bb0ff32f5..887eae57c 100644
+--- a/src/lib389/lib389/instance/setup.py
++++ b/src/lib389/lib389/instance/setup.py
+@@ -853,8 +853,9 @@ class SetupDs(object):
+ 
+         # Do selinux fixups
+         if general['selinux']:
+-            selinux_paths = ('backup_dir', 'cert_dir', 'config_dir', 'db_dir', 'ldif_dir',
+-                             'lock_dir', 'log_dir', 'run_dir', 'schema_dir', 'tmp_dir')
++            selinux_paths = ('backup_dir', 'cert_dir', 'config_dir', 'db_dir',
++                             'ldif_dir', 'lock_dir', 'log_dir',
++                             'run_dir', 'schema_dir', 'tmp_dir')
+             for path in selinux_paths:
+                 selinux_restorecon(slapd[path])
+ 
+-- 
+2.26.2
+
