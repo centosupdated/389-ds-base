@@ -1,7 +1,7 @@
-From 3b589a2bfc33f407cf2c23dc6896566bb8e2acdf Mon Sep 17 00:00:00 2001
+From 28e3a979dbe3aa1d08ae32056b772a6a59fae581 Mon Sep 17 00:00:00 2001
 From: Thierry Bordaz <tbordaz@redhat.com>
 Date: Tue, 5 May 2020 17:44:01 +0200
-Subject: [PATCH] Ticket 51068 - deadlock when updating the schema
+Subject: [PATCH 1/2] Ticket 51068 - deadlock when updating the schema
 
 Bug Description:
         It exists a 3 threads deadlock scenario. It involves state change plugins when it
@@ -220,5 +220,5 @@ index 852a887ce..eef444270 100644
          slapd_nasty(sourcefile, 3, 0);
          return ENOMEM;
 -- 
-2.26.2
+2.25.4
 

@@ -38,8 +38,8 @@
 
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
-Version:          1.3.10.1
-Release:          %{?relprefix}14%{?prerel}%{?dist}
+Version:          1.3.10.2
+Release:          %{?relprefix}6%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -145,35 +145,14 @@ Requires:         gperftools-libs
 Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}%{?prerel}.tar.bz2
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
-Patch00:          0000-CVE-2019-14824-BZ-1748199-deref-plugin-displays-rest.patch
-Patch01:          0001-Issue-50525-nsslapd-defaultnamingcontext-does-not-ch.patch
-Patch02:          0002-Issue-50530-Directory-Server-not-RFC-4511-compliant-.patch
-Patch03:          0003-Issue-50529-LDAP-server-returning-PWP-controls-in-di.patch
-Patch04:          0004-Issue-50538-cleanAllRUV-task-limit-is-not-enforced-f.patch
-Patch05:          0005-Issue-49624-modrdn-silently-fails-if-DB-deadlock-occ.patch
-Patch06:          0006-Issue-50572-After-running-cl-dump-dbdir-cldb-ldif.do.patch
-Patch07:          0007-Issue-50538-Fix-cherry-pick-error.patch
-Patch08:          0008-Issue-50646-Improve-task-handling-during-shutdowns.patch
-Patch09:          0009-Issue-50653-objectclass-parsing-fails-to-log-error-m.patch
-Patch10:          0010-Issue-50655-access-log-etime-is-not-properly-formatt.patch
-Patch11:          0011-Issue-49850-ldbm_get_nonleaf_ids-slow-for-databases-.patch
-Patch12:          0012-Issue-50536-Audit-log-heading-written-to-log-after-e.patch
-Patch13:          0013-Issue-50636-Crash-during-sasl-bind.patch
-Patch14:          0014-Ticket-49850-cont-fix-crash-in-ldbm_non_leaf.patch
-Patch15:          0015-Ticket-49624-cont-DB-Deadlock-on-modrdn-appears-to-c.patch
-Patch16:          0016-Ticket-50542-Entry-cache-contention-during-base-sear.patch
-Patch17:          0017-Issue-50834-Incorrectly-setting-the-NSS-default-SSL-.patch
-Patch18:          0018-Ticket-50736-RetroCL-trimming-may-crash-at-shutdown-.patch
-Patch19:          0019-Ticket-50709-Several-memory-leaks-reported-by-Valgri.patch
-Patch20:          0020-Ticket-50857-Memory-leak-in-ACI-using-IP-subject.patch
-Patch21:          0021-Ticket-50709-cont-Several-memory-leaks-reported-by-V.patch
-Patch22:          0022-fix-for-50542-crashes-in-filter-tests.patch
-Patch23:          0023-Ticket-49623-cont-cenotaph-errors-on-modrdn-operatio.patch
-Patch24:          0024-Ticket-50905-intermittent-SSL-hang-with-rhds.patch
-# Patch25:          0025-Issue-50940-Permissions-of-some-shipped-directories-.patch
-Patch26:          0026-Ticket-51068-deadlock-when-updating-the-schema.patch
-Patch27:          0027-Issue-50745-ns-slapd-hangs-during-CleanAllRUV-tests.patch
-
+Patch00:          0000-Issue-50800-wildcards-in-rootdn-allow-ip-attribute-a.patch
+Patch01:          0001-Issue-49437-Fix-memory-leak-with-indirect-COS.patch
+Patch02:          0002-Ticket-50905-intermittent-SSL-hang-with-rhds.patch
+Patch03:          0003-Issue-51029-Add-db_home_dir-defaults.inf.patch
+Patch04:          0004-Ticket-51068-deadlock-when-updating-the-schema.patch
+Patch05:          0005-Issue-50745-ns-slapd-hangs-during-CleanAllRUV-tests.patch
+Patch06:          0006-Issue-51095-abort-operation-if-CSN-can-not-be-genera.patch
+Patch07:          0007-Issue-51132-Winsync-setting-winSyncWindowsFilter-not.patch 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
 the LDAP server and command line utilities for server administration.
@@ -287,7 +266,8 @@ cp -r %{_builddir}/%{name}-%{version}%{?prerel}/man/man3 $RPM_BUILD_ROOT/%{_mand
 
 mkdir -p $RPM_BUILD_ROOT/var/log/%{pkgname}
 mkdir -p $RPM_BUILD_ROOT/var/lib/%{pkgname}
-mkdir -p $RPM_BUILD_ROOT/var/lock/%{pkgname}
+mkdir -p $RPM_BUILD_ROOT/var/lock/%{pkgname} \
+    && chmod 770 $RPM_BUILD_ROOT/var/lock/%{pkgname}
 
 # for systemd
 mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/systemd/system/%{groupname}.wants
@@ -525,34 +505,45 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
-* Mon Jun 15 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-14
-- Bump version to 1.3.10.1-14
-- Resolves: Bug 1814603 - revert patch as it conflicts with 389-admin package
+* Thu Jun 4 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10-2-6
+- Bump version to 1.3.10.2-6
+- Resolves: Bug 1839085 - IPA: Winsync not honoring parameters winSyncDirectoryFilter and winSyncWindowsFilter
 
-* Thu Jun 4 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-13
-- Bump version to 1.3.10.1-13
-- Resolves: Bug 1842469 - ns-slapd hangs during CleanAllRUV tests
- 
-* Fri May 29 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-12
-- Bump version to 1.3.10.1-12
-- Resolves: Bug 1814603 - 389-base-ds expected file permissions
+* Tue Jun 2 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-5
+- Bump version to 1.3.10.2-5
+- Resolves: Bug 1700987 - 389-base-ds expected file permissions in package don't match final runtime permissions
 
-* Fri May 29 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-11
-- Bump version to 1.3.10.1-11
-- Resolves: Bug 1839173 - ipa ns-slapd 3 threads deadlock, db pages, state_change lock, write vattr lock
+* Fri May 29 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-4
+- Bump version to 1.3.10.2-4
+- Resolves: Bug 1837105 - Check for clock errors and time skew
 
-* Tue May 19 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-10
-- Bump version to 1.3.10.1-10
-- Resolves: Bug 1814603 - 389-base-ds expected file permissions in package don't match final runtime permissions
-- Resolves: Bug 1836171 - intermittent SSL hang with rhds
+* Tue May 19 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-3
+- Bump version to 1.3.10.2-3
+- Resolves: Bug 1824930 - ipa ns-slapd 3 threads deadlock, db pages, state_change lock, write vattr lock
+- Resolves: Bug 1837477 - ns-slapd hangs during CleanAllRUV tests
 
-* Mon Apr 6 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-9
-- Bump version to 1.3.10.1-9
-- Resolves: Bug 1817933 - cenotaph errors on modrdn operations
+* Thu Apr 23 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-2
+- Bump version to  1.3.10.2-2
+- Resolves: Bug 1820433 - Invalid defaults.inf, missing key db_home_dir
+- Resolves: Bug 1801327 - intermittent SSL hang with rhds
+- Resolves: Bug 1807537 - wildcards in rootdn-allow-ip attribute are not accepted
+- Resolves: Bug 1827284 - Memory leak in indirect COS
 
-* Fri Mar 6 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-8
-- Bump version to 1.3.10.1-8
-- Resolves: Bug 1809160 - Entry cache contention during base search (Fix crash - part 2)
+* Mon Mar 16 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-1
+- Bump version to  1.3.10.2-1
+- Resolves: Bug 1724761 - Entry cache contention during base search
+- Resolves: Bug 1515319 - nsDS5ReplicaId cant be set to the old value it had before
+- Resolves: Bug 1700987 - 389-base-ds expected file permissions in package don't match final runtime permissions
+- Resolves: Bug 1762901 - cenotaph errors on modrdn operations
+- Resolves: Bug 1772616 - Typo in the replication debug message "error 0 for oparation 561" 
+- Resolves: Bug 1781276 - Regression: NSS has interop problems as server when using limited cipher list
+- Resolves: Bug 1787921 - Crash on startup: Bus error in __env_faultmem.isra.1.part.2
+- Resolves: Bug 1759142 - No error returned when adding an entry matching filters for a non existing automember group
+- Resolves: Bug 1763365 - ns-slapd is crashing while restarting ipactl
+- Resolves: Bug 1769418 - Several memory leaks reported by Valgrind for 389-ds 1.3.9.1-10
+- Resolves: Bug 1775165 - ldclt core dumped when run with -e genldif option
+- Resolves: Bug 1796558 - Memory leak in ACI using IP subject
+- Resolves: Bug 1769296 - cl-dump exit code is 0 even if command fails with invalid arguments
 
 * Mon Mar 2 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.1-7
 - Bump version to 1.3.10.1-7

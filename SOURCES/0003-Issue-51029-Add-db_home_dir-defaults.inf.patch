@@ -1,0 +1,32 @@
+From 895f220fb3f214c7c618cde577984da3f38482b0 Mon Sep 17 00:00:00 2001
+From: Simon Pichugin <simon.pichugin@gmail.com>
+Date: Fri, 17 Apr 2020 16:07:31 +0200
+Subject: [PATCH 4/4] Issue 51029 - Add db_home_dir defaults.inf
+
+Description: Latest lib389 from master requires a new key
+'db_home_dir' in defaults.inf that is missing in the older
+builds of 389-ds-base.
+Add the key to defaults.inf so we can run the tests.
+
+https://pagure.io/389-ds-base/issue/51029
+
+Reviewed by: mreynolds (Thanks!)
+---
+ ldap/admin/src/defaults.inf.in | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ldap/admin/src/defaults.inf.in b/ldap/admin/src/defaults.inf.in
+index 91486c8e3..2908c480e 100644
+--- a/ldap/admin/src/defaults.inf.in
++++ b/ldap/admin/src/defaults.inf.in
+@@ -54,6 +54,7 @@ access_log = @localstatedir@/log/dirsrv/slapd-{instance_name}/access
+ audit_log = @localstatedir@/log/dirsrv/slapd-{instance_name}/audit
+ error_log = @localstatedir@/log/dirsrv/slapd-{instance_name}/errors
+ db_dir = @localstatedir@/lib/dirsrv/slapd-{instance_name}/db
++db_home_dir = @localstatedir@/lib/dirsrv/slapd-{instance_name}
+ backup_dir = @localstatedir@/lib/dirsrv/slapd-{instance_name}/bak
+ ldif_dir = @localstatedir@/lib/dirsrv/slapd-{instance_name}/ldif
+ 
+-- 
+2.25.3
+

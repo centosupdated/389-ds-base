@@ -1,0 +1,107 @@
+From 3a8d5bc4dce01fb800c93434181060afe9287546 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 25 Mar 2020 16:55:34 -0400
+Subject: [PATCH 2/4] Issue 49437 - Fix memory leak with indirect COS
+
+Bug Description:  There are two leaks when dealing with indirect COS. The
+                  first leak is caused by the COS cache entry's objectclass
+                  list not being freed when the entry is removed from the
+                  hash table.
+
+                  The other leak is caused when we follow an indirect pointer
+                  COS and do not free a tmp value set that goes unused.
+
+Fix description:  Free the COS entry objectclass list when removing an entry
+                  from the hash table.  When querying a COS attribute and the
+                  returned attribute (out_attr) is NULL, then free the unused
+                  tmp_val ValueSet as it's not consumed by anything.
+
+Fixes: https://pagure.io/389-ds-base/issue/49437
+
+Reviewed by: firstyear & tbordaz(Thanks!)
+---
+ ldap/servers/plugins/cos/cos_cache.c |  3 +++
+ ldap/servers/slapd/vattr.c           | 39 +++++++++++++++-------------
+ 2 files changed, 24 insertions(+), 18 deletions(-)
+
+diff --git a/ldap/servers/plugins/cos/cos_cache.c b/ldap/servers/plugins/cos/cos_cache.c
+index 64c0441c4..eb9bd77f9 100644
+--- a/ldap/servers/plugins/cos/cos_cache.c
++++ b/ldap/servers/plugins/cos/cos_cache.c
+@@ -2372,6 +2372,9 @@ cos_cache_query_attr(cos_cache *ptheCache, vattr_context *context, Slapi_Entry *
+                                             *out_attr = tmp_vals;
+                                             tmp_vals = NULL;
+                                         }
++                                    } else if (out_attr == NULL && tmp_vals) {
++                                        slapi_valueset_free(tmp_vals);
++                                        tmp_vals = NULL;
+                                     }
+                                 }
+ 
+diff --git a/ldap/servers/slapd/vattr.c b/ldap/servers/slapd/vattr.c
+index 852a887ce..d8b2c835a 100644
+--- a/ldap/servers/slapd/vattr.c
++++ b/ldap/servers/slapd/vattr.c
+@@ -2004,6 +2004,24 @@ vattr_map_create(void)
+     return 0;
+ }
+ 
++/*
++    vattr_delete_attrvals
++    ---------------------
++    deletes a value list
++*/
++void
++vattr_delete_attrvals(objAttrValue **attrval)
++{
++    objAttrValue *val = *attrval;
++
++    while (val) {
++        objAttrValue *next = val->pNext;
++        slapi_value_free(&val->val);
++        slapi_ch_free((void **)&val);
++        val = next;
++    }
++}
++
+ void
+ vattr_map_entry_free(vattr_map_entry *vae)
+ {
+@@ -2016,6 +2034,9 @@ vattr_map_entry_free(vattr_map_entry *vae)
+         }
+         list_entry = next_entry;
+     }
++    if (vae->objectclasses) {
++        vattr_delete_attrvals(&(vae->objectclasses));
++    }
+     slapi_ch_free_string(&(vae->type_name));
+     slapi_ch_free((void **)&vae);
+ }
+@@ -2102,24 +2123,6 @@ vattr_map_insert(vattr_map_entry *vae)
+     return 0;
+ }
+ 
+-/*
+-    vattr_delete_attrvals
+-    ---------------------
+-    deletes a value list
+-*/
+-void
+-vattr_delete_attrvals(objAttrValue **attrval)
+-{
+-    objAttrValue *val = *attrval;
+-
+-    while (val) {
+-        objAttrValue *next = val->pNext;
+-        slapi_value_free(&val->val);
+-        slapi_ch_free((void **)&val);
+-        val = next;
+-    }
+-}
+-
+ /*
+     vattr_add_attrval
+     -----------------
+-- 
+2.25.3
+

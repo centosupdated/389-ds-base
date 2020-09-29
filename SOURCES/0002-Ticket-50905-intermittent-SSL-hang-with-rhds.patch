@@ -1,7 +1,7 @@
-From 14e3bea927c33a97ca8aed937b6edd9ce4557d24 Mon Sep 17 00:00:00 2001
+From fe199780bd87f7a78c6d26078d0a4d0a0dbe09e9 Mon Sep 17 00:00:00 2001
 From: Thierry Bordaz <tbordaz@redhat.com>
 Date: Fri, 3 Apr 2020 15:23:10 +0200
-Subject: [PATCH] Ticket 50905 - intermittent SSL hang with rhds
+Subject: [PATCH 3/4] Ticket 50905 - intermittent SSL hang with rhds
 
 Bug Description:
 	On a successfull sasl bind, a new IO layer (sasl_io_enable) is registered on top of
@@ -56,5 +56,5 @@ index 0907c623f..ef29acf71 100644
          slapi_pblock_set(pb, SLAPI_BIND_RET_SASLCREDS, NULL);
  
 -- 
-2.25.4
+2.25.3
 

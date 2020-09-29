@@ -1,0 +1,463 @@
+From d9f1be15663f673588e2746e5a97f8ee2c92769f Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 22 May 2020 10:42:11 -0400
+Subject: [PATCH] Issue 51095 - abort operation if CSN can not be generated
+
+Bug Description:  If we fail to get the system time then we were using an
+                  uninitialized timespec struct which could lead to bizarre
+                  times in CSN's.
+
+Fix description:  Check if the system time function fails, and if it does
+                  then abort the update operation.
+
+relates: https://pagure.io/389-ds-base/issue/51095
+
+Reviewed by: firstyear & tbordaz(Thanks!!)
+---
+ ldap/servers/plugins/replication/repl5.h      |  2 +-
+ .../plugins/replication/repl5_replica.c       | 29 ++++++++-----
+ ldap/servers/slapd/back-ldbm/ldbm_add.c       |  8 +++-
+ ldap/servers/slapd/back-ldbm/ldbm_delete.c    |  9 +++-
+ ldap/servers/slapd/back-ldbm/ldbm_modify.c    | 10 ++++-
+ ldap/servers/slapd/back-ldbm/ldbm_modrdn.c    |  8 +++-
+ ldap/servers/slapd/csngen.c                   | 18 +++++++-
+ ldap/servers/slapd/entrywsi.c                 | 15 ++++---
+ ldap/servers/slapd/slap.h                     |  2 +-
+ ldap/servers/slapd/slapi-plugin.h             |  8 ++++
+ ldap/servers/slapd/slapi-private.h            |  5 ++-
+ ldap/servers/slapd/time.c                     | 43 +++++++++++++------
+ 12 files changed, 116 insertions(+), 41 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5.h b/ldap/servers/plugins/replication/repl5.h
+index b06c6fbf4..bdc59422a 100644
+--- a/ldap/servers/plugins/replication/repl5.h
++++ b/ldap/servers/plugins/replication/repl5.h
+@@ -775,7 +775,7 @@ void replica_disable_replication(Replica *r, Object *r_obj);
+ int replica_start_agreement(Replica *r, Repl_Agmt *ra);
+ int windows_replica_start_agreement(Replica *r, Repl_Agmt *ra);
+ 
+-CSN *replica_generate_next_csn(Slapi_PBlock *pb, const CSN *basecsn);
++int32_t replica_generate_next_csn(Slapi_PBlock *pb, const CSN *basecsn, CSN **opcsn);
+ int replica_get_attr(Slapi_PBlock *pb, const char *type, void *value);
+ 
+ /* mapping tree extensions manipulation */
+diff --git a/ldap/servers/plugins/replication/repl5_replica.c b/ldap/servers/plugins/replication/repl5_replica.c
+index cdbcde39a..c1b3ed73c 100644
+--- a/ldap/servers/plugins/replication/repl5_replica.c
++++ b/ldap/servers/plugins/replication/repl5_replica.c
+@@ -3976,10 +3976,9 @@ windows_replica_start_agreement(Replica *r, Repl_Agmt *ra)
+  * A callback function registered as op->o_csngen_handler and
+  * called by backend ops to generate opcsn.
+  */
+-CSN *
+-replica_generate_next_csn(Slapi_PBlock *pb, const CSN *basecsn)
++int32_t
++replica_generate_next_csn(Slapi_PBlock *pb, const CSN *basecsn, CSN **opcsn)
+ {
+-    CSN *opcsn = NULL;
+     Object *replica_obj;
+ 
+     replica_obj = replica_get_replica_for_op(pb);
+@@ -3994,17 +3993,25 @@ replica_generate_next_csn(Slapi_PBlock *pb, const CSN *basecsn)
+                     CSNGen *gen = (CSNGen *)object_get_data(gen_obj);
+                     if (NULL != gen) {
+                         /* The new CSN should be greater than the base CSN */
+-                        csngen_new_csn(gen, &opcsn, PR_FALSE /* don't notify */);
+-                        if (csn_compare(opcsn, basecsn) <= 0) {
++                        if (csngen_new_csn(gen, opcsn, PR_FALSE /* don't notify */) != CSN_SUCCESS) {
++                            /* Failed to generate CSN we must abort */
++                            object_release(gen_obj);
++                            return -1;
++                        }
++                        if (csn_compare(*opcsn, basecsn) <= 0) {
+                             char opcsnstr[CSN_STRSIZE], basecsnstr[CSN_STRSIZE];
+                             char opcsn2str[CSN_STRSIZE];
+ 
+-                            csn_as_string(opcsn, PR_FALSE, opcsnstr);
++                            csn_as_string(*opcsn, PR_FALSE, opcsnstr);
+                             csn_as_string(basecsn, PR_FALSE, basecsnstr);
+-                            csn_free(&opcsn);
++                            csn_free(opcsn);
+                             csngen_adjust_time(gen, basecsn);
+-                            csngen_new_csn(gen, &opcsn, PR_FALSE /* don't notify */);
+-                            csn_as_string(opcsn, PR_FALSE, opcsn2str);
++                            if (csngen_new_csn(gen, opcsn, PR_FALSE /* don't notify */) != CSN_SUCCESS) {
++                                /* Failed to generate CSN we must abort */
++                                object_release(gen_obj);
++                                return -1;
++                            }
++                            csn_as_string(*opcsn, PR_FALSE, opcsn2str);
+                             slapi_log_err(SLAPI_LOG_WARNING, repl_plugin_name,
+                                           "replica_generate_next_csn - "
+                                           "opcsn=%s <= basecsn=%s, adjusted opcsn=%s\n",
+@@ -4014,7 +4021,7 @@ replica_generate_next_csn(Slapi_PBlock *pb, const CSN *basecsn)
+                          * Insert opcsn into the csn pending list.
+                          * This is the notify effect in csngen_new_csn().
+                          */
+-                        assign_csn_callback(opcsn, (void *)replica);
++                        assign_csn_callback(*opcsn, (void *)replica);
+                     }
+                     object_release(gen_obj);
+                 }
+@@ -4023,7 +4030,7 @@ replica_generate_next_csn(Slapi_PBlock *pb, const CSN *basecsn)
+         object_release(replica_obj);
+     }
+ 
+-    return opcsn;
++    return 0;
+ }
+ 
+ /*
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_add.c b/ldap/servers/slapd/back-ldbm/ldbm_add.c
+index 264f0ceea..09bfb8468 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_add.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_add.c
+@@ -644,7 +644,13 @@ ldbm_back_add(Slapi_PBlock *pb)
+                          * Current op is a user request. Opcsn will be assigned
+                          * if the dn is in an updatable replica.
+                          */
+-                        opcsn = entry_assign_operation_csn(pb, e, parententry ? parententry->ep_entry : NULL);
++                        if (entry_assign_operation_csn(pb, e, parententry ? parententry->ep_entry : NULL, &opcsn) != 0) {
++                            slapi_log_err(SLAPI_LOG_ERR, "ldbm_back_add",
++                                    "failed to generate add CSN for entry (%s), aborting operation\n",
++                                    slapi_entry_get_dn(e));
++                            ldap_result_code = LDAP_OPERATIONS_ERROR;
++                            goto error_return;
++                        }
+                     }
+                     if (opcsn != NULL) {
+                         entry_set_csn(e, opcsn);
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_delete.c b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+index 1ad846447..6c4229049 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_delete.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_delete.c
+@@ -463,7 +463,14 @@ replace_entry:
+                      * by entry_assign_operation_csn() if the dn is in an
+                      * updatable replica.
+                      */
+-                    opcsn = entry_assign_operation_csn ( pb, e->ep_entry, NULL );
++                    if (entry_assign_operation_csn(pb, e->ep_entry, NULL, &opcsn) != 0) {
++                        slapi_log_err(SLAPI_LOG_ERR, "ldbm_back_delete",
++                                "failed to generate delete CSN for entry (%s), aborting operation\n",
++                                slapi_entry_get_dn(e->ep_entry));
++                        retval = -1;
++                        ldap_result_code = LDAP_OPERATIONS_ERROR;
++                        goto error_return;
++                    }
+                 }
+                 if (opcsn != NULL) {
+                     if (!is_fixup_operation) {
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modify.c b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+index b0c477e3f..e9d7e87e3 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modify.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modify.c
+@@ -598,12 +598,18 @@ ldbm_back_modify(Slapi_PBlock *pb)
+                     goto error_return;
+                 }
+                 opcsn = operation_get_csn(operation);
+-                if (NULL == opcsn && operation->o_csngen_handler) {
++                if (opcsn == NULL && operation->o_csngen_handler) {
+                     /*
+                      * Current op is a user request. Opcsn will be assigned
+                      * if the dn is in an updatable replica.
+                      */
+-                    opcsn = entry_assign_operation_csn(pb, e->ep_entry, NULL);
++                    if (entry_assign_operation_csn(pb, e->ep_entry, NULL, &opcsn) != 0) {
++                        slapi_log_err(SLAPI_LOG_ERR, "ldbm_back_modify",
++                                "failed to generate modify CSN for entry (%s), aborting operation\n",
++                                slapi_entry_get_dn(e->ep_entry));
++                        ldap_result_code = LDAP_OPERATIONS_ERROR;
++                        goto error_return;
++                    }
+                 }
+                 if (opcsn) {
+                     entry_set_maxcsn(e->ep_entry, opcsn);
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+index 26698012a..fde83c99f 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_modrdn.c
+@@ -543,7 +543,13 @@ ldbm_back_modrdn(Slapi_PBlock *pb)
+                      * Current op is a user request. Opcsn will be assigned
+                      * if the dn is in an updatable replica.
+                      */
+-                    opcsn = entry_assign_operation_csn(pb, e->ep_entry, parententry ? parententry->ep_entry : NULL);
++                    if (entry_assign_operation_csn(pb, e->ep_entry, parententry ? parententry->ep_entry : NULL, &opcsn) != 0) {
++                        slapi_log_err(SLAPI_LOG_ERR, "ldbm_back_modrdn",
++                                "failed to generate modrdn CSN for entry (%s), aborting operation\n",
++                                slapi_entry_get_dn(e->ep_entry));
++                        ldap_result_code = LDAP_OPERATIONS_ERROR;
++                        goto error_return;
++                    }
+                 }
+                 if (opcsn != NULL) {
+                     entry_set_maxcsn(e->ep_entry, opcsn);
+diff --git a/ldap/servers/slapd/csngen.c b/ldap/servers/slapd/csngen.c
+index 68dbbda8e..b08d8b25c 100644
+--- a/ldap/servers/slapd/csngen.c
++++ b/ldap/servers/slapd/csngen.c
+@@ -164,6 +164,7 @@ csngen_free(CSNGen **gen)
+ int
+ csngen_new_csn(CSNGen *gen, CSN **csn, PRBool notify)
+ {
++    struct timespec now = {0};
+     int rc = CSN_SUCCESS;
+     time_t cur_time;
+     int delta;
+@@ -179,12 +180,25 @@ csngen_new_csn(CSNGen *gen, CSN **csn, PRBool notify)
+         return CSN_MEMORY_ERROR;
+     }
+ 
+-    slapi_rwlock_wrlock(gen->lock);
++    if ((rc = slapi_clock_gettime(&now)) != 0) {
++        /* Failed to get system time, we must abort */
++        slapi_log_err(SLAPI_LOG_ERR, "csngen_new_csn",
++                "Failed to get system time (%s)\n",
++                slapd_system_strerror(rc));
++        return CSN_TIME_ERROR;
++    }
++    cur_time = now.tv_sec;
+ 
+-    cur_time = slapi_current_utc_time();
++    slapi_rwlock_wrlock(gen->lock);
+ 
+     /* check if the time should be adjusted */
+     delta = cur_time - gen->state.sampled_time;
++    if (delta > _SEC_PER_DAY || delta < (-1 * _SEC_PER_DAY)) {
++        /* We had a jump larger than a day */
++        slapi_log_err(SLAPI_LOG_INFO, "csngen_new_csn",
++                "Detected large jump in CSN time.  Delta: %d (current time: %ld  vs  previous time: %ld)\n",
++                delta, cur_time, gen->state.sampled_time);
++    }
+     if (delta > 0) {
+         rc = _csngen_adjust_local_time(gen, cur_time);
+         if (rc != CSN_SUCCESS) {
+diff --git a/ldap/servers/slapd/entrywsi.c b/ldap/servers/slapd/entrywsi.c
+index 080eb15aa..12ac5678a 100644
+--- a/ldap/servers/slapd/entrywsi.c
++++ b/ldap/servers/slapd/entrywsi.c
+@@ -224,13 +224,12 @@ entry_add_rdn_csn(Slapi_Entry *e, const CSN *csn)
+     slapi_rdn_free(&rdn);
+ }
+ 
+-CSN *
+-entry_assign_operation_csn(Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Entry *parententry)
++int32_t
++entry_assign_operation_csn(Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Entry *parententry, CSN **opcsn)
+ {
+     Slapi_Operation *op;
+     const CSN *basecsn = NULL;
+     const CSN *parententry_dncsn = NULL;
+-    CSN *opcsn = NULL;
+ 
+     slapi_pblock_get(pb, SLAPI_OPERATION, &op);
+ 
+@@ -252,14 +251,16 @@ entry_assign_operation_csn(Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Entry *parent
+                 basecsn = parententry_dncsn;
+             }
+         }
+-        opcsn = op->o_csngen_handler(pb, basecsn);
++        if(op->o_csngen_handler(pb, basecsn, opcsn) != 0) {
++            return -1;
++        }
+ 
+-        if (NULL != opcsn) {
+-            operation_set_csn(op, opcsn);
++        if (*opcsn) {
++            operation_set_csn(op, *opcsn);
+         }
+     }
+ 
+-    return opcsn;
++    return 0;
+ }
+ 
+ /*
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index 4c53d43dc..1d0a9cbeb 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -1464,7 +1464,7 @@ struct op;
+ typedef void (*result_handler)(struct conn *, struct op *, int, char *, char *, int, struct berval **);
+ typedef int (*search_entry_handler)(Slapi_Backend *, struct conn *, struct op *, struct slapi_entry *);
+ typedef int (*search_referral_handler)(Slapi_Backend *, struct conn *, struct op *, struct berval **);
+-typedef CSN *(*csngen_handler)(Slapi_PBlock *pb, const CSN *basecsn);
++typedef int32_t *(*csngen_handler)(Slapi_PBlock *pb, const CSN *basecsn, CSN **opcsn);
+ typedef int (*replica_attr_handler)(Slapi_PBlock *pb, const char *type, void **value);
+ 
+ /*
+diff --git a/ldap/servers/slapd/slapi-plugin.h b/ldap/servers/slapd/slapi-plugin.h
+index 865d83b9b..ea9bcf87b 100644
+--- a/ldap/servers/slapd/slapi-plugin.h
++++ b/ldap/servers/slapd/slapi-plugin.h
+@@ -6772,6 +6772,14 @@ int slapi_reslimit_get_integer_limit(Slapi_Connection *conn, int handle, int *li
+  */
+ time_t slapi_current_time(void) __attribute__((deprecated));
+ 
++/**
++ * Get the system time and check for errors.  Return
++ *
++ * \param tp - a timespec struct where the system time is set
++ * \return result code, upon success tp is set to the system time
++ */
++int32_t slapi_clock_gettime(struct timespec *tp);
++
+ /**
+  * Returns the current system time as a hr clock relative to uptime
+  * This means the clock is not affected by timezones
+diff --git a/ldap/servers/slapd/slapi-private.h b/ldap/servers/slapd/slapi-private.h
+index d676486a8..f37cfcd41 100644
+--- a/ldap/servers/slapd/slapi-private.h
++++ b/ldap/servers/slapd/slapi-private.h
+@@ -227,7 +227,8 @@ enum
+     CSN_INVALID_PARAMETER, /* invalid function argument */
+     CSN_INVALID_FORMAT,    /* invalid state format */
+     CSN_LDAP_ERROR,        /* LDAP operation failed */
+-    CSN_NSPR_ERROR         /* NSPR API failure */
++    CSN_NSPR_ERROR,        /* NSPR API failure */
++    CSN_TIME_ERROR         /* Error generating new CSN due to clock failure */
+ };
+ 
+ typedef struct csngen CSNGen;
+@@ -320,7 +321,7 @@ int slapi_entries_diff(Slapi_Entry **old_entries, Slapi_Entry **new_entries, int
+ void set_attr_to_protected_list(char *attr, int flag);
+ 
+ /* entrywsi.c */
+-CSN *entry_assign_operation_csn(Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Entry *parententry);
++int32_t entry_assign_operation_csn(Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Entry *parententry, CSN **opcsn);
+ const CSN *entry_get_maxcsn(const Slapi_Entry *entry);
+ void entry_set_maxcsn(Slapi_Entry *entry, const CSN *csn);
+ const CSN *entry_get_dncsn(const Slapi_Entry *entry);
+diff --git a/ldap/servers/slapd/time.c b/ldap/servers/slapd/time.c
+index 8048a3359..545538404 100644
+--- a/ldap/servers/slapd/time.c
++++ b/ldap/servers/slapd/time.c
+@@ -61,6 +61,25 @@ poll_current_time()
+     return 0;
+ }
+ 
++/*
++ * Check if the time function returns an error.  If so return the errno
++ */
++int32_t
++slapi_clock_gettime(struct timespec *tp)
++{
++    int32_t rc = 0;
++
++    PR_ASSERT(tp && tp->tv_nsec == 0 && tp->tv_sec == 0);
++
++    if (clock_gettime(CLOCK_REALTIME, tp) != 0) {
++        rc = errno;
++    }
++
++    PR_ASSERT(rc == 0);
++
++    return rc;
++}
++
+ time_t
+ current_time(void)
+ {
+@@ -69,7 +88,7 @@ current_time(void)
+      * but this should be removed in favour of the
+      * more accurately named slapi_current_utc_time
+      */
+-    struct timespec now;
++    struct timespec now = {0};
+     clock_gettime(CLOCK_REALTIME, &now);
+     return now.tv_sec;
+ }
+@@ -83,7 +102,7 @@ slapi_current_time(void)
+ struct timespec
+ slapi_current_rel_time_hr(void)
+ {
+-    struct timespec now;
++    struct timespec now = {0};
+     clock_gettime(CLOCK_MONOTONIC, &now);
+     return now;
+ }
+@@ -91,7 +110,7 @@ slapi_current_rel_time_hr(void)
+ struct timespec
+ slapi_current_utc_time_hr(void)
+ {
+-    struct timespec ltnow;
++    struct timespec ltnow = {0};
+     clock_gettime(CLOCK_REALTIME, &ltnow);
+     return ltnow;
+ }
+@@ -99,7 +118,7 @@ slapi_current_utc_time_hr(void)
+ time_t
+ slapi_current_utc_time(void)
+ {
+-    struct timespec ltnow;
++    struct timespec ltnow = {0};
+     clock_gettime(CLOCK_REALTIME, &ltnow);
+     return ltnow.tv_sec;
+ }
+@@ -108,8 +127,8 @@ void
+ slapi_timestamp_utc_hr(char *buf, size_t bufsize)
+ {
+     PR_ASSERT(bufsize >= SLAPI_TIMESTAMP_BUFSIZE);
+-    struct timespec ltnow;
+-    struct tm utctm;
++    struct timespec ltnow = {0};
++    struct tm utctm = {0};
+     clock_gettime(CLOCK_REALTIME, &ltnow);
+     gmtime_r(&(ltnow.tv_sec), &utctm);
+     strftime(buf, bufsize, "%Y%m%d%H%M%SZ", &utctm);
+@@ -140,7 +159,7 @@ format_localTime_log(time_t t, int initsize __attribute__((unused)), char *buf,
+ {
+ 
+     long tz;
+-    struct tm *tmsp, tms;
++    struct tm *tmsp, tms = {0};
+     char tbuf[*bufsize];
+     char sign;
+     /* make sure our buffer will be big enough. Need at least 29 */
+@@ -191,7 +210,7 @@ format_localTime_hr_log(time_t t, long nsec, int initsize __attribute__((unused)
+ {
+ 
+     long tz;
+-    struct tm *tmsp, tms;
++    struct tm *tmsp, tms = {0};
+     char tbuf[*bufsize];
+     char sign;
+     /* make sure our buffer will be big enough. Need at least 39 */
+@@ -278,7 +297,7 @@ slapi_timespec_expire_check(struct timespec *expire)
+     if (expire->tv_sec == 0 && expire->tv_nsec == 0) {
+         return TIMER_CONTINUE;
+     }
+-    struct timespec now;
++    struct timespec now = {0};
+     clock_gettime(CLOCK_MONOTONIC, &now);
+     if (now.tv_sec > expire->tv_sec ||
+         (expire->tv_sec == now.tv_sec && now.tv_sec > expire->tv_nsec)) {
+@@ -293,7 +312,7 @@ format_localTime(time_t from)
+        in the syntax of a generalizedTime, except without the time zone. */
+ {
+     char *into;
+-    struct tm t;
++    struct tm t = {0};
+ 
+     localtime_r(&from, &t);
+ 
+@@ -362,7 +381,7 @@ format_genTime(time_t from)
+        in the syntax of a generalizedTime. */
+ {
+     char *into;
+-    struct tm t;
++    struct tm t = {0};
+ 
+     gmtime_r(&from, &t);
+     into = slapi_ch_malloc(SLAPI_TIMESTAMP_BUFSIZE);
+@@ -382,7 +401,7 @@ time_t
+ read_genTime(struct berval *from)
+ {
+     struct tm t = {0};
+-    time_t retTime;
++    time_t retTime = {0};
+     time_t diffsec = 0;
+     int i, gflag = 0, havesec = 0;
+ 
+-- 
+2.26.2
+

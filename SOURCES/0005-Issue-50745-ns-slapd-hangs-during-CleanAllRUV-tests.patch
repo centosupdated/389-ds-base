@@ -1,7 +1,7 @@
-From b69687377d6afd973a8bc27d8d34bf8069943a9d Mon Sep 17 00:00:00 2001
+From 2e88d7ecfdd096ec3cd0b2fe7be0dacef74fe0c5 Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
 Date: Tue, 19 May 2020 11:25:13 -0400
-Subject: [PATCH] Issue 50745: ns-slapd hangs during CleanAllRUV tests
+Subject: [PATCH 2/2] Issue 50745: ns-slapd hangs during CleanAllRUV tests
 
 Bug Description:
 	The hang condition:
@@ -66,5 +66,5 @@ index 80a079784..95b7fa50e 100644
  
      PR_Unlock(s_configLock);
 -- 
-2.26.2
+2.25.4
 
