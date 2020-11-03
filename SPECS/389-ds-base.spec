@@ -44,8 +44,8 @@ ExcludeArch: i686
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          1.4.2.4
-Release:          %{?relprefix}10%{?prerel}%{?dist}
+Version:          1.4.3.8
+Release:          %{?relprefix}5%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -174,43 +174,31 @@ Source2:          %{name}-devel.README
 %if %{bundle_jemalloc}
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
-Patch00:          0000-Issue-50712-Version-comparison-doesn-t-work-correctl.patch
-Patch01:          0001-Issue-50499-Fix-npm-audit-issues.patch
-Patch02:          0002-Issue-50701-Add-additional-healthchecks-to-dsconf.patch
-Patch03:          0003-Issue-50701-Fix-type-in-lint-report.patch
-Patch04:          0004-Issue-50816-dsconf-allows-the-root-password-to-be-se.patch
-Patch05:          0005-Issue-50812-dscontainer-executable-should-be-placed-.patch
-Patch06:          0006-Ticket-50741-bdb_start-Detected-Disorderly-Shutdown-.patch
-Patch07:          0007-Ticket-50667-dsctl-l-did-not-respect-PREFIX.patch
-Patch08:          0008-Ticket-50709-Several-memory-leaks-reported-by-Valgri.patch
-Patch09:          0009-Ticket-50736-RetroCL-trimming-may-crash-at-shutdown-.patch
-Patch10:          0010-Issue-50806-Fix-minor-issues-in-lib389-health-checks.patch
-Patch11:          0011-Issue-50599-Remove-db-region-files-prior-to-db-recov.patch
-Patch12:          0012-Issue-50798-incorrect-bytes-in-format-string-fix-imp.patch
-Patch13:          0013-Issue-50824-dsctl-remove-fails-with-name-ensure_str-.patch
-Patch14:          0014-Issue-50818-dsconf-pwdpolicy-get-error.patch
-Patch15:          0015-Ticket-50709-cont-Several-memory-leaks-reported-by-V.patch
-Patch16:          0016-Issue-50829-Disk-monitoring-rotated-log-cleanup-caus.patch
-Patch17:          0017-Ticket-50745-ns-slapd-hangs-during-CleanAllRUV-tests.patch
-Patch18:          0018-Ticket-50727-change-syntax-validate-by-default-in-1..patch
-Patch19:          0019-Ticket-50727-correct-mistaken-options-in-filter-vali.patch
-Patch20:          0020-Issue-50599-Fix-memory-leak-when-removing-db-region-.patch
-Patch21:          0021-Issue-50834-Incorrectly-setting-the-NSS-default-SSL-.patch
-Patch22:          0022-Ticket-50741-cont-bdb_start-Detected-Disorderly-Shut.patch
-Patch23:          0023-Issue-49254-Fix-compiler-failures-and-warnings.patch
-Patch24:          0024-Issue-49990-Need-to-enforce-a-hard-maximum-limit-for.patch
-Patch25:          0025-Issue-50850-Fix-dsctl-healthcheck-for-python36.patch
-Patch26:          0026-Ticket-49624-cont-DB-Deadlock-on-modrdn-appears-to-c.patch
-Patch27:          0027-Issue-50823-dsctl-doesn-t-work-with-slapd-in-the-ins.patch
-Patch28:          0028-Ticket-50857-Memory-leak-in-ACI-using-IP-subject.patch
-Patch29:          0029-Issue-50873-Fix-issues-with-healthcheck-tool.patch
-Patch30:          0030-Issue-50873-Fix-healthcheck-and-virtual-attr-check.patch
-Patch31:          0031-Issue-50886-Typo-in-the-replication-debug-message.patch
-Patch32:          0032-Issue-50882-Fix-healthcheck-errors-for-instances-tha.patch
-Patch33:          0033-Ticket-50490-objects-and-memory-leaks.patch
-Patch34:          0034-Issue-50780-Fix-UI-issues.patch
-Patch35:          0035-Issue-51129-SSL-alert-The-value-of-sslVersionMax-TLS.patch
-Patch36:          0036-Issue-49731-undo-db_home_dir-under-dev-shm-dirsrv-fo.patch
+Patch01:          0001-Issue-51076-prevent-unnecessarily-duplication-of-the.patch
+Patch02:          0002-Ticket-51082-abort-when-a-empty-valueset-is-freed.patch
+Patch03:          0003-Issue-51091-healthcheck-json-report-fails-when-mappi.patch
+Patch04:          0004-Issue-51076-remove-unnecessary-slapi-entry-dups.patch
+Patch05:          0005-Issue-51086-Improve-dscreate-instance-name-validatio.patch
+Patch06:          0006-Issue-51102-RFE-ds-replcheck-make-online-timeout-con.patch
+Patch07:          0007-Issue-51110-Fix-ASAN-ODR-warnings.patch
+Patch08:          0008-Issue-51095-abort-operation-if-CSN-can-not-be-genera.patch
+Patch09:          0009-Issue-51113-Allow-using-uid-for-replication-manager-.patch
+Patch10:          0010-Issue-50931-RFE-AD-filter-rewriter-for-ObjectCategor.patch
+Patch11:          0011-Issue-50746-Add-option-to-healthcheck-to-list-all-th.patch
+Patch12:          0012-Issue-50984-Memory-leaks-in-disk-monitoring.patch
+Patch13:          0013-Issue-50984-Memory-leaks-in-disk-monitoring.patch
+Patch14:          0014-Issue-50201-nsIndexIDListScanLimit-accepts-any-value.patch
+Patch15:          0015-Issue-51157-Reindex-task-may-create-abandoned-index-.patch
+Patch16:          0016-Issue-51165-add-new-access-log-keywords-for-wtime-an.patch
+Patch17:          0017-Issue-50912-pwdReset-can-be-modified-by-a-user.patch
+Patch18:          0018-Issue-50791-Healthcheck-should-look-for-notes-A-F-in.patch
+Patch19:          0019-Issue-51144-dsctl-fails-with-instance-names-that-con.patch
+Patch20:          0020-Ticket-49859-A-distinguished-value-can-be-missing-in.patch
+Patch21:          0021-Issue-49256-log-warning-when-thread-number-is-very-d.patch
+Patch22:          0022-Issue-51188-db2ldif-crashes-when-LDIF-file-can-t-be-.patch
+Patch23:          0023-Issue-51086-Fix-instance-name-length-for-interactive.patch
+Patch24:          0024-Issue-51129-SSL-alert-The-value-of-sslVersionMax-TLS.patch
+Patch25:          0025-Issue-50984-Memory-leaks-in-disk-monitoring.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -370,14 +358,33 @@ CLANG_FLAGS="--enable-clang"
 %endif
 
 %if %{bundle_jemalloc}
+# Override page size, bz #1545539
+# 4K
+%ifarch %ix86 %arm x86_64 s390x
+%define lg_page --with-lg-page=12
+%endif
+
+# 64K
+%ifarch ppc64 ppc64le aarch64
+%define lg_page --with-lg-page=16
+%endif
+
+# Override huge page size on aarch64
+# 2M instead of 512M
+%ifarch aarch64
+%define lg_hugepage --with-lg-hugepage=21
+%endif
+
 # Build jemalloc
 pushd ../%{jemalloc_name}-%{jemalloc_ver}
 %configure \
         --libdir=%{_libdir}/%{pkgname}/lib \
-        --bindir=%{_libdir}/%{pkgname}/bin
-make
+        --bindir=%{_libdir}/%{pkgname}/bin \
+        --enable-prof
+make %{?_smp_mflags}        
 popd
 %endif
+
 
 # Enforce strict linking
 %define _strict_symbol_defs_build 1
@@ -431,7 +438,7 @@ popd
 
 mkdir -p $RPM_BUILD_ROOT/var/log/%{pkgname}
 mkdir -p $RPM_BUILD_ROOT/var/lib/%{pkgname}
-mkdir -p $RPM_BUILD_ROOT/var/lock/%{pkgname}
+mkdir -p $RPM_BUILD_ROOT/var/3lock/%{pkgname}
 
 # for systemd
 mkdir -p $RPM_BUILD_ROOT%{_sysconfdir}/systemd/system/%{groupname}.wants
@@ -665,6 +672,7 @@ exit 0
 %{_libdir}/%{pkgname}/libns-dshttpd-*.so
 %{_libdir}/%{pkgname}/libsds.so.*
 %{_libdir}/%{pkgname}/libldaputil.so.*
+%{_libdir}/%{pkgname}/librewriters.so*
 %if %{bundle_jemalloc}
 %{_libdir}/%{pkgname}/lib/libjemalloc.so.2
 %endif
@@ -808,59 +816,254 @@ exit 0
 %doc README.md
 
 %changelog
-* Mon Aug 24 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-10
-- Bump version to 1.4.2.4-10
-- Resolves: Bug 1862170 - fix default.ini file
+* Wed Aug 5 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-5
+- Bump version to 1.4.3.8-5
+- Resolves: Bug 1841086 - SSL alert: The value of sslVersionMax "TLS1.3" is higher than the supported version
+- Resolves: Bug 1800529 - Memory leaks in disk monitoring
+- Resolves: Bug 1748227 - Instance name length is not enforced
+- Resolves: Bug 1849418 - python3-lib389 pulls unnecessary bash-completion package
 
-* Fri Aug 21 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-9
-- Bump version to 1.4.2.4-9
-- Resolves: Bug 1867097 - Memory leak in ACI using IP subject
-- Resolves: Bug 1862170 - python3-lib389 pulls unnecessary bash-completion package
-- Resolves: Bug 1867988 - SSL alert: The value of sslVersionMax "TLS1.3" is higher than the supported version
+* Fri Jun 26 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-4
+- Bump version to 1.4.3.8-4
+- Resolves: Bug 1806978 - ns-slapd crashes during db2ldif
+- Resolves: Bug 1450863 - Log warning when tuning of nsslapd-threadnumber above or below the optimal value
+- Resolves: Bug 1647017 - A distinguished value of a single valued attribute can be missing in an entry
+- Resolves: Bug 1806573 - Dsctl healthcheck doesn't work when using instance name with 'slapd-'
+- Resolves: Bug 1807773 - dsctl healthcheck : typo in DSREPLLE0002 Lint error suggested resolution commands
+- Resolves: Bug 1843567 - Healthcheck to find notes=F
+- Resolves: Bug 1845094 - User/Directory Manager can modify Password Policy attribute "pwdReset"
+- Resolves: Bug 1850275 - Add new access log keywords for time spent in work queue and actual operation time
+- Resolves: Bug 1442386 - Recreating an index while changing case will create an indexfile with the old name (different case) and after restart the indexfile is abandoned
+- Resolves: Bug 1672574 - nsIndexIDListScanLimit accepts any value
+- Resolves: Bug 1800529 - Memory leaks in disk monitoring
 
-* Fri Mar 6 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-8
-- Bump version to 1.4.2.4-8
-- Resolves: Bug 1807971 - dsctl healthcheck fails at checking replica when conflict entries are present
+* Fri Jun 5 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-3
+- Bump version to 1.4.3.8-3
+- Resolves: Bug 1835619 - Healthcheck with --json option reports "Object of type 'bytes' is not JSON serializable" when mapping tree is deleted 
+- Resolves: Bug 1836428 - Directory Server ds-replcheck RFE to add a timeout command-line arg/value to wait longer when connecting to a replica server
+- Resolves: Bug 1843090 - abort when a empty valueset is freed
+- Resolves: Bug 1843156 - Prevent unnecessarily duplication of the target entry
+- Resolves: Bug 1843157 - Check for clock errors and time skew
+- Resolves: Bug 1843159 - RFE AD filter rewriter for ObjectCategory
+- Resolves: Bug 1843162 - Creating Replication Manager fails if uid=repman is used
+- Resolves: Bug 1816851 - Add option to healthcheck to list all the lint reports
+- Resolves: Bug 1748227 - Instance name length is not enforced
+- Resolves: Bug 1748244 - dscreate doesn't sanitize instance name
 
-* Fri Feb 7 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-7
-- Bump version to 1.4.2.4-7
-- Resolves: Bug 1744662 - DB Deadlock on modrdn appears to corrupt database and entry cache
-- Resolves: Bug 1779216 - dsctl doesn't work with 'slapd-' in the instance name
-- Resolves: Bug 1790984 - Crash on startup: Bus error in __env_faultmem.isra.1.part.2
-- Resolves: Bug 1793060 - dsctl healthcheck issues error : type object 'datetime.date' has no attribute 'fromisoformat'
-- Resolves: Bug 1758494 - LeakSanitizer: detected memory leaks in do_add 
-- Resolves: Bug 1790975 - Several memory leaks reported by Valgrind for 389-ds 1.3.9.1-10.
+* Mon May 11 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-2
+- Bump version to 1.4.3.8-2
+- Resolves: Bug 1833350 - Remove cockpit dependancies that are breaking builds
 
-* Mon Jan 20 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-6
-- Resolves: Bug 1776227 - Error: 'PwPolicyManager' object has no attribute 'get_attr_list'
-- Resolves: Bug 1790975 - Several memory leaks reported by Valgrind for 389-ds 1.3.9.1-10(fix regression)
-- Resolves: Bug 1758473 - AddressSanitizer: heap-use-after-free in log_get_loglist
-- Resolves: Bug 1790259 - Change the default behavior of 'nsslapd-verify-filter-schema'
-- Resolves: Bug 1773114 - ns-slapd hangs during CleanAllRUV tests
+* Mon May 11 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-1
+- Bump version to 1.4.3.8-1
+- Resolves: Bug 1833350 - Rebase 389-ds-base for RHEL 8.3
+- Resolves: Bug 1728943 - [RFE] Advance options in RHDS Disk Monitoring Framework
+- Resolves: Bug 1775285 - [RFE] Implement the Password Policy attribute "pwdReset"
+- Resolves: Bug 1638875 - [RFE] extract key/certs pem file into a private namespace
+- Resolves: Bug 1758478 - AddressSanitizer: heap-buffer-overflow in ldap_utf8prev
+- Resolves: Bug 1795943 - Port dbmon.sh from legacy tools package
+- Resolves: Bug 1798394 - Port dbgen from legacy tools package
+- Resolves: Bug 1800529 - Memory leaks in disk monitoring
+- Resolves: Bug 1807419 - Unable to create a suffix with countryName either via dscreate or the admin console
+- Resolves: Bug 1816848 - Database links: get_monitor() takes 1 positional argument but 2 were given
+- Resolves: Bug 1816854 - Setting nsslapd-allowed-sasl-mechanisms truncates the value
+- Resolves: Bug 1816857 - Searches on cn=config takes values with spaces and makes multiple attributes out of them
+- Resolves: Bug 1816859 - lib389 - Replace exec() with setattr()
+- Resolves: Bug 1816862 - Memory leak in indirect COS
+- Resolves: Bug 1829071 - Installation of RHDS 11 fails on RHEL8 server with IPv6 disabled
+- Resolves: Bug 1833515 - set 'nsslapd-enable-upgrade-hash: off' as this raises warnings in IPA
+- Resolves: Bug 1790986 - cenotaph errors on modrdn operations
+- Resolves: Bug 1769734 - Heavy StartTLS connection load can randomly fail with err=1
+- Resolves: Bug 1758501 - LeakSanitizer: detected memory leaks in changelog5_init and perfctrs_init
 
-* Tue Jan 14 2020 Mark Reynolkds <mreynolds@redhat.com> - 1.4.2.4-5
-- Bump version to 1.4.2.4-5
-- Resolves: Bug 1676699 - dsconf allows to set an empty password for Directory Manager
-- Resolves: Bug 1714688 - dscontainer executable should be placed under /usr/libexec/dirsrv/
-- Resolves: Bug 1773115 - bdb_start - Detected Disorderly Shutdown last time Directory Server was running
-- Resolves: Bug 1790975 - Several memory leaks reported by Valgrind for 389-ds 1.3.9.1-10
-- Resolves: Bug 1790979 - ns-slapd is crashing while restarting ipactl
-- Resolves: Bug 1790981 - Entry cache contention during base search
-- Resolves: Bug 1790984 - Crash on startup: Bus error in __env_faultmem.isra.1.part.2
+* Fri May 8 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-0
+- Bump version to 1.4.3.8-0
+- Issue 51078 - Add nsslapd-enable-upgrade-hash to the schema
+- Issue 51054 - Revise ACI target syntax checking
+- Issue 51068 - deadlock when updating the schema
+- Issue 51060 - unable to set sslVersionMin to TLS1.0
+- Issue 51064 - Unable to install server where IPv6 is disabled
+- Issue 51051 - CLI fix consistency issues with confirmations
+- Issue 49731 - undo db_home_dir under /dev/shm/dirsrv for now
+- Issue 51054 - AddressSanitizer: heap-buffer-overflow in ldap_utf8prev
+- Issue 51047 - React deprecating ComponentWillMount
+- Issue 50499 - fix npm audit issues
+- Issue 50545 - Port dbgen.pl to dsctl
 
-* Wed Nov 27 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-4
-- Bump version to 1.4.2.4-4
-- Resolves: Bug 1685160 - [RFE] 389-DS Health Check Tool
+* Wed Apr 22 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.7-1
+- Bump version to 1.4.3.7
+- Issue 51024 - syncrepl_entry callback does not contain attributes added by postoperation plugins
+- Issue 51035 - Heavy StartTLS connection load can randomly fail with err=1
+- Issue 49731 - undo db_home_dir under /dev/shm/dirsrv for now
+- Issue 51031 - UI - transition between two instances needs improvement
 
-* Fri Nov 15 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-3
-- Bump version to 1.4.2.4-3
-- Issue 50712 - Version comparison doesn't work correctly on git builds (relates to #1748994)
+* Thu Apr 16 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.6-1
+- Bump version to 1.4.3.6
+- Issue 50933 - 10rfc2307compat.ldif is not ready to set used by default
+- Issue 50931 - RFE AD filter rewriter for ObjectCategory
+- Issue 51016 - Fix memory leaks in changelog5_init and perfctrs_init
+- Issue 50980 - RFE extend usability for slapi_compute_add_search_rewriter and slapi_compute_add_evaluator
+- Issue 51008 - dbhome in containers
+- Issue 50875 - Refactor passwordUserAttributes's and passwordBadWords's code
+- Issue 51014 - slapi_pal.c possible static buffer overflow
+- Issue 50545 - remove dbmon "incr" option from arg parser
+- Issue 50545 - Port dbmon.sh to dsconf
+- Issue 51005 - AttributeUniqueness plugin's DN parameter should not have a default value
+- Issue 49731 - Fix additional issues with setting db home directory by default
+- Issue 50337 - Replace exec() with setattr()
+- Issue 50905 - intermittent SSL hang with rhds
+- Issue 50952 - SSCA lacks basicConstraint:CA
+- Issue 50640 - Database links: get_monitor() takes 1 positional argument but 2 were given
+- Issue 50869 - Setting nsslapd-allowed-sasl-mechanisms truncates the value
 
-* Fri Nov 15 2019 Matus Honek <mhonek@redhat.com> - 1.4.2.4-2
-- Bump version to 1.4.2.4-2
-- Fix missing runtime lib389 dependency (relates to #1748994)
+* Wed Apr 1 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.5-1
+- Bump version to 1.4.3.5
+- Issue 50994 - Fix latest UI bugs found by QE
+- Issue 50933 - rfc2307compat.ldif
+- Issue 50337 - Replace exec() with setattr()
+- Issue 50984 - Memory leaks in disk monitoring
+- Issue 50984 - Memory leaks in disk monitoring
+- Issue 49731 - dscreate fails in silent mode because of db_home_dir
+- Issue 50975 - Revise UI branding with new minimized build
+- Issue 49437 - Fix memory leak with indirect COS
+- Issue 49731 - Do not add db_home_dir to template-dse.ldif
+- Issue 49731 - set and use db_home_directory by default
+- Issue 50971 - fix BSD_SOURCE
+- Issue 50744 - -n option of dbverify does not work
+- Issue 50952 - SSCA lacks basicConstraint:CA
+- Issue 50976 - Clean up Web UI source directory from unused files
+- Issue 50955 - Fix memory leaks in chaining plugin(part 2)
+- Issue 50966 - UI - Database indexes not using typeAhead correctly
+- Issue 50974 - UI - wrong title in "Delete Suffix" popup
+- Issue 50972 - Fix cockpit plugin build
+- Issue 49761 - Fix CI test suite issues
+- Issue 50971 - Support building on FreeBSD.
+- Issue 50960 - [RFE] Advance options in RHDS Disk Monitoring Framework
+- Issue 50800 - wildcards in rootdn-allow-ip attribute are not accepted
+- Issue 50963 - We should bundle *.min.js files of Console
+- Issue 50860 - Port Password Policy test cases from TET to python3 Password grace limit section.
+- Issue 50860 - Port Password Policy test cases from TET to python3 series of bugs Port final
+- Issue 50954 - buildnum.py - fix date formatting issue
 
-* Thu Nov 14 2019 Mark Reynolds <mreynolds@redhat.com> - 1.4.2.4-1
-- Bump verison to 1.4.2.4-1
-- Resolves: Bug 1748994 - Rebase 389-ds-base to 1.4.2 
+* Mon Mar 16 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.4-1
+- Bump version to 1.4.3.4
+- Issue 50954 - Port buildnum.pl to python(part 2)
+- Issue 50955 - Fix memory leaks in chaining plugin
+- Issue 50954 - Port buildnum.pl to python
+- Issue 50947 - change 00core.ldif objectClasses for openldap migration
+- Issue 50755 - setting nsslapd-db-home-directory is overriding db_directory
+- Issue 50937 - Update CLI for new backend split configuration
+- Issue 50860 - Port Password Policy test cases from TET to python3 pwp.sh
+- Issue 50945 - givenname alias of gn from openldap
+- Issue 50935 - systemd override in lib389 for dscontainer
+- Issue 50499 - Fix npm audit issues
+- Issue 49761 - Fix CI test suite issues
+- Issue 50618 - clean compiler warning and log level
+- Issue 50889 - fix compiler issues
+- Issue 50884 - Health check tool DSEldif check fails
+- Issue 50926 - Remove dual spinner and other UI fixes
+- Issue 50928 - Unable to create a suffix with countryName
+- Issue 50758 - Only Recommend bash-completion, not Require
+- Issue 50923 - Fix a test regression
+- Issue 50904 - Connect All React Components And Refactor the Main Navigation Tab Code
+- Issue 50920 - cl-dump exit code is 0 even if command fails with invalid arguments
+- Issue 50923 - Add test - dsctl fails to remove instances with dashes in the name
+- Issue 50919 - Backend delete fails using dsconf
+- Issue 50872 - dsconf can't create GSSAPI replication agreements
+- Issue 50912 - RFE - add password policy attribute pwdReset
+- Issue 50914 - No error returned when adding an entry matching filters for a non existing automember group
+- Issue 50889 - Extract pem files into a private namespace
+- Issue 50909 - nsDS5ReplicaId cant be set to the old value it had before
+- Issue 50686 - Port fractional replication test cases from TET to python3 final
+- Issue 49845 - Remove pkgconfig check for libasan
+- Issue:50860 - Port Password Policy test cases from TET to python3 bug624080
+- Issue:50860 - Port Password Policy test cases from TET to python3 series of bugs
+- Issue 50786 - connection table freelist
+- Issue 50618 - support cgroupv2
+- Issue 50900 - Fix cargo offline build
+- Issue 50898 - ldclt core dumped when run with -e genldif option
 
+* Mon Feb 17 2020 Matus Honek <mhonek@redhat.com> - 1.4.3.3-3
+- Bring back the necessary c_rehash util (#1803370)
+
+* Fri Feb 14 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.3-2
+- Bump version to 1.4.3.3-2
+- Remove unneeded perl dependencies
+- Change bash-completion to "Recommends" instead of "Requires"
+
+* Thu Feb 13 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.3-1
+- Bump version to 1.4.3.3
+- Issue 50855 - remove unused file from UI
+- Issue 50855 - UI: Port Server Tab to React
+- Issue 49845 - README does not contain complete information on building
+- Issue 50686 - Port fractional replication test cases from TET to python3 part 1
+- Issue 49623 - cont cenotaph errors on modrdn operations
+- Issue 50882 - Fix healthcheck errors for instances that do not have TLS enabled
+- Issue 50886 - Typo in the replication debug message
+- Issue 50873 - Fix healthcheck and virtual attr check
+- Issue 50873 - Fix issues with healthcheck tool
+- Issue 50028 - Add a new CI test case
+- Issue 49946 - Add a new CI test case
+- Issue 50117 - Add a new CI test case
+- Issue 50787 - fix implementation of attr unique
+- Issue 50859 - support running only with ldaps socket
+- Issue 50823 - dsctl doesn't work with 'slapd-' in the instance name
+- Issue 49624 - cont - DB Deadlock on modrdn appears to corrupt database and entry cache
+- Issue 50867 - Fix minor buildsys issues
+- Issue 50737 - Allow building with rust online without vendoring
+- Issue 50831 - add cargo.lock to allow offline builds
+- Issue 50694 - import PEM certs on startup
+- Issue 50857 - Memory leak in ACI using IP subject
+- Issue 49761 - Fix CI test suite issues
+- Issue 50853 - Fix NULL pointer deref in config setting
+- Issue 50850 - Fix dsctl healthcheck for python36
+- Issue 49990 - Need to enforce a hard maximum limit for file descriptors
+- Issue 48707 - ldapssotoken for authentication
+
+* Tue Jan 28 2020 Fedora Release Engineering <releng@fedoraproject.org> - 1.4.3.2-1.1
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_32_Mass_Rebuild
+
+* Thu Jan 23 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.2-1
+- Bump version to 1.4.3.2
+- Issue 49254 - Fix compiler failures and warnings
+- Issue 50741 - cont bdb_start - Detected Disorderly Shutdown
+- Issue 50836 - Port Schema UI tab to React
+- Issue 50842 - Decrease 389-console Cockpit component size
+- Issue 50790 - Add result text when filter is invalid
+- Issue 50627 - Add ASAN logs to HTML report
+- Issue 50834 - Incorrectly setting the NSS default SSL version max
+- Issue 50829 - Disk monitoring rotated log cleanup causes heap-use-after-free
+- Issue 50709 - (cont) Several memory leaks reported by Valgrind for 389-ds 1.3.9.1-10
+- Issue 50784 - performance testing scripts
+- Issue 50599 - Fix memory leak when removing db region files
+- Issue 49395 - Set the default TLS version min to TLS1.2
+- Issue 50818 - dsconf pwdpolicy get error
+- Issue 50824 - dsctl remove fails with "name 'ensure_str' is not defined"
+- Issue 50599 - Remove db region files prior to db recovery
+- Issue 50812 - dscontainer executable should be placed under /usr/libexec/dirsrv/
+- Issue 50816 - dsconf allows the root password to be set to nothing
+- Issue 50798 - incorrect bytes in format string(fix import issue)
+
+* Thu Jan 16 2020 Adam Williamson <awilliam@redhat.com> - 1.4.3.1-3
+- Backport two more import/missing function fixes
+
+* Wed Jan 15 2020 Adam Williamson <awilliam@redhat.com> - 1.4.3.1-2
+- Backport 828aad0 to fix missing imports from 1.4.3.1
+
+* Mon Jan 13 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.1-1
+- Bump version to 1.4.3.1
+- Issue 50798 - incorrect bytes in format string
+- Issue 50545 - Add the new replication monitor functionality to UI
+- Issue 50806 - Fix minor issues in lib389 health checks
+- Issue 50690 - Port Password Storage test cases from TET to python3 part 1
+- Issue 49761 - Fix CI test suite issues
+- Issue 49761 - Fix CI test suite issues
+- Issue 50754 - Add Restore Change Log option to CLI
+- Issue 48055 - CI test - automember_plugin(part2)
+- Issue 50667 - dsctl -l did not respect PREFIX
+- Issue 50780 - More CLI fixes
+- Issue 50649 - lib389 without defaults.inf
+- Issue 50780 - Fix UI issues
+- Issue 50727 - correct mistaken options in filter validation patch
+- Issue 50779 - lib389 - conflict compare fails for DN's with spaces
+- Set branch version to 1.4.3.0

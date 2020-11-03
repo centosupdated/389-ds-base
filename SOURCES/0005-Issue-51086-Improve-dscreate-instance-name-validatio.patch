@@ -1,0 +1,96 @@
+From 9710c327b3034d7a9d112306961c9cec98083df5 Mon Sep 17 00:00:00 2001
+From: Simon Pichugin <simon.pichugin@gmail.com>
+Date: Mon, 18 May 2020 22:33:45 +0200
+Subject: [PATCH 05/12] Issue 51086 - Improve dscreate instance name validation
+
+Bug Description: When creating an instance using dscreate, it doesn't enforce
+max name length. The ldapi socket name contains name of the instance. If it's
+too long, we can hit limits, and the file name will be truncated. Also, it
+doesn't sanitize the instance name, it's possible to create an instance with
+non-ascii symbols in its name.
+
+Fix Description: Add more checks to 'dscreate from-file' installation.
+Add a limitation for nsslapd-ldapifilepath string lenght because it is
+limited by sizeof((*ports_info.i_listenaddr)->local.path)) it is copied to.
+
+https://pagure.io/389-ds-base/issue/51086
+
+Reviewed by: firstyear, mreynolds (Thanks!)
+---
+ ldap/servers/slapd/libglobs.c       | 12 ++++++++++++
+ src/cockpit/389-console/src/ds.jsx  |  8 ++++++--
+ src/lib389/lib389/instance/setup.py |  9 +++++++++
+ 3 files changed, 27 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/slapd/libglobs.c b/ldap/servers/slapd/libglobs.c
+index 0d3d9a924..fbf90d92d 100644
+--- a/ldap/servers/slapd/libglobs.c
++++ b/ldap/servers/slapd/libglobs.c
+@@ -2390,11 +2390,23 @@ config_set_ldapi_filename(const char *attrname, char *value, char *errorbuf, int
+ {
+     int retVal = LDAP_SUCCESS;
+     slapdFrontendConfig_t *slapdFrontendConfig = getFrontendConfig();
++    /*
++     * LDAPI file path length is limited by sizeof((*ports_info.i_listenaddr)->local.path))
++     * which is set in main.c inside of "#if defined(ENABLE_LDAPI)" block
++     * ports_info.i_listenaddr is sizeof(PRNetAddr) and our required sizes is 8 bytes less
++     */
++    size_t result_size = sizeof(PRNetAddr) - 8;
+ 
+     if (config_value_is_null(attrname, value, errorbuf, 0)) {
+         return LDAP_OPERATIONS_ERROR;
+     }
+ 
++    if (strlen(value) >= result_size) {
++        slapi_create_errormsg(errorbuf, SLAPI_DSE_RETURNTEXT_SIZE, "%s: \"%s\" is invalid, its length must be less than %d",
++                              attrname, value, result_size);
++        return LDAP_OPERATIONS_ERROR;
++    }
++
+     if (apply) {
+         CFG_LOCK_WRITE(slapdFrontendConfig);
+ 
+diff --git a/src/cockpit/389-console/src/ds.jsx b/src/cockpit/389-console/src/ds.jsx
+index 90d9e5abd..53aa5cb79 100644
+--- a/src/cockpit/389-console/src/ds.jsx
++++ b/src/cockpit/389-console/src/ds.jsx
+@@ -793,10 +793,14 @@ class CreateInstanceModal extends React.Component {
+             return;
+         }
+         newServerId = newServerId.replace(/^slapd-/i, ""); // strip "slapd-"
+-        if (newServerId.length > 128) {
++        if (newServerId === "admin") {
++            addNotification("warning", "Instance Name 'admin' is reserved, please choose a different name");
++            return;
++        }
++        if (newServerId.length > 80) {
+             addNotification(
+                 "warning",
+-                "Instance name is too long, it must not exceed 128 characters"
++                "Instance name is too long, it must not exceed 80 characters"
+             );
+             return;
+         }
+diff --git a/src/lib389/lib389/instance/setup.py b/src/lib389/lib389/instance/setup.py
+index 803992275..f5fc5495d 100644
+--- a/src/lib389/lib389/instance/setup.py
++++ b/src/lib389/lib389/instance/setup.py
+@@ -567,6 +567,15 @@ class SetupDs(object):
+ 
+         # We need to know the prefix before we can do the instance checks
+         assert_c(slapd['instance_name'] is not None, "Configuration instance_name in section [slapd] not found")
++        assert_c(len(slapd['instance_name']) <= 80, "Server identifier should not be longer than 80 symbols")
++        assert_c(all(ord(c) < 128 for c in slapd['instance_name']), "Server identifier can not contain non ascii characters")
++        assert_c(' ' not in slapd['instance_name'], "Server identifier can not contain a space")
++        assert_c(slapd['instance_name'] != 'admin', "Server identifier \"admin\" is reserved, please choose a different identifier")
++
++        # Check that valid characters are used
++        safe = re.compile(r'^[#%:\w@_-]+$').search
++        assert_c(bool(safe(slapd['instance_name'])), "Server identifier has invalid characters, please choose a different value")
++
+         # Check if the instance exists or not.
+         # Should I move this import? I think this prevents some recursion
+         from lib389 import DirSrv
+-- 
+2.26.2
+

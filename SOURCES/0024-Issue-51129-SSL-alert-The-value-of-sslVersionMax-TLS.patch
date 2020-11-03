@@ -1,46 +1,45 @@
-From c510a50bbbb05099159817f8d9da0088c5a0a5c0 Mon Sep 17 00:00:00 2001
+From 3e11020fa7a79d335a02c001435aabcf59aaa622 Mon Sep 17 00:00:00 2001
 From: Mark Reynolds <mreynolds@redhat.com>
-Date: Fri, 21 Aug 2020 12:44:18 -0400
+Date: Fri, 24 Jul 2020 12:14:44 -0400
 Subject: [PATCH] Issue 51129 - SSL alert: The value of sslVersionMax "TLS1.3"
  is higher than the supported version
 
-    Bug Description:  If you try and set the sslVersionMax higher than the
-                      default range, but within the supported range, you
-                      would still get an error and the server would reset
-                      the max to "default" max value.
+Bug Description:  If you try and set the sslVersionMax higher than the
+                  default range, but within the supported range, you
+                  would still get an error and the server would reset
+                  the max to "default" max value.
 
-    Fix Description:  Keep track of both the supported and default SSL ranges,
-                      and correctly use each range for value validation.  If
-                      the value is outside the supported range, then use default
-                      value, etc, but do not check the requested range against
-                      the default range.  We only use the default range if
-                      there is no specified min or max in the config, or if
-                      a invalid min or max value is set in the config.
+Fix Description:  Keep track of both the supported and default SSL ranges,
+                  and correctly use each range for value validation.  If
+                  the value is outside the supported range, then use default
+                  value, etc, but do not check the requested range against
+                  the default range.  We only use the default range if
+                  there is no specified min or max in the config, or if
+                  a invalid min or max value is set in the config.
 
-                      Also, refactored the range variable names to be more
-                      accurate:
+                  Also, refactored the range variable names to be more
+                  accurate:
 
-                         enabledNSSVersions -->  defaultNSSVersions
-                         emin, emax         -->  dmin, dmax
+                     enabledNSSVersions -->  defaultNSSVersions
+                     emin, emax         -->  dmin, dmax
 
-    relates: https://pagure.io/389-ds-base/issue/51129
+relates: https://pagure.io/389-ds-base/issue/51129
 
-    Reviewed by: firstyear(Thanks!)
+Reviewed by: firstyear(Thanks!)
 ---
- ldap/servers/slapd/ssl.c | 167 +++++++++++++++++++++------------------
- 1 file changed, 88 insertions(+), 79 deletions(-)
+ ldap/servers/slapd/ssl.c        | 155 ++++++++++++++++----------------
+ src/lib389/lib389/dirsrv_log.py |   2 +-
+ 2 files changed, 81 insertions(+), 76 deletions(-)
 
 diff --git a/ldap/servers/slapd/ssl.c b/ldap/servers/slapd/ssl.c
-index 71f91f761..1a860b71e 100644
+index 846106b42..7206cafd2 100644
 --- a/ldap/servers/slapd/ssl.c
 +++ b/ldap/servers/slapd/ssl.c
-@@ -48,12 +48,12 @@
-  *   sslVersionMax: max ssl version supported by NSS
+@@ -50,11 +50,11 @@
   ******************************************************************************/
  
--#define DEFVERSION "TLS1.0"
--#define CURRENT_DEFAULT_SSL_VERSION SSL_LIBRARY_VERSION_TLS_1_0
-+#define DEFVERSION "TLS1.2"
+ #define DEFVERSION "TLS1.2"
+-#define CURRENT_DEFAULT_SSL_VERSION SSL_LIBRARY_VERSION_TLS_1_2
  
  extern char *slapd_SSL3ciphers;
  extern symbol_t supported_ciphers[];
@@ -50,16 +49,7 @@ index 71f91f761..1a860b71e 100644
  static SSLVersionRange slapdNSSVersions;
  
  
-@@ -151,7 +151,7 @@ PRBool enableSSL2 = PR_FALSE;
- PRBool enableSSL3 = PR_FALSE;
- /*
-  * nsTLS1: on -- enable TLS1 by default.
-- * Corresonding to SSL_LIBRARY_VERSION_TLS_1_0 and greater.
-+ * Corresonding to SSL_LIBRARY_VERSION_TLS_1_2 and greater.
-  */
- PRBool enableTLS1 = PR_TRUE;
- 
-@@ -934,15 +934,24 @@ slapd_nss_init(int init_ssl __attribute__((unused)), int config_available __attr
+@@ -1014,15 +1014,24 @@ slapd_nss_init(int init_ssl __attribute__((unused)), int config_available __attr
      int create_certdb = 0;
      PRUint32 nssFlags = 0;
      char *certdir;
@@ -89,8 +79,8 @@ index 71f91f761..1a860b71e 100644
 +                  dmin, dmax);
  
      /* set in slapd_bootstrap_config,
-        thus certdir is available even if config_available is false */
-@@ -1262,21 +1271,21 @@ static int
+        thus certdir is available even if config_available is false
+@@ -1344,21 +1353,21 @@ static int
  set_NSS_version(char *val, PRUint16 *rval, int ismin)
  {
      char *vp;
@@ -119,7 +109,7 @@ index 71f91f761..1a860b71e 100644
          }
      } else if (!strncasecmp(val, TLSSTR, TLSLEN)) { /* tls# */
          float tlsv;
-@@ -1284,122 +1293,122 @@ set_NSS_version(char *val, PRUint16 *rval, int ismin)
+@@ -1366,122 +1375,122 @@ set_NSS_version(char *val, PRUint16 *rval, int ismin)
          sscanf(vp, "%4f", &tlsv);
          if (tlsv < 1.1f) { /* TLS1.0 */
              if (ismin) {
@@ -133,8 +123,7 @@ index 71f91f761..1a860b71e 100644
 +                                   val, dmin);
 +                    (*rval) = defaultNSSVersions.min;
                  } else {
--                    (*rval) = CURRENT_DEFAULT_SSL_VERSION;
-+                    (*rval) = SSL_LIBRARY_VERSION_TLS_1_0;
+                     (*rval) = SSL_LIBRARY_VERSION_TLS_1_0;
                  }
              } else {
 -                if (enabledNSSVersions.max < CURRENT_DEFAULT_SSL_VERSION) {
@@ -148,8 +137,7 @@ index 71f91f761..1a860b71e 100644
 +                                   val, dmax);
 +                    (*rval) = defaultNSSVersions.max;
                  } else {
--                    (*rval) = CURRENT_DEFAULT_SSL_VERSION;
-+                    (*rval) = SSL_LIBRARY_VERSION_TLS_1_0;
+                     (*rval) = SSL_LIBRARY_VERSION_TLS_1_0;
                  }
              }
          } else if (tlsv < 1.2f) { /* TLS1.1 */
@@ -292,7 +280,7 @@ index 71f91f761..1a860b71e 100644
          }
      }
      return 0;
-@@ -1429,10 +1438,9 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
+@@ -1511,10 +1520,9 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
      char *tmpDir;
      Slapi_Entry *e = NULL;
      PRBool fipsMode = PR_FALSE;
@@ -305,19 +293,7 @@ index 71f91f761..1a860b71e 100644
      int allowweakcipher = CIPHER_SET_DEFAULTWEAKCIPHER;
      int_fast16_t renegotiation = (int_fast16_t)SSL_RENEGOTIATE_REQUIRES_XTN;
  
-@@ -1780,7 +1788,11 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
-         }
-         val = slapi_entry_attr_get_ref(e, "sslVersionMin");
-         if (val) {
-+            /* Use the user defined minimum */
-             (void)set_NSS_version((char *)val, &NSSVersionMin, 1);
-+        } else {
-+            /* Force our default minimum */
-+            (void)set_NSS_version(DEFVERSION, &NSSVersionMin, 1);
-         }
-         val = slapi_entry_attr_get_ref(e, "sslVersionMax");
-         if (val) {
-@@ -1789,12 +1801,9 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
+@@ -1875,12 +1883,9 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
          if (NSSVersionMin > NSSVersionMax) {
              (void)slapi_getSSLVersion_str(NSSVersionMin, mymin, sizeof(mymin));
              (void)slapi_getSSLVersion_str(NSSVersionMax, mymax, sizeof(mymax));
@@ -332,7 +308,7 @@ index 71f91f761..1a860b71e 100644
          }
      }
  
-@@ -1810,7 +1819,7 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
+@@ -1896,7 +1901,7 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
      if (sslStatus != SECSuccess) {
          errorCode = PR_GetError();
          slapd_SSL_error("Security Initialization - "
@@ -341,7 +317,7 @@ index 71f91f761..1a860b71e 100644
                  mymin, mymax, errorCode, slapd_pr_strerror(errorCode));
      }
      /*
-@@ -1840,13 +1849,13 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
+@@ -1926,13 +1931,13 @@ slapd_ssl_init2(PRFileDesc **fd, int startTLS)
              (void)slapi_getSSLVersion_str(slapdNSSVersions.min, mymin, sizeof(mymin));
              (void)slapi_getSSLVersion_str(slapdNSSVersions.max, mymax, sizeof(mymax));
              slapd_SSL_error("Security Initialization - "
@@ -357,7 +333,7 @@ index 71f91f761..1a860b71e 100644
                  errorCode, slapd_pr_strerror(errorCode));
      }
  
-@@ -2173,7 +2182,7 @@ slapd_SSL_client_auth(LDAP *ld)
+@@ -2265,7 +2270,7 @@ slapd_SSL_client_auth(LDAP *ld)
          }
      } else {
          if (token == NULL) {
@@ -366,6 +342,19 @@ index 71f91f761..1a860b71e 100644
          }
          rc = -1;
      }
+diff --git a/src/lib389/lib389/dirsrv_log.py b/src/lib389/lib389/dirsrv_log.py
+index 7bed4bb17..ab8872051 100644
+--- a/src/lib389/lib389/dirsrv_log.py
++++ b/src/lib389/lib389/dirsrv_log.py
+@@ -207,7 +207,7 @@ class DirsrvAccessLog(DirsrvLog):
+         return {
+             'base': quoted_vals[0],
+             'filter': quoted_vals[1],
+-            'timestamp': re.findall('\[(.*)\]', lines[0])[0],
++            'timestamp': re.findall('[(.*)]', lines[0])[0],
+             'scope': lines[0].split(' scope=', 1)[1].split(' ',1)[0]
+         }
+ 
 -- 
 2.26.2
 
