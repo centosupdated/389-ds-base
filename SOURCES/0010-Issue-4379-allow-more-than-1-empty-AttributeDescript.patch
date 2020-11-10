@@ -1,0 +1,39 @@
+From 44315fd37c68c43ceb0debc3cbee79421c58a942 Mon Sep 17 00:00:00 2001
+From: tbordaz <tbordaz@redhat.com>
+Date: Thu, 15 Oct 2020 16:59:56 +0200
+Subject: [PATCH 3/5] Issue 4379 - allow more than 1 empty AttributeDescription
+ for ldapsearch, without the risk of denial of service (#4380)
+
+Bug description:
+	The fix #3028 enforces a strict limit of empty attributeDescription.
+        The limit is low (1) and some application may failing.
+        We can relax this limit to a higher value without reopening DOS risk
+
+Fix description:
+	Change the max authorized empty attributesDescription from 1 to 10
+
+relates: https://github.com/389ds/389-ds-base/issues/4379
+
+Reviewed by: Mark Reynolds
+
+Platforms tested: F31
+---
+ ldap/servers/slapd/search.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/search.c b/ldap/servers/slapd/search.c
+index 2a9979552..cfbc8b0dc 100644
+--- a/ldap/servers/slapd/search.c
++++ b/ldap/servers/slapd/search.c
+@@ -229,7 +229,7 @@ do_search(Slapi_PBlock *pb)
+ 
+             if ( attrs[i][0] == '\0') {
+                 empty_attrs++;
+-                if (empty_attrs > 1) {
++                if (empty_attrs > 10) {
+                     log_search_access(pb, base, scope, fstr, "invalid attribute request");
+                     send_ldap_result(pb, LDAP_PROTOCOL_ERROR, NULL, NULL, 0, NULL);
+                     slapi_ch_free_string(&normaci);
+-- 
+2.26.2
+

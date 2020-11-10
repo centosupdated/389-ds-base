@@ -1,0 +1,33 @@
+From 1771e04a2a831887de8c95016fb73e4a4da3f46c Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 20 Oct 2020 14:53:01 -0400
+Subject: [PATCH 5/5] Issue 4389 - errors log with incorrectly formatted
+ message parent_update_on_childchange
+
+Description:  The arguemtns were incorrect for the logging line
+
+Fixes: https://github.com/389ds/389-ds-base/issues/4389
+
+Reviewed by: mreynolds(one line commit rule)
+---
+ ldap/servers/slapd/back-ldbm/parents.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/parents.c b/ldap/servers/slapd/back-ldbm/parents.c
+index 4583885f1..31107591e 100644
+--- a/ldap/servers/slapd/back-ldbm/parents.c
++++ b/ldap/servers/slapd/back-ldbm/parents.c
+@@ -103,8 +103,8 @@ parent_update_on_childchange(modify_context *mc, int op, size_t *new_sub_count)
+             if (!already_present) {
+                 /* This means that there was a conflict.  Before coming to this point,
+                  * the entry to be deleted was deleted... */
+-                slapi_log_err(SLAPI_LOG_ERR, "parent_update_on_childchange - "
+-                                             "Parent %s has no children. (op 0x%x, repl_op 0x%x)\n",
++                slapi_log_err(SLAPI_LOG_ERR, "parent_update_on_childchange",
++                              "Parent %s has no children. (op 0x%x, repl_op 0x%x)\n",
+                               slapi_entry_get_dn(mc->old_entry->ep_entry), op, repl_op);
+                 slapi_mods_free(&smods);
+                 return -1;
+-- 
+2.26.2
+
