@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.16
-Release:          %{?relprefix}1%{?prerel}%{?dist}
+Release:          %{?relprefix}3%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -174,6 +174,13 @@ Source2:          %{name}-devel.README
 %if %{bundle_jemalloc}
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
+Patch01:          0001-Issue-4383-Do-not-normalize-escaped-spaces-in-a-DN.patch
+Patch02:          0002-ticket-2058-Add-keep-alive-entry-after-on-line-initi.patch
+Patch03:          0003-do-not-add-referrals-for-masters-with-different-data.patch
+Patch04:          0004-Ticket-50933-Update-2307compat.ldif.patch
+Patch05:          0005-Issue-50933-Fix-OID-change-between-10rfc2307-and-10r.patch
+Patch06:          0006-Ticket-51131-improve-mutex-alloc-in-conntable.patch
+Patch07:          0007-Issue-4297-2nd-fix-for-on-ADD-replication-URP-issue-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -791,6 +798,18 @@ exit 0
 %doc README.md
 
 %changelog
+* Wed Nov 25 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-3
+- Bump version to 1.4.3.16-3
+- Resolves: Bug 1859219 - rfc2307 and rfc2307bis compat schema
+- Resolves: Bug 1843604 - reduce the cost of allocation/free when open/close a connection
+- Resolves: Bug 1898850 - Entries conflict not resolved by replication 
+
+* Thu Nov 19 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-2
+- Bump version to 1.4.3.16-2
+- Resolves: Bug 1859227 - create keep alive entry after on line init
+- Resolves: Bug 1888863 - group rdn with leading space char and add fails error 21 invalid syntax and delete fails error 32
+- Resolves: Bug 1859228 - do not add referrals for masters with different data generation
+
 * Mon Oct 26 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-1
 - Bump version to 1.4.3.16-1
 - Resolves: Bug 1887415 - Sync repl - if a serie of updates target the same entry then the cookie get wrong changenumber
