@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.16
-Release:          %{?relprefix}3%{?prerel}%{?dist}
+Release:          %{?relprefix}4%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -181,6 +181,9 @@ Patch04:          0004-Ticket-50933-Update-2307compat.ldif.patch
 Patch05:          0005-Issue-50933-Fix-OID-change-between-10rfc2307-and-10r.patch
 Patch06:          0006-Ticket-51131-improve-mutex-alloc-in-conntable.patch
 Patch07:          0007-Issue-4297-2nd-fix-for-on-ADD-replication-URP-issue-.patch
+Patch08:          0008-Issue-3657-Add-options-to-dsctl-for-dsrc-file.patch
+Patch09:          0009-Issue-4440-BUG-ldifgen-with-start-idx-option-fails-w.patch
+
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -798,6 +801,12 @@ exit 0
 %doc README.md
 
 %changelog
+* Thu Dec 3 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-4
+- Bump version to 1.4.3.16-4
+- Resolves: Bug 1843517 - Using ldifgen with --start-idx option fails with unsupported operand
+- Resolves: Bug 1801086 - [RFE] Generate dsrc file using dsconf
+- Resolves: Bug 1843838 - heap-use-after-free in slapi_be_getsuffix
+
 * Wed Nov 25 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-3
 - Bump version to 1.4.3.16-3
 - Resolves: Bug 1859219 - rfc2307 and rfc2307bis compat schema
