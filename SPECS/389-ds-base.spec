@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.8
-Release:          %{?relprefix}5%{?prerel}%{?dist}
+Release:          %{?relprefix}6%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -199,6 +199,15 @@ Patch22:          0022-Issue-51188-db2ldif-crashes-when-LDIF-file-can-t-be-.patc
 Patch23:          0023-Issue-51086-Fix-instance-name-length-for-interactive.patch
 Patch24:          0024-Issue-51129-SSL-alert-The-value-of-sslVersionMax-TLS.patch
 Patch25:          0025-Issue-50984-Memory-leaks-in-disk-monitoring.patch
+Patch26:          0026-Issue-4297-On-ADD-replication-URP-issue-internal-sea.patch
+Patch27:          0027-Issue-4297-2nd-fix-for-on-ADD-replication-URP-issue-.patch
+Patch28:          0028-Issue-51233-ds-replcheck-crashes-in-offline-mode.patch
+Patch29:          0029-Issue-4429-NULL-dereference-in-revert_cache.patch
+Patch30:          0030-ticket-2058-Add-keep-alive-entry-after-on-line-initi.patch
+Patch31:          0031-do-not-add-referrals-for-masters-with-different-data.patch
+Patch32:          0032-Issue-4383-Do-not-normalize-escaped-spaces-in-a-DN.patch
+Patch33:          0033-Issue-49300-entryUSN-is-duplicated-after-memberOf-op.patch
+
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -816,6 +825,16 @@ exit 0
 %doc README.md
 
 %changelog
+* Thu Dec 3 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-6
+- Bump version to 1.4.3.8-6
+- Resolves: Bug 1851973 - Duplicate entryUSN numbers for different LDAP entries in the same backend
+- Resolves: Bug 1888863 - group rdn with leading space char and add fails error 21 invalid syntax and delete fails error 32
+- Resolves: Bug 1859228 - do not add referrals for masters with different data generation
+- Resolves: Bug 1859227 - create keep alive entry after on line init
+- Resolves: Bug 1896850 - NULL dereference in revert_cache()
+- Resolves: Bug 1861504 - ds-replcheck crashes in offline mode
+- Resolves: Bug 1898850 - Entries conflict not resolved by replication
+
 * Wed Aug 5 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-5
 - Bump version to 1.4.3.8-5
 - Resolves: Bug 1841086 - SSL alert: The value of sslVersionMax "TLS1.3" is higher than the supported version

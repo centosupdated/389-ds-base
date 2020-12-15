@@ -1,0 +1,37 @@
+From 16a004faf7eda3f8c4d59171bceab8cf78a9d002 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Thu, 6 Aug 2020 14:50:19 -0400
+Subject: [PATCH 3/8] Issue 51233 - ds-replcheck crashes in offline mode
+
+Bug Description:  When processing all the DN's found in the Master LDIF
+                  it is possible that the LDIF is not in the expected
+                  order and ldifsearch fails (crashing the tool).
+
+Fix Description:  If ldifsearch does not find an entry, start from the
+                  beginning of the LDIF and try again.
+
+relates: https://pagure.io/389-ds-base/issue/51233
+
+Reviewed by: spichugi(Thanks!)
+---
+ ldap/admin/src/scripts/ds-replcheck | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/ldap/admin/src/scripts/ds-replcheck b/ldap/admin/src/scripts/ds-replcheck
+index 5bb7dfce3..1c133f4dd 100755
+--- a/ldap/admin/src/scripts/ds-replcheck
++++ b/ldap/admin/src/scripts/ds-replcheck
+@@ -725,6 +725,10 @@ def do_offline_report(opts, output_file=None):
+     missing = False
+     for dn in master_dns:
+         mresult = ldif_search(MLDIF, dn)
++        if mresult['entry'] is None and mresult['conflict'] is None and not mresult['tombstone']:
++            # Try from the beginning
++            MLDIF.seek(0)
++            mresult = ldif_search(MLDIF, dn)
+         rresult = ldif_search(RLDIF, dn)
+ 
+         if dn in replica_dns:
+-- 
+2.26.2
+
