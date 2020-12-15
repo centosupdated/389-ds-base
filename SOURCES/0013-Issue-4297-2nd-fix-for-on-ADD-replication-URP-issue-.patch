@@ -1,0 +1,63 @@
+From 19f44a6e703c16e807a51da2bfbd36b414041101 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Wed, 25 Nov 2020 18:32:51 +0100
+Subject: [PATCH 1/2] Issue 4297: 2nd fix for on ADD replication URP issue
+ internal searches with filter containing unescaped chars
+
+Bug description:
+	Previous fix is buggy because slapi_filter_escape_filter_value returns
+	a escaped filter component not an escaped assertion value.
+
+Fix description:
+	use the escaped filter component
+
+relates: #4297
+
+Reviewed by: Mark Reynolds, William Brown (thanks !)
+
+Platforms tested: F31
+---
+ ldap/servers/plugins/replication/urp.c | 15 ++++++++-------
+ 1 file changed, 8 insertions(+), 7 deletions(-)
+
+diff --git a/ldap/servers/plugins/replication/urp.c b/ldap/servers/plugins/replication/urp.c
+index 2c2d83c6c..586c6936d 100644
+--- a/ldap/servers/plugins/replication/urp.c
++++ b/ldap/servers/plugins/replication/urp.c
+@@ -1379,12 +1379,12 @@ urp_add_check_tombstone (Slapi_PBlock *pb, char *sessionid, Slapi_Entry *entry,
+     Slapi_Entry **entries = NULL;
+     Slapi_PBlock *newpb;
+     char *basedn = slapi_entry_get_ndn(entry);
+-    char *escaped_basedn;
++    char *escaped_filter;
+     const Slapi_DN *suffix = slapi_get_suffix_by_dn(slapi_entry_get_sdn (entry));
+-    escaped_basedn = slapi_filter_escape_filter_value("nscpentrydn", basedn);
++    escaped_filter = slapi_filter_escape_filter_value("nscpentrydn", basedn);
+ 
+-    char *filter = slapi_filter_sprintf("(&(objectclass=nstombstone)(nscpentrydn=%s))", escaped_basedn);
+-    slapi_ch_free((void **)&escaped_basedn);
++    char *filter = slapi_filter_sprintf("(&(objectclass=nstombstone)%s)", escaped_filter);
++    slapi_ch_free((void **)&escaped_filter);
+     newpb = slapi_pblock_new();
+     slapi_search_internal_set_pb(newpb,
+                                  slapi_sdn_get_dn(suffix), /* Base DN */
+@@ -1577,12 +1577,13 @@ urp_find_tombstone_for_glue (Slapi_PBlock *pb, char *sessionid, const Slapi_Entr
+     Slapi_PBlock *newpb;
+     const char *basedn = slapi_sdn_get_dn(parentdn);
+     char *conflict_csnstr = slapi_entry_attr_get_charptr(entry, "conflictcsn");
+-    char *escaped_basedn = slapi_filter_escape_filter_value("nscpentrydn", basedn);
++    char *escaped_filter;
++    escaped_filter = slapi_filter_escape_filter_value("nscpentrydn", (char *)basedn);
+     CSN *conflict_csn = csn_new_by_string(conflict_csnstr);
+     slapi_ch_free_string(&conflict_csnstr);
+     CSN *tombstone_csn = NULL;
+-    char *filter = slapi_filter_sprintf("(&(objectclass=nstombstone)(nscpentrydn=%s))", escaped_basedn);
+-    slapi_ch_free((void **)&escaped_basedn);
++    char *filter = slapi_filter_sprintf("(&(objectclass=nstombstone)%s)", escaped_filter);
++    slapi_ch_free((void **)&escaped_filter);
+     newpb = slapi_pblock_new();
+     char *parent_dn = slapi_dn_parent (basedn);
+     slapi_search_internal_set_pb(newpb,
+-- 
+2.26.2
+

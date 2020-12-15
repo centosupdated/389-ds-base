@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}7%{?prerel}.1%{?dist}
+Release:          %{?relprefix}8%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -158,6 +158,8 @@ Patch09:          0009-Issue-4297-On-ADD-replication-URP-issue-internal-sea.patc
 Patch10:          0010-Issue-4379-allow-more-than-1-empty-AttributeDescript.patch
 Patch11:          0011-Issue-51233-ds-replcheck-crashes-in-offline-mode.patch
 Patch12:          0012-Issue-51166-Log-an-error-when-a-search-is-fully-unin.patch
+Patch13:          0013-Issue-4297-2nd-fix-for-on-ADD-replication-URP-issue-.patch
+Patch14:          0014-0002-Issue-4383-Do-not-normalize-escaped-spaces-in-a-DN.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -511,6 +513,11 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Thu Dec 3 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-8
+- Bump version to 1.3.10.2-8
+- Resolves: Bug 1904145 - group rdn with leading space char and add fails error 21 invalid syntax and delete fails error 32
+- Resolves: Bug 1902042 - Entries conflict not resolved by replication
+
 * Wed Oct 21 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-7
 - Bump version to 1.3.10.2-7
 - Resolves: Bug 1870624 - RHDS - allow more than 1 empty AttributeDescription for ldapsearch, without the risk of denial of service
