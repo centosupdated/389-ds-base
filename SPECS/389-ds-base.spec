@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.16
-Release:          %{?relprefix}4%{?prerel}%{?dist}
+Release:          %{?relprefix}6%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -183,7 +183,16 @@ Patch06:          0006-Ticket-51131-improve-mutex-alloc-in-conntable.patch
 Patch07:          0007-Issue-4297-2nd-fix-for-on-ADD-replication-URP-issue-.patch
 Patch08:          0008-Issue-3657-Add-options-to-dsctl-for-dsrc-file.patch
 Patch09:          0009-Issue-4440-BUG-ldifgen-with-start-idx-option-fails-w.patch
-
+Patch10:          0010-Issue-4449-dsconf-replication-monitor-fails-to-retri.patch
+Patch11:          0011-Issue-4243-Fix-test-SyncRepl-plugin-provides-a-wrong.patch
+Patch12:          0012-Add-dsconf-replication-monitor-test-case-gitHub-issu.patch
+Patch13:          0013-Issue-4460-BUG-lib389-should-use-system-tls-policy.patch
+Patch14:          0014-Issue-4428-BUG-Paged-Results-with-critical-false-cau.patch
+Patch15:          0015-Issue-4315-performance-search-rate-nagle-triggers-hi.patch
+Patch16:          0016-Issue-4460-BUG-add-machine-name-to-subject-alt-names.patch
+Patch17:          0017-Issue-4483-heap-use-after-free-in-slapi_be_getsuffix.patch
+Patch18:          0018-Issue-4480-Unexpected-info-returned-to-ldap-request-.patch
+Patch19:          0019-Issue-4504-Fix-pytest-test_dsconf_replication_monito.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -801,6 +810,20 @@ exit 0
 %doc README.md
 
 %changelog
+* Wed Dec 16 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-6
+- Bump version to 1.4.3.16-6
+- Resolves: Bug 1879386 - cli dsconf replication monitor fails to retrieve database RUV - consumer (Unavailable) State (green) Reason (error (0)
+- Resolves: Bug 1904991 - Unexpected info returned to ldap request
+- Resolves: Bug 1843838 - heap-use-after-free in slapi_be_getsuffix
+- Resolves: Bug 1903133 - Server-Cert.crt created using dscreate has Subject:CN =localhost instead of hostname.
+
+* Wed Dec 9 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-5
+- Bump version to 1.4.3.16-5
+- Resolves: Bug 1879386 - cli dsconf replication monitor fails to retrieve database RUV
+- Resolves: Bug 1887449 - Sync repl: missing update because operation are erroneously stated as nested
+- Resolves: Bug 1887415 - Sync repl - if a series of updates target the same entry then the cookie get wrong changenumber
+- Resolves: Bug 1851978 - SyncRepl plugin provides a wrong cookie
+
 * Thu Dec 3 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-4
 - Bump version to 1.4.3.16-4
 - Resolves: Bug 1843517 - Using ldifgen with --start-idx option fails with unsupported operand

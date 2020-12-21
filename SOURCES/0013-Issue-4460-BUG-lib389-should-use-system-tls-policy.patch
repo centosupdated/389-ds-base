@@ -1,0 +1,100 @@
+From 389b2c825742392365262a719be7c8f594e7e522 Mon Sep 17 00:00:00 2001
+From: William Brown <william@blackhats.net.au>
+Date: Thu, 26 Nov 2020 09:08:13 +1000
+Subject: [PATCH] Issue 4460 - BUG  - lib389 should use system tls policy
+
+Bug Description: Due to some changes in dsrc for tlsreqcert
+and how def open was structured in lib389, the system ldap.conf
+policy was ignored.
+
+Fix Description: Default to using the system ldap.conf policy
+if undefined in lib389 or the tls_reqcert param in dsrc.
+
+fixes: #4460
+
+Author: William Brown <william@blackhats.net.au>
+
+Review by: ???
+---
+ src/lib389/lib389/__init__.py      | 11 +++++++----
+ src/lib389/lib389/cli_base/dsrc.py | 16 +++++++++-------
+ 2 files changed, 16 insertions(+), 11 deletions(-)
+
+diff --git a/src/lib389/lib389/__init__.py b/src/lib389/lib389/__init__.py
+index 99ea9cc6a..4e6a1905a 100644
+--- a/src/lib389/lib389/__init__.py
++++ b/src/lib389/lib389/__init__.py
+@@ -962,7 +962,7 @@ class DirSrv(SimpleLDAPObject, object):
+         # Now, we are still an allocated ds object so we can be re-installed
+         self.state = DIRSRV_STATE_ALLOCATED
+ 
+-    def open(self, uri=None, saslmethod=None, sasltoken=None, certdir=None, starttls=False, connOnly=False, reqcert=ldap.OPT_X_TLS_HARD,
++    def open(self, uri=None, saslmethod=None, sasltoken=None, certdir=None, starttls=False, connOnly=False, reqcert=None,
+                 usercert=None, userkey=None):
+         '''
+             It opens a ldap bound connection to dirsrv so that online
+@@ -1025,9 +1025,12 @@ class DirSrv(SimpleLDAPObject, object):
+             try:
+                 # Note this sets LDAP.OPT not SELF. Because once self has opened
+                 # it can NOT change opts on reused (ie restart)
+-                self.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, reqcert)
+-                self.log.debug("Using certificate policy %s", reqcert)
+-                self.log.debug("ldap.OPT_X_TLS_REQUIRE_CERT = %s", reqcert)
++                if reqcert is not None:
++                    self.set_option(ldap.OPT_X_TLS_REQUIRE_CERT, reqcert)
++                    self.log.debug("Using lib389 certificate policy %s", reqcert)
++                else:
++                    self.log.debug("Using /etc/openldap/ldap.conf certificate policy")
++                self.log.debug("ldap.OPT_X_TLS_REQUIRE_CERT = %s", self.get_option(ldap.OPT_X_TLS_REQUIRE_CERT))
+             except ldap.LDAPError as e:
+                 self.log.fatal('TLS negotiation failed: %s', e)
+                 raise e
+diff --git a/src/lib389/lib389/cli_base/dsrc.py b/src/lib389/lib389/cli_base/dsrc.py
+index fec18a5f9..9b09ea568 100644
+--- a/src/lib389/lib389/cli_base/dsrc.py
++++ b/src/lib389/lib389/cli_base/dsrc.py
+@@ -45,7 +45,7 @@ def dsrc_arg_concat(args, dsrc_inst):
+             'tls_cacertdir': None,
+             'tls_cert': None,
+             'tls_key': None,
+-            'tls_reqcert': ldap.OPT_X_TLS_HARD,
++            'tls_reqcert': None,
+             'starttls': args.starttls,
+             'prompt': False,
+             'pwdfile': None,
+@@ -134,7 +134,7 @@ def dsrc_to_ldap(path, instance_name, log):
+     dsrc_inst['binddn'] = config.get(instance_name, 'binddn', fallback=None)
+     dsrc_inst['saslmech'] = config.get(instance_name, 'saslmech', fallback=None)
+     if dsrc_inst['saslmech'] is not None and dsrc_inst['saslmech'] not in ['EXTERNAL', 'PLAIN']:
+-        raise Exception("%s [%s] saslmech must be one of EXTERNAL or PLAIN" % (path, instance_name))
++        raise ValueError("%s [%s] saslmech must be one of EXTERNAL or PLAIN" % (path, instance_name))
+ 
+     dsrc_inst['tls_cacertdir'] = config.get(instance_name, 'tls_cacertdir', fallback=None)
+     # At this point, we should check if the provided cacertdir is indeed, a dir. This can be a cause
+@@ -145,16 +145,18 @@ def dsrc_to_ldap(path, instance_name, log):
+ 
+     dsrc_inst['tls_cert'] = config.get(instance_name, 'tls_cert', fallback=None)
+     dsrc_inst['tls_key'] = config.get(instance_name, 'tls_key', fallback=None)
+-    dsrc_inst['tls_reqcert'] = config.get(instance_name, 'tls_reqcert', fallback='hard')
+-    if dsrc_inst['tls_reqcert'] not in ['never', 'allow', 'hard']:
+-        raise Exception("dsrc tls_reqcert value invalid. %s [%s] tls_reqcert should be one of never, allow or hard" % (instance_name,
+-                                                                                                                       path))
++    dsrc_inst['tls_reqcert'] = config.get(instance_name, 'tls_reqcert', fallback=None)
+     if dsrc_inst['tls_reqcert'] == 'never':
+         dsrc_inst['tls_reqcert'] = ldap.OPT_X_TLS_NEVER
+     elif dsrc_inst['tls_reqcert'] == 'allow':
+         dsrc_inst['tls_reqcert'] = ldap.OPT_X_TLS_ALLOW
+-    else:
++    elif dsrc_inst['tls_reqcert'] == 'hard':
+         dsrc_inst['tls_reqcert'] = ldap.OPT_X_TLS_HARD
++    elif dsrc_inst['tls_reqcert'] is None:
++        # Use system value
++        pass
++    else:
++        raise ValueError("dsrc tls_reqcert value invalid. %s [%s] tls_reqcert should be one of never, allow or hard" % (instance_name, path))
+     dsrc_inst['starttls'] = config.getboolean(instance_name, 'starttls', fallback=False)
+     dsrc_inst['pwdfile'] = None
+     dsrc_inst['prompt'] = False
+-- 
+2.26.2
+
