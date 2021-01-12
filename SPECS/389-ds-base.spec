@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}8%{?prerel}%{?dist}
+Release:          %{?relprefix}9%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -160,6 +160,7 @@ Patch11:          0011-Issue-51233-ds-replcheck-crashes-in-offline-mode.patch
 Patch12:          0012-Issue-51166-Log-an-error-when-a-search-is-fully-unin.patch
 Patch13:          0013-Issue-4297-2nd-fix-for-on-ADD-replication-URP-issue-.patch
 Patch14:          0014-0002-Issue-4383-Do-not-normalize-escaped-spaces-in-a-DN.patch
+Patch15:          0015-Issue-4219-fix-crash-around-logging-internal-unindex.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -513,6 +514,10 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Thu Jan 7 2021 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-9
+- Bump version to 1.3.10.2-8
+- Resolves: Bug 1905450 - Internal unindexed search crashes the server
+
 * Thu Dec 3 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-8
 - Bump version to 1.3.10.2-8
 - Resolves: Bug 1904145 - group rdn with leading space char and add fails error 21 invalid syntax and delete fails error 32

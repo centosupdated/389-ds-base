@@ -1,0 +1,48 @@
+From 004aa9ef4f4ce967089d0a999617f19f4a3a7706 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 8 Dec 2020 09:19:36 -0500
+Subject: [PATCH 1/2] Issue 4219 - fix crash around logging internal unindexed
+ searches
+
+Description:  In 1.3.x there is no function get_internal_conn_op()
+              which was beign called and crashing the server.  Just
+              use the regular conn and op numbers.
+
+Fixes: https://github.com/389ds/389-ds-base/issues/4219
+
+Reviewed by:  tmihinto(Thanks!)
+---
+ ldap/servers/slapd/back-ldbm/ldbm_search.c | 9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_search.c b/ldap/servers/slapd/back-ldbm/ldbm_search.c
+index 212b6cb61..81eef3ac9 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_search.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_search.c
+@@ -831,10 +831,6 @@ ldbm_back_search(Slapi_PBlock *pb)
+         char *plugin_dn;
+         char *base_dn;
+         int32_t internal_op = operation_is_flag_set(operation, OP_FLAG_INTERNAL);
+-        uint64_t connid;
+-        int32_t op_id;
+-        int32_t op_internal_id;
+-        int32_t op_nested_count;
+ 
+         /*
+          * Return error if nsslapd-require-index is set and
+@@ -873,10 +869,9 @@ ldbm_back_search(Slapi_PBlock *pb)
+                 slapi_pblock_get(pb, SLAPI_PLUGIN, &plugin);
+             }
+             plugin_dn = plugin_get_dn(plugin);
+-            get_internal_conn_op(&connid, &op_id, &op_internal_id, &op_nested_count);
+             slapi_log_err(SLAPI_LOG_NOTICE, "ldbm_back_search",
+-                    "Internal unindexed search: source (%s) search base=\"%s\" scope=%d filter=\"%s\" conn=%" PRIu64 " op=%d (internal op=%d count=%d)\n",
+-                    plugin_dn, base_dn, scope, filter_str, connid, op_id, op_internal_id, op_nested_count);
++                    "Internal unindexed search: source (%s) search base=\"%s\" scope=%d filter=\"%s\" conn=%" PRIu64 " op=%d\n",
++                    plugin_dn, base_dn, scope, filter_str, pb_op->o_connid, pb_op->o_opid);
+             slapi_ch_free_string(&plugin_dn);
+         } else {
+             slapi_log_err(SLAPI_LOG_NOTICE, "ldbm_back_search",
+-- 
+2.26.2
+
