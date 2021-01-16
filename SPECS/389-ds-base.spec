@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.16
-Release:          %{?relprefix}6%{?prerel}%{?dist}
+Release:          %{?relprefix}7%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -193,6 +193,12 @@ Patch16:          0016-Issue-4460-BUG-add-machine-name-to-subject-alt-names.patc
 Patch17:          0017-Issue-4483-heap-use-after-free-in-slapi_be_getsuffix.patch
 Patch18:          0018-Issue-4480-Unexpected-info-returned-to-ldap-request-.patch
 Patch19:          0019-Issue-4504-Fix-pytest-test_dsconf_replication_monito.patch
+Patch20:          0020-Issue-4418-ldif2db-offline.-Warn-the-user-of-skipped.patch
+Patch21:          0021-Issue-4418-ldif2db-offline.-Warn-the-user-of-skipped.patch
+Patch22:          0022-Fix-cherry-pick-erorr.patch
+Patch23:          0023-Issue-4419-Warn-users-of-skipped-entries-during-ldif.patch
+Patch24:          0024-Issue-4480-Unexpected-info-returned-to-ldap-request-.patch
+Patch25:          0025-Issue-4414-disk-monitoring-prevent-division-by-zero-.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -810,6 +816,12 @@ exit 0
 %doc README.md
 
 %changelog
+* Thu Jan 7 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-7
+- Bump version to 1.4.3.16-7
+- Resolves: Bug 1890118 - SIGFPE crash in rhds disk monitoring routine
+- Resolves: Bug 1904991 - 389-ds:1.4/389-ds-base: information disclosure during the binding of a DN
+- Resolves: Bug 1627645 - ldif2db does not change exit code when there are skipped entries
+
 * Wed Dec 16 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-6
 - Bump version to 1.4.3.16-6
 - Resolves: Bug 1879386 - cli dsconf replication monitor fails to retrieve database RUV - consumer (Unavailable) State (green) Reason (error (0)
