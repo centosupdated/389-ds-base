@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.16
-Release:          %{?relprefix}7%{?prerel}%{?dist}
+Release:          %{?relprefix}8%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -199,6 +199,12 @@ Patch22:          0022-Fix-cherry-pick-erorr.patch
 Patch23:          0023-Issue-4419-Warn-users-of-skipped-entries-during-ldif.patch
 Patch24:          0024-Issue-4480-Unexpected-info-returned-to-ldap-request-.patch
 Patch25:          0025-Issue-4414-disk-monitoring-prevent-division-by-zero-.patch
+Patch26:          0026-Issue-4504-Insure-ldapi-is-enabled-in-repl_monitor_t.patch
+Patch27:          0027-Issue-4315-performance-search-rate-nagle-triggers-hi.patch
+Patch28:          0028-Issue-4504-insure-that-repl_monitor_test-use-ldapi-f.patch
+Patch29:          0029-Issue-4528-Fix-cn-monitor-SCOPE_ONE-search-4529.patch
+Patch30:          0030-Issue-4384-Use-MONOTONIC-clock-for-all-timing-events.patch
+Patch31:          0031-Issue-4384-Separate-eventq-into-REALTIME-and-MONOTON.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -816,6 +822,11 @@ exit 0
 %doc README.md
 
 %changelog
+* Wed Jan 13 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-8
+- Bump version to 1.4.3.16-8
+- Resolves: Bug 1903539 - cn=monitor is throwing err=32 with scope: -s one
+- Resolves: Bug 1893870 - PR_WaitCondVar() issue causes replication delay when clock jumps backwards
+
 * Thu Jan 7 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-7
 - Bump version to 1.4.3.16-7
 - Resolves: Bug 1890118 - SIGFPE crash in rhds disk monitoring routine
