@@ -1,0 +1,55 @@
+From ffeb863e47ab35cbb2e5666847561451d0394ed9 Mon Sep 17 00:00:00 2001
+From: tbordaz <tbordaz@redhat.com>
+Date: Mon, 11 Jan 2021 17:33:06 +0100
+Subject: [PATCH] Issue 4521 - DS crash in deref plugin if dereferenced entry
+ exists but is not returned by internal search (#4525)
+
+Bug description:
+	For each returned entry, deref plugin dereferences some attribute values that refer to entries.
+	To do this it does an internal search (scope base) with each attribute values.
+	Deref plugin assumes that if internal search succeeds, a single entry is returned.
+	It exists cases (not identified) where internal search succeeds but returns no entry.
+	In such case (search succeeds but no entry returned) the server crash.
+	Note: wonder if DB deadlock could lead to such situation.
+
+Fix description:
+	Make a hardening fix that logs warning in such case
+
+relates: https://github.com/389ds/389-ds-base/issues/4521
+
+Reviewed by: Mark Reynolds (thanks)
+
+Platforms tested: F31
+---
+ ldap/servers/plugins/deref/deref.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/ldap/servers/plugins/deref/deref.c b/ldap/servers/plugins/deref/deref.c
+index ec1884ba3..fc1c10f71 100644
+--- a/ldap/servers/plugins/deref/deref.c
++++ b/ldap/servers/plugins/deref/deref.c
+@@ -592,6 +592,21 @@ deref_do_deref_attr(Slapi_PBlock *pb, BerElement *ctrlber, const char *derefdn,
+                 slapi_log_err(SLAPI_LOG_PLUGIN, DEREF_PLUGIN_SUBSYSTEM,
+                               "deref_do_deref_attr - More than one entry matching DN [%s]\n",
+                               derefdn);
++            } else if (entries[0] == NULL) {
++                int32_t op_id;
++                uint64_t conn_id;
++
++                slapi_pblock_get(pb, SLAPI_OPERATION_ID, &op_id);
++                slapi_pblock_get(pb, SLAPI_CONN_ID, &conn_id);
++                /* Weird case not clearly understood:
++                 * the entry 'derefdn' exists (else we would have NOT_SUCH_ENTRY in 'rc')
++                 * but it is not returned by the internal search. Note that internal search
++                 * returns tombstone or subentry.
++                 * Just to prevent a crash, catch this error condition and log a warning
++                 */
++                slapi_log_err(SLAPI_LOG_WARNING, DEREF_PLUGIN_SUBSYSTEM,
++                              "deref_do_deref_attr - conn=%" PRIu64 " op=%d - failed to retrieve the entry [%s], although the entry exists\n",
++                              conn_id, op_id, derefdn);
+             } else {
+                 int ii;
+                 int needattrvals = 1; /* need attrvals sequence? */
+-- 
+2.26.2
+

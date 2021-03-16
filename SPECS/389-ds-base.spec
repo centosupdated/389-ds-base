@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}9%{?prerel}%{?dist}
+Release:          %{?relprefix}10%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -161,6 +161,11 @@ Patch12:          0012-Issue-51166-Log-an-error-when-a-search-is-fully-unin.patc
 Patch13:          0013-Issue-4297-2nd-fix-for-on-ADD-replication-URP-issue-.patch
 Patch14:          0014-0002-Issue-4383-Do-not-normalize-escaped-spaces-in-a-DN.patch
 Patch15:          0015-Issue-4219-fix-crash-around-logging-internal-unindex.patch
+Patch16:          0016-Issue-4521-DS-crash-in-deref-plugin-if-dereferenced-.patch
+Patch17:          0017-Issue-4492-Changelog-cache-can-upload-updates-from-a.patch
+Patch18:          0018-Issue-5442-Search-results-are-different-between-RHDS.patch
+Patch19:          0019-Issue-4644-Large-updates-can-reset-the-CLcache-to-th.patch
+
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -514,8 +519,14 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Thu Feb 25 2021 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-10
+- Bump version to 1.3.10.2-10
+- Resolves: Bug 1909342 - DS crash in deref plugin while dereferencing an entry that exists but that is not returned by internal search
+- Resolves: Bug 1921856 - “write” permission of ACI changes ns-slapd’s behavior on search operation 
+- Resolves: Bug 1881968 - Replication Lag under high load
+
 * Thu Jan 7 2021 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-9
-- Bump version to 1.3.10.2-8
+- Bump version to 1.3.10.2-9
 - Resolves: Bug 1905450 - Internal unindexed search crashes the server
 
 * Thu Dec 3 2020 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-8
