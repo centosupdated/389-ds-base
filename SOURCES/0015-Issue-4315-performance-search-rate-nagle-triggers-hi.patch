@@ -1,0 +1,50 @@
+From 4c133d448f451b7c3b2ff1b42806c7516d623f09 Mon Sep 17 00:00:00 2001
+From: tbordaz <tbordaz@redhat.com>
+Date: Mon, 7 Dec 2020 00:41:27 +0100
+Subject: [PATCH] Issue 4315: performance search rate: nagle triggers high rate
+ of setsocketopt (#4437)
+
+Bug description:
+	When a socket is set with NO_DELAY=0 (nagle), written pdu are buffered
+	until buffer is full or tcp_cork is set. This reduce network traffic when
+        the application writes partial pdu.
+        DS write complete pdu (results/entries/..) so it gives low benefit for DS.
+	In addition nagle being 'on' by default, DS sets/unset socket tcp_cork to send
+	immediately results/entries at each operation. This is an overhead of syscalls.
+
+Fix description:
+	Disable nagle by default
+
+relates: https://github.com/389ds/389-ds-base/issues/4315
+
+Reviewed by: @mreynolds389, @Firstyear
+
+Platforms tested:  F33
+---
+ ldap/servers/slapd/libglobs.c | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/ldap/servers/slapd/libglobs.c b/ldap/servers/slapd/libglobs.c
+index 7d5374c90..f8cf162e6 100644
+--- a/ldap/servers/slapd/libglobs.c
++++ b/ldap/servers/slapd/libglobs.c
+@@ -1635,12 +1635,11 @@ FrontendConfig_init(void)
+ #endif /* USE_SYSCONF */
+ 
+     init_accesscontrol = cfg->accesscontrol = LDAP_ON;
+-#if defined(LINUX)
+-    /* On Linux, by default, we use TCP_CORK so we must enable nagle */
+-    init_nagle = cfg->nagle = LDAP_ON;
+-#else
++
++    /* nagle triggers set/unset TCP_CORK setsockopt per operation
++     * as DS only sends complete PDU there is no benefit of nagle/tcp_cork
++     */
+     init_nagle = cfg->nagle = LDAP_OFF;
+-#endif
+     init_security = cfg->security = LDAP_OFF;
+     init_ssl_check_hostname = cfg->ssl_check_hostname = LDAP_ON;
+     cfg->tls_check_crl = TLS_CHECK_NONE;
+-- 
+2.26.2
+

@@ -1,0 +1,190 @@
+From 4839898dbe69d6445f3571beec1bf3f1557d6cc6 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 12 Jan 2021 10:09:23 -0500
+Subject: [PATCH] Issue 4513 - CI Tests - fix test failures
+
+Description:
+
+    Fixed tests in these suites:  basic, entryuuid, filter, lib389, and schema
+
+relates: https://github.com/389ds/389-ds-base/issues/4513
+
+Reviewed by: progier(Thanks!)
+---
+ dirsrvtests/tests/suites/basic/basic_test.py  | 65 ++++++++++---------
+ .../filter/rfc3673_all_oper_attrs_test.py     |  4 +-
+ .../suites/lib389/config_compare_test.py      |  5 +-
+ .../suites/lib389/idm/user_compare_i2_test.py |  3 +
+ .../tests/suites/schema/schema_reload_test.py |  3 +
+ 5 files changed, 47 insertions(+), 33 deletions(-)
+
+diff --git a/dirsrvtests/tests/suites/basic/basic_test.py b/dirsrvtests/tests/suites/basic/basic_test.py
+index 97908c31c..fc9af46e4 100644
+--- a/dirsrvtests/tests/suites/basic/basic_test.py
++++ b/dirsrvtests/tests/suites/basic/basic_test.py
+@@ -1059,6 +1059,41 @@ def test_search_ou(topology_st):
+     assert len(entries) == 0
+ 
+ 
++def test_bind_invalid_entry(topology_st):
++    """Test the failing bind does not return information about the entry
++
++    :id: 5cd9b083-eea6-426b-84ca-83c26fc49a6f
++
++    :setup: Standalone instance
++
++    :steps:
++    1: bind as non existing entry
++    2: check that bind info does not report 'No such entry'
++
++    :expectedresults:
++    1: pass
++    2: pass
++    """
++
++    topology_st.standalone.restart()
++    INVALID_ENTRY="cn=foooo,%s" % DEFAULT_SUFFIX
++    try:
++        topology_st.standalone.simple_bind_s(INVALID_ENTRY, PASSWORD)
++    except ldap.LDAPError as e:
++        log.info('test_bind_invalid_entry: Failed to bind as %s (expected)' % INVALID_ENTRY)
++        log.info('exception description: ' + e.args[0]['desc'])
++        if 'info' in e.args[0]:
++            log.info('exception info: ' + e.args[0]['info'])
++        assert e.args[0]['desc'] == 'Invalid credentials'
++        assert 'info' not in e.args[0]
++        pass
++
++    log.info('test_bind_invalid_entry: PASSED')
++
++    # reset credentials
++    topology_st.standalone.simple_bind_s(DN_DM, PW_DM)
++
++
+ @pytest.mark.bz1044135
+ @pytest.mark.ds47319
+ def test_connection_buffer_size(topology_st):
+@@ -1477,36 +1512,6 @@ def test_dscreate_with_different_rdn(dscreate_test_rdn_value):
+         else:
+             assert True
+ 
+-def test_bind_invalid_entry(topology_st):
+-    """Test the failing bind does not return information about the entry
+-
+-    :id: 5cd9b083-eea6-426b-84ca-83c26fc49a6f
+-
+-    :setup: Standalone instance
+-
+-    :steps:
+-    1: bind as non existing entry
+-    2: check that bind info does not report 'No such entry'
+-
+-    :expectedresults:
+-    1: pass
+-    2: pass
+-    """
+-
+-    topology_st.standalone.restart()
+-    INVALID_ENTRY="cn=foooo,%s" % DEFAULT_SUFFIX
+-    try:
+-        topology_st.standalone.simple_bind_s(INVALID_ENTRY, PASSWORD)
+-    except ldap.LDAPError as e:
+-        log.info('test_bind_invalid_entry: Failed to bind as %s (expected)' % INVALID_ENTRY)
+-        log.info('exception description: ' + e.args[0]['desc'])
+-        if 'info' in e.args[0]:
+-            log.info('exception info: ' + e.args[0]['info'])
+-        assert e.args[0]['desc'] == 'Invalid credentials'
+-        assert 'info' not in e.args[0]
+-        pass
+-
+-    log.info('test_bind_invalid_entry: PASSED')
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/dirsrvtests/tests/suites/filter/rfc3673_all_oper_attrs_test.py b/dirsrvtests/tests/suites/filter/rfc3673_all_oper_attrs_test.py
+index c882bea5f..0477acda7 100644
+--- a/dirsrvtests/tests/suites/filter/rfc3673_all_oper_attrs_test.py
++++ b/dirsrvtests/tests/suites/filter/rfc3673_all_oper_attrs_test.py
+@@ -53,11 +53,11 @@ TEST_PARAMS = [(DN_ROOT, False, [
+                (TEST_USER_DN, False, [
+                 'createTimestamp', 'creatorsName', 'entrydn',
+                 'entryid', 'modifiersName', 'modifyTimestamp',
+-                'nsUniqueId', 'parentid'
++                'nsUniqueId', 'parentid', 'entryUUID'
+                ]),
+                (TEST_USER_DN, True, [
+                 'createTimestamp', 'creatorsName', 'entrydn',
+-                'entryid', 'modifyTimestamp', 'nsUniqueId', 'parentid'
++                'entryid', 'modifyTimestamp', 'nsUniqueId', 'parentid', 'entryUUID'
+                ]),
+                (DN_CONFIG, False, [
+                 'numSubordinates', 'passwordHistory'
+diff --git a/dirsrvtests/tests/suites/lib389/config_compare_test.py b/dirsrvtests/tests/suites/lib389/config_compare_test.py
+index 709bae8cb..84f55acfa 100644
+--- a/dirsrvtests/tests/suites/lib389/config_compare_test.py
++++ b/dirsrvtests/tests/suites/lib389/config_compare_test.py
+@@ -22,15 +22,18 @@ def test_config_compare(topology_i2):
+     st2_config = topology_i2.ins.get('standalone2').config
+     # 'nsslapd-port' attribute is expected to be same in cn=config comparison,
+     # but they are different in our testing environment
+-    # as we are using 2 DS instances running, both running simultaneuosly.
++    # as we are using 2 DS instances running, both running simultaneously.
+     # Hence explicitly adding 'nsslapd-port' to compare_exclude.
+     st1_config._compare_exclude.append('nsslapd-port')
+     st2_config._compare_exclude.append('nsslapd-port')
+     st1_config._compare_exclude.append('nsslapd-secureport')
+     st2_config._compare_exclude.append('nsslapd-secureport')
++    st1_config._compare_exclude.append('nsslapd-ldapssotoken-secret')
++    st2_config._compare_exclude.append('nsslapd-ldapssotoken-secret')
+ 
+     assert Config.compare(st1_config, st2_config)
+ 
++
+ if __name__ == '__main__':
+     # Run isolated
+     # -s for DEBUG mode
+diff --git a/dirsrvtests/tests/suites/lib389/idm/user_compare_i2_test.py b/dirsrvtests/tests/suites/lib389/idm/user_compare_i2_test.py
+index c7540e4ce..ccde0f6b0 100644
+--- a/dirsrvtests/tests/suites/lib389/idm/user_compare_i2_test.py
++++ b/dirsrvtests/tests/suites/lib389/idm/user_compare_i2_test.py
+@@ -39,6 +39,9 @@ def test_user_compare_i2(topology_i2):
+     st2_users.create(properties=user_properties)
+     st2_testuser = st2_users.get('testuser')
+ 
++    st1_testuser._compare_exclude.append('entryuuid')
++    st2_testuser._compare_exclude.append('entryuuid')
++
+     assert UserAccount.compare(st1_testuser, st2_testuser)
+ 
+ 
+diff --git a/dirsrvtests/tests/suites/schema/schema_reload_test.py b/dirsrvtests/tests/suites/schema/schema_reload_test.py
+index 2ece5dda5..e7e7d833d 100644
+--- a/dirsrvtests/tests/suites/schema/schema_reload_test.py
++++ b/dirsrvtests/tests/suites/schema/schema_reload_test.py
+@@ -54,6 +54,7 @@ def test_valid_schema(topo):
+             schema_file.write("objectclasses: ( 1.2.3.4.5.6.7.8 NAME 'TestObject' " +
+                               "SUP top MUST ( objectclass $ cn ) MAY ( givenName $ " +
+                               "sn $ ValidAttribute ) X-ORIGIN 'user defined' )')\n")
++        os.chmod(schema_filename, 0o777)
+     except OSError as e:
+         log.fatal("Failed to create schema file: " +
+                   "{} Error: {}".format(schema_filename, str(e)))
+@@ -106,6 +107,7 @@ def test_invalid_schema(topo):
+             schema_file.write("objectclasses: ( 1.2.3.4.5.6.7 NAME 'MoZiLLaOBJeCT' " +
+                               "SUP top MUST ( objectclass $ cn ) MAY ( givenName $ " +
+                               "sn $ MozillaAttribute ) X-ORIGIN 'user defined' )')\n")
++        os.chmod(schema_filename, 0o777)
+     except OSError as e:
+         log.fatal("Failed to create schema file: " +
+                   "{} Error: {}".format(schema_filename, str(e)))
+@@ -122,6 +124,7 @@ def test_invalid_schema(topo):
+             schema_file.write("objectclasses: ( 1.2.3.4.5.6.70 NAME 'MoZiLLaOBJeCT' " +
+                               "SUP top MUST ( objectclass $ cn ) MAY ( givenName $ " +
+                               "cn $ MoZiLLaATTRiBuTe ) X-ORIGIN 'user defined' )')\n")
++        os.chmod(schema_filename, 0o777)
+     except OSError as e:
+         log.fatal("Failed to create schema file: " +
+                   "{} Error: {}".format(schema_filename, str(e)))
+-- 
+2.26.2
+

@@ -1,0 +1,99 @@
+From 3c74f736c657d007770fe866842b08d0a74772ca Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 9 Dec 2020 15:21:11 -0500
+Subject: [PATCH 6/6] Issue 4414 - disk monitoring - prevent division by zero
+ crash
+
+Bug Description:  If a disk mount has zero total space or zero used
+                  space then a division by zero can occur and the
+                  server will crash.
+
+                  It has also been observed that sometimes a system
+                  can return the wrong disk entirely, and when that
+                  happens the incorrect disk also has zero available
+                  space which triggers the disk monitioring thread to
+                  immediately shut the server down.
+
+Fix Description:  Check the total and used space for zero and do not
+                  divide, just ignore it.  As a preemptive measure
+                  ignore disks from /dev, /proc, /sys (except /dev/shm).
+                  Yes it's a bit hacky, but the true underlying cause
+                  is not known yet.  So better to be safe than sorry.
+
+Relates: https://github.com/389ds/389-ds-base/issues/4414
+
+Reviewed by: firstyear(Thanks!)
+---
+ ldap/servers/slapd/daemon.c  | 22 +++++++++++++++++++++-
+ ldap/servers/slapd/monitor.c | 13 +++++--------
+ 2 files changed, 26 insertions(+), 9 deletions(-)
+
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index 691f77570..bfd965263 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -221,7 +221,27 @@ disk_mon_get_mount_point(char *dir)
+         }
+         if (s.st_dev == dev_id) {
+             endmntent(fp);
+-            return (slapi_ch_strdup(mnt->mnt_dir));
++
++            if ((strncmp(mnt->mnt_dir, "/dev", 4) == 0 && strncmp(mnt->mnt_dir, "/dev/shm", 8) != 0) ||
++                strncmp(mnt->mnt_dir, "/proc", 4) == 0 ||
++                strncmp(mnt->mnt_dir, "/sys", 4) == 0)
++            {
++                /*
++                 * Ignore "mount directories" starting with /dev (except
++                 * /dev/shm), /proc, /sys  For some reason these mounts are
++                 * occasionally/incorrectly returned.  Only seen this at a
++                 * customer site once.  When it happens it causes disk
++                 * monitoring to think the server has 0 disk space left, and
++                 * it abruptly/unexpectedly shuts the server down.  At this
++                 * point it looks like a bug in stat(), setmntent(), or
++                 * getmntent(), but there is no way to prove that since there
++                 * is no way to reproduce the original issue.  For now just
++                 * return NULL to be safe.
++                 */
++                return NULL;
++            } else {
++                return (slapi_ch_strdup(mnt->mnt_dir));
++            }
+         }
+     }
+     endmntent(fp);
+diff --git a/ldap/servers/slapd/monitor.c b/ldap/servers/slapd/monitor.c
+index 562721bed..65f082986 100644
+--- a/ldap/servers/slapd/monitor.c
++++ b/ldap/servers/slapd/monitor.c
+@@ -131,7 +131,6 @@ monitor_disk_info (Slapi_PBlock *pb __attribute__((unused)),
+ {
+     int32_t rc = LDAP_SUCCESS;
+     char **dirs = NULL;
+-    char buf[BUFSIZ];
+     struct berval val;
+     struct berval *vals[2];
+     uint64_t total_space;
+@@ -143,15 +142,13 @@ monitor_disk_info (Slapi_PBlock *pb __attribute__((unused)),
+ 
+     disk_mon_get_dirs(&dirs);
+ 
+-    for (uint16_t i = 0; dirs && dirs[i]; i++) {
++    for (size_t i = 0; dirs && dirs[i]; i++) {
++    	char buf[BUFSIZ] = {0};
+         rc = disk_get_info(dirs[i], &total_space, &avail_space, &used_space);
+-        if (rc) {
+-            slapi_log_err(SLAPI_LOG_WARNING, "monitor_disk_info",
+-                          "Unable to get 'cn=disk space,cn=monitor' stats for %s\n", dirs[i]);
+-        } else {
++        if (rc == 0 && total_space > 0 && used_space > 0) {
+             val.bv_len = snprintf(buf, sizeof(buf),
+-                                  "partition=\"%s\" size=\"%" PRIu64 "\" used=\"%" PRIu64 "\" available=\"%" PRIu64 "\" use%%=\"%" PRIu64 "\"",
+-                                  dirs[i], total_space, used_space, avail_space, used_space * 100 / total_space);
++                    "partition=\"%s\" size=\"%" PRIu64 "\" used=\"%" PRIu64 "\" available=\"%" PRIu64 "\" use%%=\"%" PRIu64 "\"",
++                    dirs[i], total_space, used_space, avail_space, used_space * 100 / total_space);
+             val.bv_val = buf;
+             attrlist_merge(&e->e_attrs, "dsDisk", vals);
+         }
+-- 
+2.26.2
+

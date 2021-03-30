@@ -1,0 +1,50 @@
+From 1386b140d8cc81d37fdea6593487fe542587ccac Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 9 Dec 2020 09:52:08 -0500
+Subject: [PATCH] Issue 4483 - heap-use-after-free in slapi_be_getsuffix
+
+Description:  heap-use-after-free in slapi_be_getsuffix after disk
+              monitoring runs. This feature is freeing a list of
+              backends which it does not need to do.
+
+Fixes: https://github.com/389ds/389-ds-base/issues/4483
+
+Reviewed by: firstyear & tbordaz(Thanks!!)
+---
+ ldap/servers/slapd/daemon.c | 13 +------------
+ 1 file changed, 1 insertion(+), 12 deletions(-)
+
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index 49199e4df..691f77570 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -606,12 +606,6 @@ disk_monitoring_thread(void *nothing __attribute__((unused)))
+             now = start;
+             while ((now - start) < grace_period) {
+                 if (g_get_shutdown()) {
+-                    be_index = 0;
+-                    if (be_list[be_index] != NULL) {
+-                        while ((be = be_list[be_index++])) {
+-                            slapi_be_free(&be);
+-                        }
+-                    }
+                     slapi_ch_array_free(dirs);
+                     dirs = NULL;
+                     return;
+@@ -706,12 +700,7 @@ disk_monitoring_thread(void *nothing __attribute__((unused)))
+                 }
+             }
+         }
+-        be_index = 0;
+-        if (be_list[be_index] != NULL) {
+-            while ((be = be_list[be_index++])) {
+-                slapi_be_free(&be);
+-            }
+-        }
++
+         slapi_ch_array_free(dirs);
+         dirs = NULL; /* now it is not needed but the code may be changed in the future and it'd better be more robust */
+         g_set_shutdown(SLAPI_SHUTDOWN_DISKFULL);
+-- 
+2.26.2
+
