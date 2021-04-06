@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.8
-Release:          %{?relprefix}6%{?prerel}%{?dist}
+Release:          %{?relprefix}7%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -207,7 +207,12 @@ Patch30:          0030-ticket-2058-Add-keep-alive-entry-after-on-line-initi.patc
 Patch31:          0031-do-not-add-referrals-for-masters-with-different-data.patch
 Patch32:          0032-Issue-4383-Do-not-normalize-escaped-spaces-in-a-DN.patch
 Patch33:          0033-Issue-49300-entryUSN-is-duplicated-after-memberOf-op.patch
-
+Patch34:          0034-Issue-4480-Unexpected-info-returned-to-ldap-request-.patch
+Patch35:          0035-Issue-5442-Search-results-are-different-between-RHDS.patch
+Patch36:          0036-Issue-4581-A-failed-re-indexing-leaves-the-database-.patch
+Patch37:          0037-Issue-4609-CVE-info-disclosure-when-authenticating.patch
+Patch38:          0038-Issue-4460-BUG-lib389-should-use-system-tls-policy.patch
+Patch39:          0039-Issue-4460-BUG-add-machine-name-to-subject-alt-names.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -825,15 +830,21 @@ exit 0
 %doc README.md
 
 %changelog
+* Thu Mar 11 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-7
+- Bump version to 1.4.3.8-7
+- Resolves: Bug 1908705 - CVE-2020-35518 389-ds:1.4/389-ds-base: information disclosure during the binding of a DN
+- Resolves: Bug 1936461 - A failed re-indexing leaves the database in broken state.
+- Resolves: Bug 1912481 - Server-Cert.crt created using dscreate has Subject:CN =localhost instead of hostname. 
+
 * Thu Dec 3 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-6
 - Bump version to 1.4.3.8-6
-- Resolves: Bug 1851973 - Duplicate entryUSN numbers for different LDAP entries in the same backend
-- Resolves: Bug 1888863 - group rdn with leading space char and add fails error 21 invalid syntax and delete fails error 32
-- Resolves: Bug 1859228 - do not add referrals for masters with different data generation
-- Resolves: Bug 1859227 - create keep alive entry after on line init
-- Resolves: Bug 1896850 - NULL dereference in revert_cache()
-- Resolves: Bug 1861504 - ds-replcheck crashes in offline mode
-- Resolves: Bug 1898850 - Entries conflict not resolved by replication
+- Resolves: Bug 1904348 - Duplicate entryUSN numbers for different LDAP entries in the same backend
+- Resolves: Bug 1904349 - group rdn with leading space char and add fails error 21 invalid syntax and delete fails error 32
+- Resolves: Bug 1904350 - do not add referrals for masters with different data generation
+- Resolves: Bug 1904351 - create keep alive entry after on line init
+- Resolves: Bug 1904352 - NULL dereference in revert_cache()
+- Resolves: Bug 1904353 - ds-replcheck crashes in offline mode
+- Resolves: Bug 1904347 - Entries conflict not resolved by replication
 
 * Wed Aug 5 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.8-5
 - Bump version to 1.4.3.8-5
