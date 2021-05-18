@@ -1,0 +1,58 @@
+From b01e30c79b1364ac35c0b2db2ef4a2ff64600a7f Mon Sep 17 00:00:00 2001
+From: tbordaz <tbordaz@redhat.com>
+Date: Tue, 23 Feb 2021 08:58:37 +0100
+Subject: [PATCH 1/2] Issue 4649 - crash in sync_repl when a MODRDN create a
+ cenotaph (#4652)
+
+Bug description:
+	When an operation is flagged OP_FLAG_NOOP, it skips BETXN plugins but calls POST plugins.
+	For sync_repl, betxn (sync_update_persist_betxn_pre_op) creates an operation extension to be
+	consumed by the post (sync_update_persist_op). In case of OP_FLAG_NOOP, there is no
+	operation extension.
+
+Fix description:
+	Test that the operation is OP_FLAG_NOOP if the operation extension is missing
+
+relates: https://github.com/389ds/389-ds-base/issues/4649
+
+Reviewed by: William Brown (thanks)
+
+Platforms tested: F31
+---
+ ldap/servers/plugins/sync/sync_persist.c      | 14 ++++-
+ 2 files changed, 75 insertions(+), 2 deletions(-)
+diff --git a/ldap/servers/plugins/sync/sync_persist.c b/ldap/servers/plugins/sync/sync_persist.c
+index e93a8fa83..12b23ebac 100644
+--- a/ldap/servers/plugins/sync/sync_persist.c
++++ b/ldap/servers/plugins/sync/sync_persist.c
+@@ -206,7 +206,9 @@ sync_update_persist_op(Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Entry *eprev, ber
+     slapi_pblock_get(pb, SLAPI_TARGET_SDN, &sdn);
+ 
+     if (NULL == e) {
+-        /* Ignore this operation (for example case of failure of the operation) */
++        /* Ignore this operation (for example case of failure of the operation
++         * or operation resulting in an empty Mods))
++         */
+         ignore_op_pl(pb);
+         return;
+     }
+@@ -232,7 +234,15 @@ sync_update_persist_op(Slapi_PBlock *pb, Slapi_Entry *e, Slapi_Entry *eprev, ber
+     prim_op = get_thread_primary_op();
+     ident = sync_persist_get_operation_extension(pb);
+     PR_ASSERT(prim_op);
+-    PR_ASSERT(ident);
++
++    if ((ident == NULL) && operation_is_flag_set(pb_op, OP_FLAG_NOOP)) {
++        /* This happens for URP (add cenotaph, fixup rename, tombstone resurrect)
++         * As a NOOP betxn plugins are not called and operation ext is not created
++         */
++        slapi_log_err(SLAPI_LOG_PLUGIN, SYNC_PLUGIN_SUBSYSTEM, "Skip noop operation (0x%lx)\n",
++                       (ulong) pb_op);
++        return;
++    }
+     /* First mark the operation as completed/failed
+      * the param to be used once the operation will be pushed
+      * on the listeners queue
+-- 
+2.26.2
+

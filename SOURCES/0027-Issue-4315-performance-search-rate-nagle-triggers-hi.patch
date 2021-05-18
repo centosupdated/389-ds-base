@@ -1,0 +1,51 @@
+From f84e75de9176218d3b47a447d07fe8fb7ca3d72f Mon Sep 17 00:00:00 2001
+From: Barbora Simonova <bsmejkal@redhat.com>
+Date: Mon, 11 Jan 2021 15:51:24 +0100
+Subject: [PATCH] Issue 4315 - performance search rate: nagle triggers high
+ rate of setsocketopt
+
+Description:
+The config value of nsslapd-nagle is now set to 'off' by default.
+Added a test case, that checks the value.
+
+Relates: https://github.com/389ds/389-ds-base/issues/4315
+
+Reviewed by: droideck (Thanks!)
+---
+ .../tests/suites/config/config_test.py        | 20 +++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/dirsrvtests/tests/suites/config/config_test.py b/dirsrvtests/tests/suites/config/config_test.py
+index 38d1ed9ac..fda16a530 100644
+--- a/dirsrvtests/tests/suites/config/config_test.py
++++ b/dirsrvtests/tests/suites/config/config_test.py
+@@ -41,6 +41,26 @@ def big_file():
+     return TEMP_BIG_FILE
+ 
+ 
++@pytest.mark.bz1897248
++@pytest.mark.ds4315
++@pytest.mark.skipif(ds_is_older('1.4.3.16'), reason="This config setting exists in 1.4.3.16 and higher")
++def test_nagle_default_value(topo):
++    """Test that nsslapd-nagle attribute is off by default
++
++    :id: 00361f5d-d638-4d39-8231-66fa52637203
++    :setup: Standalone instance
++    :steps:
++        1. Create instance
++        2. Check the value of nsslapd-nagle
++    :expectedresults:
++        1. Success
++        2. The value of nsslapd-nagle should be off
++    """
++
++    log.info('Check the value of nsslapd-nagle attribute is off by default')
++    assert topo.standalone.config.get_attr_val_utf8('nsslapd-nagle') == 'off'
++
++
+ def test_maxbersize_repl(topology_m2, big_file):
+     """maxbersize is ignored in the replicated operations.
+ 
+-- 
+2.26.2
+
