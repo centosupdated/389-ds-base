@@ -1,0 +1,656 @@
+From 5a0200975775f7bfbd51e1469e5560915800f791 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 23 Jun 2020 16:38:55 -0400
+Subject: [PATCH] Issue 51165 - add new access log keywords for wtime and
+ optime
+
+Description:  In addition to the "etime" stat in the access we can also
+              add the time the operation spent in the work queue, and
+              how long the actual operation took.  We now have "wtime"
+              and "optime" to track these stats in the access log.
+
+              Also updated logconf for notes=F (related to a different
+              ticket), and stats for wtime and optime.
+
+relates: https://pagure.io/389-ds-base/issue/51165
+
+Reviewed by: ?
+---
+ ldap/admin/src/logconv.pl         | 187 +++++++++++++++++++++++++++---
+ ldap/servers/slapd/add.c          |   3 +
+ ldap/servers/slapd/bind.c         |   4 +
+ ldap/servers/slapd/delete.c       |   3 +
+ ldap/servers/slapd/modify.c       |   3 +
+ ldap/servers/slapd/modrdn.c       |   3 +
+ ldap/servers/slapd/operation.c    |  24 ++++
+ ldap/servers/slapd/opshared.c     |   3 +
+ ldap/servers/slapd/result.c       |  50 ++++----
+ ldap/servers/slapd/slap.h         |  13 ++-
+ ldap/servers/slapd/slapi-plugin.h |  26 ++++-
+ 11 files changed, 270 insertions(+), 49 deletions(-)
+
+diff --git a/ldap/admin/src/logconv.pl b/ldap/admin/src/logconv.pl
+index e36386e11..250e9f9d4 100755
+--- a/ldap/admin/src/logconv.pl
++++ b/ldap/admin/src/logconv.pl
+@@ -3,7 +3,7 @@
+ #
+ # BEGIN COPYRIGHT BLOCK
+ # Copyright (C) 2001 Sun Microsystems, Inc. Used by permission.
+-# Copyright (C) 2013 Red Hat, Inc.
++# Copyright (C) 2020 Red Hat, Inc.
+ # All rights reserved.
+ #
+ # License: GPL (version 3 or any later version).
+@@ -55,7 +55,7 @@ my $reportStats = "";
+ my $dataLocation = "/tmp";
+ my $startTLSoid = "1.3.6.1.4.1.1466.20037";
+ my @statnames=qw(last last_str results srch add mod modrdn moddn cmp del abandon
+-                 conns sslconns bind anonbind unbind notesA notesU etime);
++                 conns sslconns bind anonbind unbind notesA notesU notesF etime);
+ my $s_stats;
+ my $m_stats;
+ my $verb = "no";
+@@ -211,6 +211,7 @@ my $sslClientBindCount = 0;
+ my $sslClientFailedCount = 0;
+ my $objectclassTopCount= 0;
+ my $pagedSearchCount = 0;
++my $invalidFilterCount = 0;
+ my $bindCount = 0;
+ my $filterCount = 0;
+ my $baseCount = 0;
+@@ -258,7 +259,7 @@ map {$conn{$_} = $_} @conncodes;
+ # hash db-backed hashes
+ my @hashnames = qw(attr rc src rsrc excount conn_hash ip_hash conncount nentries
+                    filter base ds6xbadpwd saslmech saslconnop bindlist etime oid
+-                   start_time_of_connection end_time_of_connection
++                   start_time_of_connection end_time_of_connection notesf_conn_op
+                    notesa_conn_op notesu_conn_op etime_conn_op nentries_conn_op
+                    optype_conn_op time_conn_op srch_conn_op del_conn_op mod_conn_op
+                    mdn_conn_op cmp_conn_op bind_conn_op unbind_conn_op ext_conn_op
+@@ -926,7 +927,7 @@ if ($verb eq "yes" || $usage =~ /u/ || $usage =~ /U/){
+ 			}
+ 			while($op > 0){
+ 				# The bind op is not the same as the search op that triggered the notes=A.
+-				# We have adjust the key by decrementing the op count until we find the last bind op.
++				# We have to adjust the key by decrementing the op count until we find the last bind op.
+ 				$op--;
+ 				$binddn_key = "$srvRstCnt,$conn,$op";
+ 				if (exists($bind_conn_op->{$binddn_key}) && defined($bind_conn_op->{$binddn_key})) {
+@@ -1049,9 +1050,60 @@ if ($verb eq "yes" || $usage =~ /u/ || $usage =~ /U/){
+ 			}
+ 		}
+ 	}
+-} # end of unindexed search report
++    print "\n";
++}
++
++print "Invalid Attribute Filters:    $invalidFilterCount\n";
++if ($invalidFilterCount > 0 && $verb eq "yes"){
++    my $conn_hash = $hashes->{conn_hash};
++    my $notesf_conn_op = $hashes->{notesf_conn_op};
++    my $time_conn_op = $hashes->{time_conn_op};
++    my $etime_conn_op = $hashes->{etime_conn_op};
++    my $nentries_conn_op = $hashes->{nentries_conn_op};
++    my $filter_conn_op = $hashes->{filter_conn_op};
++    my $bind_conn_op = $hashes->{bind_conn_op};
++    my $notesCount = 1;
++    my $unindexedIp;
++    my $binddn_key;
++    my %uniqFilt = (); # hash of unique filters
++    my %uniqFilter = (); # hash of unique filters bind dn
++    my %uniqBindDNs = (); # hash of unique bind dn's
++    my %uniqBindFilters = (); # hash of filters for a bind DN
++
++    while (my ($srcnt_conn_op, $count) = each %{$notesf_conn_op}) {
++        my ($srvRstCnt, $conn, $op) = split(",", $srcnt_conn_op);
++        my $attrIp = getIPfromConn($conn, $srvRstCnt);
++        print "\n  Invalid Attribute Filter #".$notesCount." (notes=F)\n";
++        print "  -  Date/Time:             $time_conn_op->{$srcnt_conn_op}\n";
++        print "  -  Connection Number:     $conn\n";
++        print "  -  Operation Number:      $op\n";
++        print "  -  Etime:                 $etime_conn_op->{$srcnt_conn_op}\n";
++        print "  -  Nentries:              $nentries_conn_op->{$srcnt_conn_op}\n";
++        print "  -  IP Address:            $attrIp\n";
++        if (exists($filter_conn_op->{$srcnt_conn_op}) && defined($filter_conn_op->{$srcnt_conn_op})) {
++            print "  -  Search Filter:         $filter_conn_op->{$srcnt_conn_op}\n";
++            $uniqFilt{$filter_conn_op->{$srcnt_conn_op}}++;
++        }
++        while($op > 0){
++            # The bind op is not the same as the search op that triggered the notes=A.
++            # We have to adjust the key by decrementing the op count until we find the last bind op.
++            $op--;
++            $binddn_key = "$srvRstCnt,$conn,$op";
++            if (exists($bind_conn_op->{$binddn_key}) && defined($bind_conn_op->{$binddn_key})) {
++                print "  -  Bind DN:               $bind_conn_op->{$binddn_key}\n";
++                $uniqBindDNs{$bind_conn_op->{$binddn_key}}++;
++                if( $uniqFilt{$filter_conn_op->{$srcnt_conn_op}} && defined($filter_conn_op->{$srcnt_conn_op})) {
++                    $uniqBindFilters{$bind_conn_op->{$binddn_key}}{$filter_conn_op->{$srcnt_conn_op}}++;
++                    $uniqFilter{$filter_conn_op->{$srcnt_conn_op}}{$bind_conn_op->{$binddn_key}}++;
++                }
++                last;
++            }
++        }
++        $notesCount++;
++    }
++    print "\n";
++}
+ 
+-print "\n";
+ print "FDs Taken:                    $fdTaken\n";
+ print "FDs Returned:                 $fdReturned\n";
+ print "Highest FD Taken:             $highestFdTaken\n\n";
+@@ -1386,20 +1438,20 @@ if ($usage =~ /l/ || $verb eq "yes"){
+ 	}
+ }
+ 
+-#########################################
+-#                                       #
+-# Gather and Process the unique etimes  #
+-#                                       #
+-#########################################
++##############################################################
++#                                                            #
++# Gather and Process the unique etimes, wtimes, and optimes  #
++#                                                            #
++##############################################################
+ 
+ my $first;
+ if ($usage =~ /t/i || $verb eq "yes"){
++	# Print the elapsed times (etime)
++
+ 	my $etime = $hashes->{etime};
+ 	my @ekeys = keys %{$etime};
+-	#
+ 	# print most often etimes
+-	#
+-	print "\n\n----- Top $sizeCount Most Frequent etimes -----\n\n";
++	print "\n\n----- Top $sizeCount Most Frequent etimes (elapsed times) -----\n\n";
+ 	my $eloop = 0;
+ 	my $retime = 0;
+ 	foreach my $et (sort { $etime->{$b} <=> $etime->{$a} } @ekeys) {
+@@ -1411,16 +1463,84 @@ if ($usage =~ /t/i || $verb eq "yes"){
+ 		printf "%-8s        %-12s\n", $etime->{ $et }, "etime=$et";
+ 		$eloop++;
+ 	}
+-	#
++	if ($eloop == 0) {
++		print "None";
++	}
+ 	# print longest etimes
+-	#
+-	print "\n\n----- Top $sizeCount Longest etimes -----\n\n";
++	print "\n\n----- Top $sizeCount Longest etimes (elapsed times) -----\n\n";
+ 	$eloop = 0;
+ 	foreach my $et (sort { $b <=> $a } @ekeys) {
+ 		if ($eloop == $sizeCount) { last; }
+ 		printf "%-12s    %-10s\n","etime=$et",$etime->{ $et };
+ 		$eloop++;
+ 	}
++	if ($eloop == 0) {
++		print "None";
++	}
++
++	# Print the wait times (wtime)
++
++	my $wtime = $hashes->{wtime};
++	my @wkeys = keys %{$wtime};
++	# print most often wtimes
++	print "\n\n----- Top $sizeCount Most Frequent wtimes (wait times) -----\n\n";
++	$eloop = 0;
++	$retime = 0;
++	foreach my $et (sort { $wtime->{$b} <=> $wtime->{$a} } @wkeys) {
++		if ($eloop == $sizeCount) { last; }
++		if ($retime ne "2"){
++			$first = $et;
++			$retime = "2";
++		}
++		printf "%-8s        %-12s\n", $wtime->{ $et }, "wtime=$et";
++		$eloop++;
++	}
++	if ($eloop == 0) {
++		print "None";
++	}
++	# print longest wtimes
++	print "\n\n----- Top $sizeCount Longest wtimes (wait times) -----\n\n";
++	$eloop = 0;
++	foreach my $et (sort { $b <=> $a } @wkeys) {
++		if ($eloop == $sizeCount) { last; }
++		printf "%-12s    %-10s\n","wtime=$et",$wtime->{ $et };
++		$eloop++;
++	}
++	if ($eloop == 0) {
++		print "None";
++	}
++
++	# Print the operation times (optime)
++
++	my $optime = $hashes->{optime};
++	my @opkeys = keys %{$optime};
++	# print most often optimes
++	print "\n\n----- Top $sizeCount Most Frequent optimes (actual operation times) -----\n\n";
++	$eloop = 0;
++	$retime = 0;
++	foreach my $et (sort { $optime->{$b} <=> $optime->{$a} } @opkeys) {
++		if ($eloop == $sizeCount) { last; }
++		if ($retime ne "2"){
++			$first = $et;
++			$retime = "2";
++		}
++		printf "%-8s        %-12s\n", $optime->{ $et }, "optime=$et";
++		$eloop++;
++	}
++	if ($eloop == 0) {
++		print "None";
++	}
++	# print longest optimes
++	print "\n\n----- Top $sizeCount Longest optimes (actual operation times) -----\n\n";
++	$eloop = 0;
++	foreach my $et (sort { $b <=> $a } @opkeys) {
++		if ($eloop == $sizeCount) { last; }
++		printf "%-12s    %-10s\n","optime=$et",$optime->{ $et };
++		$eloop++;
++	}
++	if ($eloop == 0) {
++		print "None";
++	}
+ }
+ 
+ #######################################
+@@ -2152,6 +2272,26 @@ sub parseLineNormal
+ 	if (m/ RESULT err=/ && m/ notes=[A-Z,]*P/){
+ 		$pagedSearchCount++;
+ 	}
++	if (m/ RESULT err=/ && m/ notes=[A-Z,]*F/){
++		$invalidFilterCount++;
++		$con = "";
++		if ($_ =~ /conn= *([0-9A-Z]+)/i){
++			$con = $1;
++			if ($_ =~ /op= *([0-9\-]+)/i){ $op = $1;}
++		}
++
++		if($reportStats){ inc_stats('notesF',$s_stats,$m_stats); }
++        if ($usage =~ /u/ || $usage =~ /U/ || $verb eq "yes"){
++            if($_ =~ /etime= *([0-9.]+)/i ){
++                if($1 >= $minEtime){
++                    $hashes->{etime_conn_op}->{"$serverRestartCount,$con,$op"} = $1;
++                    $hashes->{notesf_conn_op}->{"$serverRestartCount,$con,$op"}++;
++                    if ($_ =~ / *([0-9a-z:\/]+)/i){ $hashes->{time_conn_op}->{"$serverRestartCount,$con,$op"} = $1; }
++                    if ($_ =~ /nentries= *([0-9]+)/i ){ $hashes->{nentries_conn_op}->{"$serverRestartCount,$con,$op"} = $1; }
++                }
++            }
++        }
++	}
+ 	if (m/ notes=[A-Z,]*A/){
+ 		$con = "";
+ 		if ($_ =~ /conn= *([0-9A-Z]+)/i){
+@@ -2435,6 +2575,16 @@ sub parseLineNormal
+ 		if ($usage =~ /t/i || $verb eq "yes"){ $hashes->{etime}->{$etime_val}++; }
+ 		if ($reportStats){ inc_stats_val('etime',$etime_val,$s_stats,$m_stats); }
+ 	}
++	if ($_ =~ /wtime= *([0-9.]+)/ ) {
++		my $wtime_val = $1;
++		if ($usage =~ /t/i || $verb eq "yes"){ $hashes->{wtime}->{$wtime_val}++; }
++		if ($reportStats){ inc_stats_val('wtime',$wtime_val,$s_stats,$m_stats); }
++	}
++	if ($_ =~ /optime= *([0-9.]+)/ ) {
++		my $optime_val = $1;
++		if ($usage =~ /t/i || $verb eq "yes"){ $hashes->{optime}->{$optime_val}++; }
++		if ($reportStats){ inc_stats_val('optime',$optime_val,$s_stats,$m_stats); }
++	}
+ 	if ($_ =~ / tag=101 / || $_ =~ / tag=111 / || $_ =~ / tag=100 / || $_ =~ / tag=115 /){
+ 		if ($_ =~ / nentries= *([0-9]+)/i ){ 
+ 			my $nents = $1;
+@@ -2555,7 +2705,7 @@ sub parseLineNormal
+ 			}
+ 		}
+ 	}
+-	if (/ RESULT err=/ && / tag=97 nentries=0 etime=/ && $_ =~ /dn=\"(.*)\"/i){
++	if (/ RESULT err=/ && / tag=97 nentries=0 / && $_ =~ /dn=\"(.*)\"/i){
+ 		# Check if this is a sasl bind, if see we need to add the RESULT's dn as a bind dn
+ 		my $binddn = $1;
+ 		my ($conn, $op);
+@@ -2678,6 +2828,7 @@ print_stats_block
+ 						 $stats->{'unbind'},
+ 						 $stats->{'notesA'},
+ 						 $stats->{'notesU'},
++						 $stats->{'notesF'},
+ 						 $stats->{'etime'}),
+ 					"\n" );
+ 			} else {
+diff --git a/ldap/servers/slapd/add.c b/ldap/servers/slapd/add.c
+index 8f2fdeac8..3a8d83899 100644
+--- a/ldap/servers/slapd/add.c
++++ b/ldap/servers/slapd/add.c
+@@ -440,6 +440,9 @@ op_shared_add(Slapi_PBlock *pb)
+     internal_op = operation_is_flag_set(operation, OP_FLAG_INTERNAL);
+     pwpolicy = new_passwdPolicy(pb, slapi_entry_get_dn(e));
+ 
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(operation);
++
+     /* target spec is used to decide which plugins are applicable for the operation */
+     operation_set_target_spec(operation, slapi_entry_get_sdn(e));
+ 
+diff --git a/ldap/servers/slapd/bind.c b/ldap/servers/slapd/bind.c
+index b3fe27327..0b1540cc3 100644
+--- a/ldap/servers/slapd/bind.c
++++ b/ldap/servers/slapd/bind.c
+@@ -87,6 +87,10 @@ do_bind(Slapi_PBlock *pb)
+         send_ldap_result(pb, LDAP_OPERATIONS_ERROR, NULL, NULL, 0, NULL);
+         goto free_and_return;
+     }
++
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(pb_op);
++
+     ber = pb_op->o_ber;
+ 
+     /*
+diff --git a/ldap/servers/slapd/delete.c b/ldap/servers/slapd/delete.c
+index 49cdab138..8846a4dea 100644
+--- a/ldap/servers/slapd/delete.c
++++ b/ldap/servers/slapd/delete.c
+@@ -234,6 +234,9 @@ op_shared_delete(Slapi_PBlock *pb)
+     slapi_pblock_get(pb, SLAPI_OPERATION, &operation);
+     internal_op = operation_is_flag_set(operation, OP_FLAG_INTERNAL);
+ 
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(operation);
++
+     sdn = slapi_sdn_new_dn_byval(rawdn);
+     dn = slapi_sdn_get_dn(sdn);
+     slapi_pblock_set(pb, SLAPI_DELETE_TARGET_SDN, (void *)sdn);
+diff --git a/ldap/servers/slapd/modify.c b/ldap/servers/slapd/modify.c
+index f2f6d1783..a6894c305 100644
+--- a/ldap/servers/slapd/modify.c
++++ b/ldap/servers/slapd/modify.c
+@@ -634,6 +634,9 @@ op_shared_modify(Slapi_PBlock *pb, int pw_change, char *old_pw)
+     slapi_pblock_get(pb, SLAPI_SKIP_MODIFIED_ATTRS, &skip_modified_attrs);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+ 
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(operation);
++
+     if (sdn) {
+         passin_sdn = 1;
+     } else {
+diff --git a/ldap/servers/slapd/modrdn.c b/ldap/servers/slapd/modrdn.c
+index 9483aafb5..a48ab8859 100644
+--- a/ldap/servers/slapd/modrdn.c
++++ b/ldap/servers/slapd/modrdn.c
+@@ -415,6 +415,9 @@ op_shared_rename(Slapi_PBlock *pb, int passin_args)
+     internal_op = operation_is_flag_set(operation, OP_FLAG_INTERNAL);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+ 
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(operation);
++
+     /*
+      * If ownership has not been passed to this function, we replace the
+      * string input fields within the pblock with strdup'd copies.  Why?
+diff --git a/ldap/servers/slapd/operation.c b/ldap/servers/slapd/operation.c
+index 8186fd33b..bc5c692fe 100644
+--- a/ldap/servers/slapd/operation.c
++++ b/ldap/servers/slapd/operation.c
+@@ -660,3 +660,27 @@ slapi_operation_time_expiry(Slapi_Operation *o, time_t timeout, struct timespec
+ {
+     slapi_timespec_expire_rel(timeout, &(o->o_hr_time_rel), expiry);
+ }
++
++/* Set the time the operation actually started */
++void
++slapi_operation_set_time_started(Slapi_Operation *o)
++{
++	clock_gettime(CLOCK_MONOTONIC, &(o->o_hr_time_started_rel));
++}
++
++/* The time diff of how long the operation took once it actually started */
++void
++slapi_operation_op_time_elapsed(Slapi_Operation *o, struct timespec *elapsed)
++{
++    struct timespec o_hr_time_now;
++    clock_gettime(CLOCK_MONOTONIC, &o_hr_time_now);
++
++    slapi_timespec_diff(&o_hr_time_now, &(o->o_hr_time_started_rel), elapsed);
++}
++
++/* The time diff the operation waited in the work queue */
++void
++slapi_operation_workq_time_elapsed(Slapi_Operation *o, struct timespec *elapsed)
++{
++    slapi_timespec_diff(&(o->o_hr_time_started_rel), &(o->o_hr_time_rel), elapsed);
++}
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index b9fc83516..2afb8e2fc 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -276,6 +276,9 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+     slapi_pblock_get(pb, SLAPI_SEARCH_TARGET_SDN, &sdn);
+     slapi_pblock_get(pb, SLAPI_OPERATION, &operation);
+ 
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(operation);
++
+     if (NULL == sdn) {
+         sdn = slapi_sdn_new_dn_byval(base);
+         slapi_pblock_set(pb, SLAPI_SEARCH_TARGET_SDN, sdn);
+diff --git a/ldap/servers/slapd/result.c b/ldap/servers/slapd/result.c
+index 61e7a70f9..807f58a2c 100644
+--- a/ldap/servers/slapd/result.c
++++ b/ldap/servers/slapd/result.c
+@@ -1912,21 +1912,31 @@ log_result(Slapi_PBlock *pb, Operation *op, int err, ber_tag_t tag, int nentries
+     int internal_op;
+     CSN *operationcsn = NULL;
+     char csn_str[CSN_STRSIZE + 5];
+-    char etime[ETIME_BUFSIZ];
++    char etime[ETIME_BUFSIZ] = {0};
++    char wtime[ETIME_BUFSIZ] = {0};
++    char optime[ETIME_BUFSIZ] = {0};
+     int pr_idx = -1;
+     int pr_cookie = -1;
+     uint32_t operation_notes;
++    struct timespec o_hr_time_end;
+ 
+     slapi_pblock_get(pb, SLAPI_PAGED_RESULTS_INDEX, &pr_idx);
+     slapi_pblock_get(pb, SLAPI_PAGED_RESULTS_COOKIE, &pr_cookie);
+-
+     internal_op = operation_is_flag_set(op, OP_FLAG_INTERNAL);
+ 
+-    struct timespec o_hr_time_end;
++    /* total elapsed time */
+     slapi_operation_time_elapsed(op, &o_hr_time_end);
++    snprintf(etime, ETIME_BUFSIZ, "%" PRId64 ".%.09" PRId64 "", (int64_t)o_hr_time_end.tv_sec, (int64_t)o_hr_time_end.tv_nsec);
++
++    /* wait time */
++    slapi_operation_workq_time_elapsed(op, &o_hr_time_end);
++    snprintf(wtime, ETIME_BUFSIZ, "%" PRId64 ".%.09" PRId64 "", (int64_t)o_hr_time_end.tv_sec, (int64_t)o_hr_time_end.tv_nsec);
++
++    /* op time */
++    slapi_operation_op_time_elapsed(op, &o_hr_time_end);
++    snprintf(optime, ETIME_BUFSIZ, "%" PRId64 ".%.09" PRId64 "", (int64_t)o_hr_time_end.tv_sec, (int64_t)o_hr_time_end.tv_nsec);
+ 
+ 
+-    snprintf(etime, ETIME_BUFSIZ, "%" PRId64 ".%.09" PRId64 "", (int64_t)o_hr_time_end.tv_sec, (int64_t)o_hr_time_end.tv_nsec);
+ 
+     slapi_pblock_get(pb, SLAPI_OPERATION_NOTES, &operation_notes);
+ 
+@@ -1955,22 +1965,22 @@ log_result(Slapi_PBlock *pb, Operation *op, int err, ber_tag_t tag, int nentries
+         if (!internal_op) {
+             slapi_log_access(LDAP_DEBUG_STATS,
+                              "conn=%" PRIu64 " op=%d RESULT err=%d"
+-                             " tag=%" BERTAG_T " nentries=%d etime=%s%s%s"
++                             " tag=%" BERTAG_T " nentries=%d wtime=%s optime=%s etime=%s%s%s"
+                              ", SASL bind in progress\n",
+                              op->o_connid,
+                              op->o_opid,
+                              err, tag, nentries,
+-                             etime,
++                             wtime, optime, etime,
+                              notes_str, csn_str);
+         } else {
+             slapi_log_access(LDAP_DEBUG_ARGS,
+                              "conn=%s op=%d RESULT err=%d"
+-                             " tag=%" BERTAG_T " nentries=%d etime=%s%s%s"
++                             " tag=%" BERTAG_T " nentries=%d wtime=%s optime=%s etime=%s%s%s"
+                              ", SASL bind in progress\n",
+                              LOG_INTERNAL_OP_CON_ID,
+                              LOG_INTERNAL_OP_OP_ID,
+                              err, tag, nentries,
+-                             etime,
++                             wtime, optime, etime,
+                              notes_str, csn_str);
+         }
+     } else if (op->o_tag == LDAP_REQ_BIND && err == LDAP_SUCCESS) {
+@@ -1984,22 +1994,22 @@ log_result(Slapi_PBlock *pb, Operation *op, int err, ber_tag_t tag, int nentries
+         if (!internal_op) {
+             slapi_log_access(LDAP_DEBUG_STATS,
+                              "conn=%" PRIu64 " op=%d RESULT err=%d"
+-                             " tag=%" BERTAG_T " nentries=%d etime=%s%s%s"
++                             " tag=%" BERTAG_T " nentries=%d wtime=%s optime=%s etime=%s%s%s"
+                              " dn=\"%s\"\n",
+                              op->o_connid,
+                              op->o_opid,
+                              err, tag, nentries,
+-                             etime,
++                             wtime, optime, etime,
+                              notes_str, csn_str, dn ? dn : "");
+         } else {
+             slapi_log_access(LDAP_DEBUG_ARGS,
+                              "conn=%s op=%d RESULT err=%d"
+-                             " tag=%" BERTAG_T " nentries=%d etime=%s%s%s"
++                             " tag=%" BERTAG_T " nentries=%d wtime=%s optime=%s etime=%s%s%s"
+                              " dn=\"%s\"\n",
+                              LOG_INTERNAL_OP_CON_ID,
+                              LOG_INTERNAL_OP_OP_ID,
+                              err, tag, nentries,
+-                             etime,
++                             wtime, optime, etime,
+                              notes_str, csn_str, dn ? dn : "");
+         }
+         slapi_ch_free((void **)&dn);
+@@ -2008,22 +2018,22 @@ log_result(Slapi_PBlock *pb, Operation *op, int err, ber_tag_t tag, int nentries
+             if (!internal_op) {
+                 slapi_log_access(LDAP_DEBUG_STATS,
+                                  "conn=%" PRIu64 " op=%d RESULT err=%d"
+-                                 " tag=%" BERTAG_T " nentries=%d etime=%s%s%s"
++                                 " tag=%" BERTAG_T " nentries=%d wtime=%s optime=%s etime=%s%s%s"
+                                  " pr_idx=%d pr_cookie=%d\n",
+                                  op->o_connid,
+                                  op->o_opid,
+                                  err, tag, nentries,
+-                                 etime,
++                                 wtime, optime, etime,
+                                  notes_str, csn_str, pr_idx, pr_cookie);
+             } else {
+                 slapi_log_access(LDAP_DEBUG_ARGS,
+                                  "conn=%s op=%d RESULT err=%d"
+-                                 " tag=%" BERTAG_T " nentries=%d etime=%s%s%s"
++                                 " tag=%" BERTAG_T " nentries=%d wtime=%s optime=%s etime=%s%s%s"
+                                  " pr_idx=%d pr_cookie=%d \n",
+                                  LOG_INTERNAL_OP_CON_ID,
+                                  LOG_INTERNAL_OP_OP_ID,
+                                  err, tag, nentries,
+-                                 etime,
++                                 wtime, optime, etime,
+                                  notes_str, csn_str, pr_idx, pr_cookie);
+             }
+         } else if (!internal_op) {
+@@ -2037,11 +2047,11 @@ log_result(Slapi_PBlock *pb, Operation *op, int err, ber_tag_t tag, int nentries
+             }
+             slapi_log_access(LDAP_DEBUG_STATS,
+                              "conn=%" PRIu64 " op=%d RESULT err=%d"
+-                             " tag=%" BERTAG_T " nentries=%d etime=%s%s%s%s\n",
++                             " tag=%" BERTAG_T " nentries=%d wtime=%s optime=%s etime=%s%s%s%s\n",
+                              op->o_connid,
+                              op->o_opid,
+                              err, tag, nentries,
+-                             etime,
++                             wtime, optime, etime,
+                              notes_str, csn_str, ext_str);
+             if (pbtxt) {
+                 /* if !pbtxt ==> ext_str == "".  Don't free ext_str. */
+@@ -2051,11 +2061,11 @@ log_result(Slapi_PBlock *pb, Operation *op, int err, ber_tag_t tag, int nentries
+             int optype;
+             slapi_log_access(LDAP_DEBUG_ARGS,
+                              "conn=%s op=%d RESULT err=%d"
+-                             " tag=%" BERTAG_T " nentries=%d etime=%s%s%s\n",
++                             " tag=%" BERTAG_T " nentries=%d wtime=%s optime=%s etime=%s%s%s\n",
+                              LOG_INTERNAL_OP_CON_ID,
+                              LOG_INTERNAL_OP_OP_ID,
+                              err, tag, nentries,
+-                             etime,
++                             wtime, optime, etime,
+                              notes_str, csn_str);
+             /*
+              *  If this is an unindexed search we should log it in the error log if
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index 1d0a9cbeb..007c50b86 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -1522,16 +1522,17 @@ typedef struct slapi_operation_results
+  */
+ typedef struct op
+ {
+-    BerElement *o_ber;             /* ber of the request          */
+-    ber_int_t o_msgid;             /* msgid of the request          */
+-    ber_tag_t o_tag;               /* tag of the request          */
++    BerElement *o_ber;             /* ber of the request */
++    ber_int_t o_msgid;             /* msgid of the request */
++    ber_tag_t o_tag;               /* tag of the request */
+     struct timespec o_hr_time_rel; /* internal system time op initiated */
+     struct timespec o_hr_time_utc; /* utc system time op initiated */
+-    int o_isroot;                  /* requestor is manager          */
++    struct timespec o_hr_time_started_rel; /* internal system time op started */
++    int o_isroot;                  /* requestor is manager */
+     Slapi_DN o_sdn;                /* dn bound when op was initiated */
+-    char *o_authtype;              /* auth method used to bind dn      */
++    char *o_authtype;              /* auth method used to bind dn */
+     int o_ssf;                     /* ssf for this operation (highest between SASL and TLS/SSL) */
+-    int o_opid;                    /* id of this operation          */
++    int o_opid;                    /* id of this operation */
+     PRUint64 o_connid;             /* id of conn initiating this op; for logging only */
+     void *o_handler_data;
+     result_handler o_result_handler;
+diff --git a/ldap/servers/slapd/slapi-plugin.h b/ldap/servers/slapd/slapi-plugin.h
+index a8b563dd1..9f7971ec1 100644
+--- a/ldap/servers/slapd/slapi-plugin.h
++++ b/ldap/servers/slapd/slapi-plugin.h
+@@ -8235,13 +8235,29 @@ void slapi_operation_time_elapsed(Slapi_Operation *o, struct timespec *elapsed);
+  */
+ void slapi_operation_time_initiated(Slapi_Operation *o, struct timespec *initiated);
+ /**
+- * Given an operation and a timeout, return a populate struct with the expiry
+- * time of the operation suitable for checking with slapi_timespec_expire_check
++ * Given an operation, determine the time elapsed since the op
++ * was actually started.
+  *
+- * \param Slapi_Operation o - the operation that is in progress
+- * \param time_t timeout the seconds relative to operation initiation to expiry at.
+- * \param struct timespec *expiry the timespec to popluate with the relative expiry.
++ * \param Slapi_Operation o - the operation which is inprogress
++ * \param struct timespec *elapsed - location where the time difference will be
++ * placed.
++ */
++void slapi_operation_op_time_elapsed(Slapi_Operation *o, struct timespec *elapsed);
++/**
++ * Given an operation, determine the time elapsed that the op spent
++ * in the work queue before actually being dispatched to a worker thread
++ *
++ * \param Slapi_Operation o - the operation which is inprogress
++ * \param struct timespec *elapsed - location where the time difference will be
++ * placed.
++ */
++void slapi_operation_workq_time_elapsed(Slapi_Operation *o, struct timespec *elapsed);
++/**
++ * Set the time the operation actually started
++ *
++ * \param Slapi_Operation o - the operation which is inprogress
+  */
++void slapi_operation_set_time_started(Slapi_Operation *o);
+ #endif
+ 
+ /**
+-- 
+2.30.2
+

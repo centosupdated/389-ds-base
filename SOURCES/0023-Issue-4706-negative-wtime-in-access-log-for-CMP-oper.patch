@@ -1,0 +1,35 @@
+From b748757044ebe5a48119b5b8e31f23b423af736c Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 29 Mar 2021 15:19:53 -0400
+Subject: [PATCH] Issue 4706 - negative wtime in access log for CMP operations
+
+Description:  We forgot to set the start time for compare operations,
+              this led to invalid values in the access log for optime
+              and wtime.
+
+relates: https://github.com/389ds/389-ds-base/issues/4706
+
+Reviewed by: mreynolds (one line commit ruile)
+---
+ ldap/servers/slapd/compare.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/ldap/servers/slapd/compare.c b/ldap/servers/slapd/compare.c
+index 88a6c3599..cb4a2c4c6 100644
+--- a/ldap/servers/slapd/compare.c
++++ b/ldap/servers/slapd/compare.c
+@@ -52,6 +52,11 @@ do_compare(Slapi_PBlock *pb)
+ 
+     slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
++
++    /* Set the time we actually started the operation */
++    if (pb_op) {
++        slapi_operation_set_time_started(pb_op);
++    }
+     if (pb_op == NULL || pb_conn == NULL) {
+         slapi_log_err(SLAPI_LOG_ERR, "do_compare", "NULL param: pb_conn (0x%p) pb_op (0x%p)\n",
+                       pb_conn, pb_op);
+-- 
+2.30.2
+

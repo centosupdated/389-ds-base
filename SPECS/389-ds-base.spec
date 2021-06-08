@@ -19,7 +19,7 @@
 %global use_tcmalloc 0
 %global variant base-asan
 %else
-%if %{_arch} != "s390x" && %{_arch} != "s390"
+%if "%{_arch}" != "s390x" && "%{_arch}" != "s390"
 %global use_tcmalloc 1
 %else
 %global use_tcmalloc 0
@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}10%{?prerel}%{?dist}
+Release:          %{?relprefix}12%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -165,6 +165,12 @@ Patch16:          0016-Issue-4521-DS-crash-in-deref-plugin-if-dereferenced-.patc
 Patch17:          0017-Issue-4492-Changelog-cache-can-upload-updates-from-a.patch
 Patch18:          0018-Issue-5442-Search-results-are-different-between-RHDS.patch
 Patch19:          0019-Issue-4644-Large-updates-can-reset-the-CLcache-to-th.patch
+Patch20:          0020-Issue-51165-add-new-access-log-keywords-for-wtime-an.patch
+Patch21:          0021-Issue-51165-add-more-logconv-stats-for-the-new-acces.patch
+Patch22:          0022-Issue-51165-Set-the-operation-start-time-for-extende.patch
+Patch23:          0023-Issue-4706-negative-wtime-in-access-log-for-CMP-oper.patch
+Patch24:          0024-Issue-4609-CVE-info-disclosure-when-authenticating.patch
+Patch25:          0025-Issue-4759-Fix-coverity-issue-4760.patch
 
 
 %description
@@ -306,7 +312,7 @@ popd
 sed -i -e 's|#{{PERL-EXEC}}|#!/usr/bin/perl|' $RPM_BUILD_ROOT%{_datadir}/%{pkgname}/script-templates/template-*.pl
 
 # exclude 32-bit platforms from running tests
-%if %{_arch} == "x86_64"
+%if "%{_arch}" == "x86_64"
 %check
 # This checks the code, if it fails it prints why, then re-raises the fail to shortcircuit the rpm build.
 if ! make DESTDIR="$RPM_BUILD_ROOT" check; then cat ./test-suite.log && false; fi
@@ -519,6 +525,14 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Fri May 7 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-12
+- Bump version to 1.3.10.2-12
+
+* Mon May 5 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-11
+- Bump version to 1.3.10.2-11
+- Resolves: Bug 1953673 - Add new access log keywords for time spent in work queue and actual operation time
+- Resolves: Bug 1931182 - information disclosure during the binding of a DN
+
 * Thu Feb 25 2021 Mark Reynolds <mreynolds@redhat.com> - 1.3.10.2-10
 - Bump version to 1.3.10.2-10
 - Resolves: Bug 1909342 - DS crash in deref plugin while dereferencing an entry that exists but that is not returned by internal search

@@ -1,0 +1,35 @@
+From 7ea2eafc8414d2bce6c57447d019276a124a0c77 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 17 Aug 2020 09:20:07 -0400
+Subject: [PATCH] Issue 51165 - Set the operation start time for extended ops
+
+Bug Description:  Extended ops, likewhat is used in replication, were not
+                  setting the operation start time.  This caused invalid
+                  values in the new access log keywords (wtime & optime)
+
+Fix Description:  Set the start start at the start of the extended op.
+
+Fixes: https://pagure.io/389-ds-base/issue/51165
+
+Reviewed by: mreynolds (one line commit rule)
+---
+ ldap/servers/slapd/extendop.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/ldap/servers/slapd/extendop.c b/ldap/servers/slapd/extendop.c
+index 98595bcaa..59a993ea8 100644
+--- a/ldap/servers/slapd/extendop.c
++++ b/ldap/servers/slapd/extendop.c
+@@ -221,6 +221,9 @@ do_extended(Slapi_PBlock *pb)
+     slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+ 
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(pb_op);
++
+     if (pb_conn == NULL || pb_op == NULL) {
+         send_ldap_result(pb, LDAP_OPERATIONS_ERROR, NULL, "param error", 0, NULL);
+         slapi_log_err(SLAPI_LOG_ERR, "do_extended",
+-- 
+2.30.2
+

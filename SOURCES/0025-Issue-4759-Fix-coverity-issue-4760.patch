@@ -1,0 +1,74 @@
+From 8b236bc2c22ba907a9d8007889b7017122c26c2c Mon Sep 17 00:00:00 2001
+From: tbordaz <tbordaz@redhat.com>
+Date: Thu, 6 May 2021 18:50:06 +0200
+Subject: [PATCH 1/2] Issue 4759 - Fix coverity issue (#4760)
+
+Bug description:
+	with #4218 (wtime, optime in access log), hrtime is set in the
+	operation. But it is done before checking if the operation is
+	set. covscan fails
+
+Fix description:
+	move the setting after verification that operation != NULL
+
+relates: https://github.com/389ds/389-ds-base/issues/4759
+
+Reviewed by: Simon Pichugin
+
+Platforms tested: F34
+---
+ ldap/servers/slapd/extendop.c | 6 +++---
+ ldap/servers/slapd/opshared.c | 6 +++---
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/ldap/servers/slapd/extendop.c b/ldap/servers/slapd/extendop.c
+index 59a993ea8..fbd41c6ee 100644
+--- a/ldap/servers/slapd/extendop.c
++++ b/ldap/servers/slapd/extendop.c
+@@ -221,9 +221,6 @@ do_extended(Slapi_PBlock *pb)
+     slapi_pblock_get(pb, SLAPI_OPERATION, &pb_op);
+     slapi_pblock_get(pb, SLAPI_CONNECTION, &pb_conn);
+ 
+-    /* Set the time we actually started the operation */
+-    slapi_operation_set_time_started(pb_op);
+-
+     if (pb_conn == NULL || pb_op == NULL) {
+         send_ldap_result(pb, LDAP_OPERATIONS_ERROR, NULL, "param error", 0, NULL);
+         slapi_log_err(SLAPI_LOG_ERR, "do_extended",
+@@ -231,6 +228,9 @@ do_extended(Slapi_PBlock *pb)
+         goto free_and_return;
+     }
+ 
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(pb_op);
++
+     /*
+      * Parse the extended request. It looks like this:
+      *
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index 2afb8e2fc..05b9a1553 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -276,9 +276,6 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+     slapi_pblock_get(pb, SLAPI_SEARCH_TARGET_SDN, &sdn);
+     slapi_pblock_get(pb, SLAPI_OPERATION, &operation);
+ 
+-    /* Set the time we actually started the operation */
+-    slapi_operation_set_time_started(operation);
+-
+     if (NULL == sdn) {
+         sdn = slapi_sdn_new_dn_byval(base);
+         slapi_pblock_set(pb, SLAPI_SEARCH_TARGET_SDN, sdn);
+@@ -309,6 +306,9 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+         rc = -1;
+         goto free_and_return_nolock;
+     }
++    
++    /* Set the time we actually started the operation */
++    slapi_operation_set_time_started(operation);
+ 
+     internal_op = operation_is_flag_set(operation, OP_FLAG_INTERNAL);
+     flag_psearch = operation_is_flag_set(operation, OP_FLAG_PS);
+-- 
+2.30.2
+
