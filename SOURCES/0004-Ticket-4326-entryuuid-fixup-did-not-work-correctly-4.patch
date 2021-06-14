@@ -1,0 +1,373 @@
+From c167d6127db45d8426437c273060c8c8f7fbcb9b Mon Sep 17 00:00:00 2001
+From: Firstyear <william.brown@suse.com>
+Date: Wed, 23 Sep 2020 09:19:34 +1000
+Subject: [PATCH 04/12] Ticket 4326 - entryuuid fixup did not work correctly
+ (#4328)
+
+Bug Description: due to an oversight in how fixup tasks
+worked, the entryuuid fixup task did not work correctly and
+would not persist over restarts.
+
+Fix Description: Correctly implement entryuuid fixup.
+
+fixes: #4326
+
+Author: William Brown <william@blackhats.net.au>
+
+Review by: mreynolds (thanks!)
+---
+ .../tests/suites/entryuuid/basic_test.py      |  24 +++-
+ src/plugins/entryuuid/src/lib.rs              |  43 ++++++-
+ src/slapi_r_plugin/src/constants.rs           |   5 +
+ src/slapi_r_plugin/src/entry.rs               |   8 ++
+ src/slapi_r_plugin/src/lib.rs                 |   2 +
+ src/slapi_r_plugin/src/macros.rs              |   2 +-
+ src/slapi_r_plugin/src/modify.rs              | 118 ++++++++++++++++++
+ src/slapi_r_plugin/src/pblock.rs              |   7 ++
+ src/slapi_r_plugin/src/value.rs               |   4 +
+ 9 files changed, 206 insertions(+), 7 deletions(-)
+ create mode 100644 src/slapi_r_plugin/src/modify.rs
+
+diff --git a/dirsrvtests/tests/suites/entryuuid/basic_test.py b/dirsrvtests/tests/suites/entryuuid/basic_test.py
+index beb73701d..4d8a40909 100644
+--- a/dirsrvtests/tests/suites/entryuuid/basic_test.py
++++ b/dirsrvtests/tests/suites/entryuuid/basic_test.py
+@@ -12,6 +12,7 @@ import time
+ import shutil
+ from lib389.idm.user import nsUserAccounts, UserAccounts
+ from lib389.idm.account import Accounts
++from lib389.idm.domain import Domain
+ from lib389.topologies import topology_st as topology
+ from lib389.backend import Backends
+ from lib389.paths import Paths
+@@ -190,6 +191,7 @@ def test_entryuuid_fixup_task(topology):
+         3. Enable the entryuuid plugin
+         4. Run the fixup
+         5. Assert the entryuuid now exists
++        6. Restart and check they persist
+ 
+     :expectedresults:
+         1. Success
+@@ -197,6 +199,7 @@ def test_entryuuid_fixup_task(topology):
+         3. Success
+         4. Success
+         5. Suddenly EntryUUID!
++        6. Still has EntryUUID!
+     """
+     # 1. Disable the plugin
+     plug = EntryUUIDPlugin(topology.standalone)
+@@ -220,7 +223,22 @@ def test_entryuuid_fixup_task(topology):
+     assert(task.is_complete() and task.get_exit_code() == 0)
+     topology.standalone.config.loglevel(vals=(ErrorLog.DEFAULT,))
+ 
+-    # 5. Assert the uuid.
+-    euuid = account.get_attr_val_utf8('entryUUID')
+-    assert(euuid is not None)
++    # 5.1 Assert the uuid on the user.
++    euuid_user = account.get_attr_val_utf8('entryUUID')
++    assert(euuid_user is not None)
++
++    # 5.2 Assert it on the domain entry.
++    domain = Domain(topology.standalone, dn=DEFAULT_SUFFIX)
++    euuid_domain = domain.get_attr_val_utf8('entryUUID')
++    assert(euuid_domain is not None)
++
++    # Assert it persists after a restart.
++    topology.standalone.restart()
++    # 6.1 Assert the uuid on the use.
++    euuid_user_2 = account.get_attr_val_utf8('entryUUID')
++    assert(euuid_user_2 == euuid_user)
++
++    # 6.2 Assert it on the domain entry.
++    euuid_domain_2 = domain.get_attr_val_utf8('entryUUID')
++    assert(euuid_domain_2 == euuid_domain)
+ 
+diff --git a/src/plugins/entryuuid/src/lib.rs b/src/plugins/entryuuid/src/lib.rs
+index 6b5e8d1bb..92977db05 100644
+--- a/src/plugins/entryuuid/src/lib.rs
++++ b/src/plugins/entryuuid/src/lib.rs
+@@ -187,9 +187,46 @@ impl SlapiPlugin3 for EntryUuid {
+     }
+ }
+ 
+-pub fn entryuuid_fixup_mapfn(mut e: EntryRef, _data: &()) -> Result<(), PluginError> {
+-    assign_uuid(&mut e);
+-    Ok(())
++pub fn entryuuid_fixup_mapfn(e: &EntryRef, _data: &()) -> Result<(), PluginError> {
++    /* Supply a modification to the entry. */
++    let sdn = e.get_sdnref();
++
++    /* Sanity check that entryuuid doesn't already exist */
++    if e.contains_attr("entryUUID") {
++        log_error!(
++            ErrorLevel::Trace,
++            "skipping fixup for -> {}",
++            sdn.to_dn_string()
++        );
++        return Ok(());
++    }
++
++    // Setup the modifications
++    let mut mods = SlapiMods::new();
++
++    let u: Uuid = Uuid::new_v4();
++    let uuid_value = Value::from(&u);
++    let values: ValueArray = std::iter::once(uuid_value).collect();
++    mods.append(ModType::Replace, "entryUUID", values);
++
++    /* */
++    let lmod = Modify::new(&sdn, mods, plugin_id())?;
++
++    match lmod.execute() {
++        Ok(_) => {
++            log_error!(ErrorLevel::Trace, "fixed-up -> {}", sdn.to_dn_string());
++            Ok(())
++        }
++        Err(e) => {
++            log_error!(
++                ErrorLevel::Error,
++                "entryuuid_fixup_mapfn -> fixup failed -> {} {:?}",
++                sdn.to_dn_string(),
++                e
++            );
++            Err(PluginError::GenericFailure)
++        }
++    }
+ }
+ 
+ #[cfg(test)]
+diff --git a/src/slapi_r_plugin/src/constants.rs b/src/slapi_r_plugin/src/constants.rs
+index cf76ccbdb..34845c2f4 100644
+--- a/src/slapi_r_plugin/src/constants.rs
++++ b/src/slapi_r_plugin/src/constants.rs
+@@ -5,6 +5,11 @@ use std::os::raw::c_char;
+ pub const LDAP_SUCCESS: i32 = 0;
+ pub const PLUGIN_DEFAULT_PRECEDENCE: i32 = 50;
+ 
++#[repr(i32)]
++pub enum OpFlags {
++    ByassReferrals = 0x0040_0000,
++}
++
+ #[repr(i32)]
+ /// The set of possible function handles we can register via the pblock. These
+ /// values correspond to slapi-plugin.h.
+diff --git a/src/slapi_r_plugin/src/entry.rs b/src/slapi_r_plugin/src/entry.rs
+index 034efe692..22ae45189 100644
+--- a/src/slapi_r_plugin/src/entry.rs
++++ b/src/slapi_r_plugin/src/entry.rs
+@@ -70,6 +70,14 @@ impl EntryRef {
+         }
+     }
+ 
++    pub fn contains_attr(&self, name: &str) -> bool {
++        let cname = CString::new(name).expect("invalid attr name");
++        let va = unsafe { slapi_entry_attr_get_valuearray(self.raw_e, cname.as_ptr()) };
++
++        // If it's null, it's not present, so flip the logic.
++        !va.is_null()
++    }
++
+     pub fn add_value(&mut self, a: &str, v: &ValueRef) {
+         // turn the attr to a c string.
+         // TODO FIX
+diff --git a/src/slapi_r_plugin/src/lib.rs b/src/slapi_r_plugin/src/lib.rs
+index d7fc22e52..076907bae 100644
+--- a/src/slapi_r_plugin/src/lib.rs
++++ b/src/slapi_r_plugin/src/lib.rs
+@@ -9,6 +9,7 @@ pub mod dn;
+ pub mod entry;
+ pub mod error;
+ pub mod log;
++pub mod modify;
+ pub mod pblock;
+ pub mod plugin;
+ pub mod search;
+@@ -24,6 +25,7 @@ pub mod prelude {
+     pub use crate::entry::EntryRef;
+     pub use crate::error::{DseCallbackStatus, LDAPError, PluginError, RPluginError};
+     pub use crate::log::{log_error, ErrorLevel};
++    pub use crate::modify::{ModType, Modify, SlapiMods};
+     pub use crate::pblock::{Pblock, PblockRef};
+     pub use crate::plugin::{register_plugin_ext, PluginIdRef, SlapiPlugin3};
+     pub use crate::search::{Search, SearchScope};
+diff --git a/src/slapi_r_plugin/src/macros.rs b/src/slapi_r_plugin/src/macros.rs
+index 030449632..bc8dfa60f 100644
+--- a/src/slapi_r_plugin/src/macros.rs
++++ b/src/slapi_r_plugin/src/macros.rs
+@@ -825,7 +825,7 @@ macro_rules! slapi_r_search_callback_mapfn {
+                 let e = EntryRef::new(raw_e);
+                 let data_ptr = raw_data as *const _;
+                 let data = unsafe { &(*data_ptr) };
+-                match $cb_mod_ident(e, data) {
++                match $cb_mod_ident(&e, data) {
+                     Ok(_) => LDAPError::Success as i32,
+                     Err(e) => e as i32,
+                 }
+diff --git a/src/slapi_r_plugin/src/modify.rs b/src/slapi_r_plugin/src/modify.rs
+new file mode 100644
+index 000000000..30864377a
+--- /dev/null
++++ b/src/slapi_r_plugin/src/modify.rs
+@@ -0,0 +1,118 @@
++use crate::constants::OpFlags;
++use crate::dn::SdnRef;
++use crate::error::{LDAPError, PluginError};
++use crate::pblock::Pblock;
++use crate::plugin::PluginIdRef;
++use crate::value::{slapi_value, ValueArray};
++
++use std::ffi::CString;
++use std::ops::{Deref, DerefMut};
++use std::os::raw::c_char;
++
++extern "C" {
++    fn slapi_modify_internal_set_pb_ext(
++        pb: *const libc::c_void,
++        dn: *const libc::c_void,
++        mods: *const *const libc::c_void,
++        controls: *const *const libc::c_void,
++        uniqueid: *const c_char,
++        plugin_ident: *const libc::c_void,
++        op_flags: i32,
++    );
++    fn slapi_modify_internal_pb(pb: *const libc::c_void);
++    fn slapi_mods_free(smods: *const *const libc::c_void);
++    fn slapi_mods_get_ldapmods_byref(smods: *const libc::c_void) -> *const *const libc::c_void;
++    fn slapi_mods_new() -> *const libc::c_void;
++    fn slapi_mods_add_mod_values(
++        smods: *const libc::c_void,
++        mtype: i32,
++        attrtype: *const c_char,
++        value: *const *const slapi_value,
++    );
++}
++
++#[derive(Debug)]
++#[repr(i32)]
++pub enum ModType {
++    Add = 0,
++    Delete = 1,
++    Replace = 2,
++}
++
++pub struct SlapiMods {
++    inner: *const libc::c_void,
++    vas: Vec<ValueArray>,
++}
++
++impl Drop for SlapiMods {
++    fn drop(&mut self) {
++        unsafe { slapi_mods_free(&self.inner as *const *const libc::c_void) }
++    }
++}
++
++impl SlapiMods {
++    pub fn new() -> Self {
++        SlapiMods {
++            inner: unsafe { slapi_mods_new() },
++            vas: Vec::new(),
++        }
++    }
++
++    pub fn append(&mut self, modtype: ModType, attrtype: &str, values: ValueArray) {
++        // We can get the value array pointer here to push to the inner
++        // because the internal pointers won't change even when we push them
++        // to the list to preserve their lifetime.
++        let vas = values.as_ptr();
++        // We take ownership of this to ensure it lives as least as long as our
++        // slapimods structure.
++        self.vas.push(values);
++        // now we can insert these to the modes.
++        let c_attrtype = CString::new(attrtype).expect("failed to allocate attrtype");
++        unsafe { slapi_mods_add_mod_values(self.inner, modtype as i32, c_attrtype.as_ptr(), vas) };
++    }
++}
++
++pub struct Modify {
++    pb: Pblock,
++    mods: SlapiMods,
++}
++
++pub struct ModifyResult {
++    pb: Pblock,
++}
++
++impl Modify {
++    pub fn new(dn: &SdnRef, mods: SlapiMods, plugin_id: PluginIdRef) -> Result<Self, PluginError> {
++        let pb = Pblock::new();
++        let lmods = unsafe { slapi_mods_get_ldapmods_byref(mods.inner) };
++        // OP_FLAG_ACTION_LOG_ACCESS
++
++        unsafe {
++            slapi_modify_internal_set_pb_ext(
++                pb.deref().as_ptr(),
++                dn.as_ptr(),
++                lmods,
++                std::ptr::null(),
++                std::ptr::null(),
++                plugin_id.raw_pid,
++                OpFlags::ByassReferrals as i32,
++            )
++        };
++
++        Ok(Modify { pb, mods })
++    }
++
++    pub fn execute(self) -> Result<ModifyResult, LDAPError> {
++        let Modify {
++            mut pb,
++            mods: _mods,
++        } = self;
++        unsafe { slapi_modify_internal_pb(pb.deref().as_ptr()) };
++        let result = pb.get_op_result();
++
++        match result {
++            0 => Ok(ModifyResult { pb }),
++            _e => Err(LDAPError::from(result)),
++        }
++    }
++}
+diff --git a/src/slapi_r_plugin/src/pblock.rs b/src/slapi_r_plugin/src/pblock.rs
+index b69ce1680..0f83914f3 100644
+--- a/src/slapi_r_plugin/src/pblock.rs
++++ b/src/slapi_r_plugin/src/pblock.rs
+@@ -11,6 +11,7 @@ pub use crate::log::{log_error, ErrorLevel};
+ extern "C" {
+     fn slapi_pblock_set(pb: *const libc::c_void, arg: i32, value: *const libc::c_void) -> i32;
+     fn slapi_pblock_get(pb: *const libc::c_void, arg: i32, value: *const libc::c_void) -> i32;
++    fn slapi_pblock_destroy(pb: *const libc::c_void);
+     fn slapi_pblock_new() -> *const libc::c_void;
+ }
+ 
+@@ -41,6 +42,12 @@ impl DerefMut for Pblock {
+     }
+ }
+ 
++impl Drop for Pblock {
++    fn drop(&mut self) {
++        unsafe { slapi_pblock_destroy(self.value.raw_pb) }
++    }
++}
++
+ pub struct PblockRef {
+     raw_pb: *const libc::c_void,
+ }
+diff --git a/src/slapi_r_plugin/src/value.rs b/src/slapi_r_plugin/src/value.rs
+index 5a40dd279..46246837a 100644
+--- a/src/slapi_r_plugin/src/value.rs
++++ b/src/slapi_r_plugin/src/value.rs
+@@ -96,6 +96,10 @@ impl ValueArray {
+         let bs = vs.into_boxed_slice();
+         Box::leak(bs) as *const _ as *const *const slapi_value
+     }
++
++    pub fn as_ptr(&self) -> *const *const slapi_value {
++        self.data.as_ptr() as *const *const slapi_value
++    }
+ }
+ 
+ impl FromIterator<Value> for ValueArray {
+-- 
+2.26.3
+
