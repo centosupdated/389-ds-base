@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.16
-Release:          %{?relprefix}13%{?prerel}%{?dist}
+Release:          %{?relprefix}16%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -212,6 +212,11 @@ Patch35:          0035-Issue-4581-A-failed-re-indexing-leaves-the-database-.patc
 Patch36:          0036-Issue-4513-CI-Tests-fix-test-failures.patch
 Patch37:          0037-Issue-4609-CVE-info-disclosure-when-authenticating.patch
 Patch38:          0038-Issue-4649-crash-in-sync_repl-when-a-MODRDN-create-a.patch
+Patch39:          0039-Issue-4711-SIGSEV-with-sync_repl-4738.patch
+Patch40:          0040-Issue-4764-replicated-operation-sometime-checks-ACI-.patch
+Patch41:          0041-Issue-4797-ACL-IP-ADDRESS-evaluation-may-corrupt-c_i.patch
+Patch42:          0042-Issue-4492-Changelog-cache-can-upload-updates-from-a.patch
+Patch43:          0043-Issue-4644-Large-updates-can-reset-the-CLcache-to-th.patch
 
 
 %description
@@ -830,6 +835,20 @@ exit 0
 %doc README.md
 
 %changelog
+* Wed Jun 16 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.16-16
+- Bump version to 1.4.3.16-16
+- Resolves: Bug 1972738 - Changelog cache can upload updates from a wrong starting point (CSN)
+- Resolves: Bug 1972721 - Large updates can reset the CLcache to the beginning of the changelog
+
+* Fri Jun 11 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.16-15
+- Bump version to 1.4.3.16-15
+- Resolves: Bug 1970791 - A connection can be erroneously flagged as replication conn during evaluation of an aci with ip bind rule
+
+* Tue Jun 08 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.16-14
+- Bump version to 1.4.3.16-14
+- Resolves: Bug 1968588 - ACIs are being evaluated against the Replication Manager account in a replication context
+- Resolves: Bug 1960720 - sync_repl NULL pointer dereference in sync_create_state_control()
+
 * Thu Mar 11 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.16-13
 - Bump version to 1.4.3.16-13
 - Resolves: Bug 1930188 - crash in sync_repl when a MODRDN create a cenotaph
