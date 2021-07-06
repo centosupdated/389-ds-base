@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.16
-Release:          %{?relprefix}16%{?prerel}%{?dist}
+Release:          %{?relprefix}16%{?prerel}%{?dist}.0.1
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
