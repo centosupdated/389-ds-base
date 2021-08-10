@@ -45,7 +45,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.16
-Release:          %{?relprefix}16%{?prerel}%{?dist}.0.2
+Release:          %{?relprefix}19%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -217,6 +217,10 @@ Patch40:          0040-Issue-4764-replicated-operation-sometime-checks-ACI-.patc
 Patch41:          0041-Issue-4797-ACL-IP-ADDRESS-evaluation-may-corrupt-c_i.patch
 Patch42:          0042-Issue-4492-Changelog-cache-can-upload-updates-from-a.patch
 Patch43:          0043-Issue-4644-Large-updates-can-reset-the-CLcache-to-th.patch
+Patch44:          0044-Issue-4563-Failure-on-s390x-Fails-to-split-RDN-o-pki.patch
+Patch45:          0045-Issue-4443-Internal-unindexed-searches-in-syncrepl-r.patch
+Patch46:          0046-Issue-4817-BUG-locked-crypt-accounts-on-import-may-a.patch
+Patch47:          0047-Issue-4837-persistent-search-returns-entries-even-wh.patch
 
 
 %description
@@ -835,6 +839,19 @@ exit 0
 %doc README.md
 
 %changelog
+* Wed Jul 21 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.16-19
+- Bump version to 1.4.3.16-19
+- Resolve: Bug 1984091 - persistent search returns entries even when an error is returned by content-sync-plugin
+
+* Mon Jul 19 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.16-18
+- Bump version to 1.4.3.16-18
+- Resolve: Bug 1983121 - CRYPT password hash with asterisk allows any bind attempt to succeed
+
+* Fri Jul 16 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.16-17
+- Bump version to 1.4.3.16-17
+- Resolve: Bug 1983095 - Internal unindexed searches in syncrepl
+- Resolve: Bug 1980063 - IPA installation fails on s390x with 389-ds-base-1.4.3.8-4.module+el8.3.0+7193+dfd1e8ad.s390x
+
 * Wed Jun 16 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.16-16
 - Bump version to 1.4.3.16-16
 - Resolves: Bug 1972738 - Changelog cache can upload updates from a wrong starting point (CSN)
