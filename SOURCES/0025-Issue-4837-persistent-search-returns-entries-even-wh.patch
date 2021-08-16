@@ -1,0 +1,39 @@
+From 31d53e7da585723e66b838dcf34b77ea7c9968c6 Mon Sep 17 00:00:00 2001
+From: tbordaz <tbordaz@redhat.com>
+Date: Wed, 21 Jul 2021 09:16:30 +0200
+Subject: [PATCH] Issue 4837 - persistent search returns entries even when an
+ error is returned by content-sync-plugin (#4838)
+
+Bug description:
+	When a ldap client sends a sync request control, the server response may contain a sync state control.
+        If the server fails to create the control the search should fail.
+
+Fix description:
+	In case the server fails to create the response control
+        logs the failure of the pre_search
+
+relates: https://github.com/389ds/389-ds-base/issues/4837
+
+Reviewed by: Simon Pichugin
+
+Platforms tested: RH8.4
+---
+ ldap/servers/plugins/sync/sync_refresh.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/sync/sync_refresh.c b/ldap/servers/plugins/sync/sync_refresh.c
+index 646ff760b..4cbb6a949 100644
+--- a/ldap/servers/plugins/sync/sync_refresh.c
++++ b/ldap/servers/plugins/sync/sync_refresh.c
+@@ -213,7 +213,7 @@ sync_srch_refresh_pre_entry(Slapi_PBlock *pb)
+         Slapi_Entry *e;
+         slapi_pblock_get(pb, SLAPI_SEARCH_RESULT_ENTRY, &e);
+         LDAPControl **ctrl = (LDAPControl **)slapi_ch_calloc(2, sizeof(LDAPControl *));
+-        sync_create_state_control(e, &ctrl[0], LDAP_SYNC_ADD, NULL);
++        rc = sync_create_state_control(e, &ctrl[0], LDAP_SYNC_ADD, NULL);
+         slapi_pblock_set(pb, SLAPI_SEARCH_CTRLS, ctrl);
+     }
+     return (rc);
+-- 
+2.31.1
+
