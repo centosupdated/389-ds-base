@@ -48,7 +48,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.23
-Release:          %{?relprefix}7%{?prerel}%{?dist}
+Release:          %{?relprefix}10%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -263,6 +263,10 @@ Patch23:          0023-Issue-4443-Internal-unindexed-searches-in-syncrepl-r.patc
 Patch24:          0024-Issue-4817-BUG-locked-crypt-accounts-on-import-may-a.patch
 Patch25:          0025-Issue-4837-persistent-search-returns-entries-even-wh.patch
 Patch26:          0026-Hardcode-gost-crypt-passsword-storage-scheme.patch
+Patch27:          0027-Issue-4734-import-of-entry-with-no-parent-warning-47.patch
+Patch28:          0028-Issue-4872-BUG-entryuuid-enabled-by-default-causes-r.patch
+Patch29:          0029-Remove-GOST-YESCRYPT-password-sotrage-scheme.patch
+Patch30:          0030-Issue-4884-server-crashes-when-dnaInterval-attribute.patch
 
 
 %description
@@ -882,6 +886,19 @@ exit 0
 %doc README.md
 
 %changelog
+* Thu Aug 26 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-10
+- Bump version to 1.4.3.23-10
+- Resolves: Bug 1997138 - LDAP server crashes when dnaInterval attribute is set to 0
+
+* Wed Aug 25 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-9
+- Bump version to 1.4.3.23-9
+- Resolves: Bug 1947044 - remove unsupported GOST password storage scheme
+
+* Thu Aug 19 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-8
+- Bump version to 1.4.3.23-8
+- Resolves: Bug 1947044 - add missing patch for import result code
+- Resolves: Bug 1944494 - support for RFC 4530 entryUUID attribute
+
 * Mon Jul 26 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-7
 - Bump version to 1.4.3.23-7
 - Resolves: Bug 1983921 - persistent search returns entries even when an error is returned by content-sync-plugin
