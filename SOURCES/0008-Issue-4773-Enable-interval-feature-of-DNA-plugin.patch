@@ -1,0 +1,37 @@
+From 40e9a4835a6e95f021a711a7c42ce0c1bddc5ba4 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 21 May 2021 13:09:12 -0400
+Subject: [PATCH 08/12] Issue 4773 - Enable interval feature of DNA plugin
+
+Description:  Enable the dormant interval feature in DNA plugin
+
+relates: https://github.com/389ds/389-ds-base/issues/4773
+
+Review by: mreynolds (one line commit rule)
+---
+ ldap/servers/plugins/dna/dna.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/ldap/servers/plugins/dna/dna.c b/ldap/servers/plugins/dna/dna.c
+index bf6b74a99..928a3f54a 100644
+--- a/ldap/servers/plugins/dna/dna.c
++++ b/ldap/servers/plugins/dna/dna.c
+@@ -1023,7 +1023,6 @@ dna_parse_config_entry(Slapi_PBlock *pb, Slapi_Entry *e, int apply)
+     /* Set the default interval to 1 */
+     entry->interval = 1;
+ 
+-#ifdef DNA_ENABLE_INTERVAL
+     value = slapi_entry_attr_get_charptr(e, DNA_INTERVAL);
+     if (value) {
+         entry->interval = strtoull(value, 0, 0);
+@@ -1032,7 +1031,6 @@ dna_parse_config_entry(Slapi_PBlock *pb, Slapi_Entry *e, int apply)
+ 
+     slapi_log_err(SLAPI_LOG_CONFIG, DNA_PLUGIN_SUBSYSTEM,
+                   "dna_parse_config_entry - %s [%" PRIu64 "]\n", DNA_INTERVAL, entry->interval);
+-#endif
+ 
+     value = slapi_entry_attr_get_charptr(e, DNA_GENERATE);
+     if (value) {
+-- 
+2.26.3
+

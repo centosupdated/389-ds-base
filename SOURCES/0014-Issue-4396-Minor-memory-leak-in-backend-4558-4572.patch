@@ -1,0 +1,79 @@
+From b3170e39519530c39d59202413b20e6bd466224d Mon Sep 17 00:00:00 2001
+From: James Chapman <jachapma@redhat.com>
+Date: Wed, 27 Jan 2021 09:56:38 +0000
+Subject: [PATCH 2/3] Issue 4396 - Minor memory leak in backend (#4558) (#4572)
+
+Bug Description: As multiple suffixes per backend were no longer used, this
+functionality has been replaced with a single suffix per backend. Legacy
+code remains that adds multiple suffixes to the dse internal backend,
+resulting in memory allocations that are lost.
+
+Also a minor typo is corrected in backend.c
+
+Fix Description: Calls to be_addsuffix on the DSE backend are removed
+as they are never used.
+
+Fixes: https://github.com/389ds/389-ds-base/issues/4396
+
+Reviewed by: mreynolds389, Firstyear, droideck (Thank you)
+---
+ ldap/servers/slapd/backend.c |  2 +-
+ ldap/servers/slapd/fedse.c   | 12 +++---------
+ 2 files changed, 4 insertions(+), 10 deletions(-)
+
+diff --git a/ldap/servers/slapd/backend.c b/ldap/servers/slapd/backend.c
+index bc52b4643..5707504a9 100644
+--- a/ldap/servers/slapd/backend.c
++++ b/ldap/servers/slapd/backend.c
+@@ -42,7 +42,7 @@ be_init(Slapi_Backend *be, const char *type, const char *name, int isprivate, in
+     }
+     be->be_monitordn = slapi_create_dn_string("cn=monitor,cn=%s,cn=%s,cn=plugins,cn=config",
+                                               name, type);
+-    if (NULL == be->be_configdn) {
++    if (NULL == be->be_monitordn) {
+         slapi_log_err(SLAPI_LOG_ERR,
+                       "be_init", "Failed create instance monitor dn for "
+                                  "plugin %s, instance %s\n",
+diff --git a/ldap/servers/slapd/fedse.c b/ldap/servers/slapd/fedse.c
+index 0d645f909..7b820b540 100644
+--- a/ldap/servers/slapd/fedse.c
++++ b/ldap/servers/slapd/fedse.c
+@@ -2827,7 +2827,7 @@ search_snmp(Slapi_PBlock *pb __attribute__((unused)),
+ }
+ 
+ /*
+- * Called from config.c to install the internal backends
++ * Called from main.c to install the internal backends
+  */
+ int
+ setup_internal_backends(char *configdir)
+@@ -2846,7 +2846,6 @@ setup_internal_backends(char *configdir)
+         Slapi_DN counters;
+         Slapi_DN snmp;
+         Slapi_DN root;
+-        Slapi_Backend *be;
+         Slapi_DN encryption;
+         Slapi_DN saslmapping;
+         Slapi_DN plugins;
+@@ -2895,16 +2894,11 @@ setup_internal_backends(char *configdir)
+         dse_register_callback(pfedse, SLAPI_OPERATION_ADD, DSE_FLAG_PREOP, &saslmapping, LDAP_SCOPE_SUBTREE, "(objectclass=nsSaslMapping)", sasl_map_config_add, NULL, NULL);
+         dse_register_callback(pfedse, SLAPI_OPERATION_ADD, DSE_FLAG_PREOP, &plugins, LDAP_SCOPE_SUBTREE, "(objectclass=nsSlapdPlugin)", check_plugin_path, NULL, NULL);
+ 
+-        be = be_new_internal(pfedse, "DSE", DSE_BACKEND, &fedse_plugin);
+-        be_addsuffix(be, &root);
+-        be_addsuffix(be, &monitor);
+-        be_addsuffix(be, &config);
++        be_new_internal(pfedse, "DSE", DSE_BACKEND, &fedse_plugin);
+ 
+         /*
+-         * Now that the be's are in place, we can
+-         * setup the mapping tree.
++         * Now that the be's are in place, we can setup the mapping tree.
+          */
+-
+         if (mapping_tree_init()) {
+             slapi_log_err(SLAPI_LOG_EMERG, "setup_internal_backends", "Failed to init mapping tree\n");
+             exit(1);
+-- 
+2.31.1
+

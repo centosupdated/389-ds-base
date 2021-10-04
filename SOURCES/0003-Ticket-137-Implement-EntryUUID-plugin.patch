@@ -1,0 +1,5307 @@
+From eff14f0c884f3d2f541e3be6d9df86087177a76d Mon Sep 17 00:00:00 2001
+From: William Brown <william@blackhats.net.au>
+Date: Mon, 16 Mar 2020 14:59:56 +1000
+Subject: [PATCH 03/12] Ticket 137 - Implement EntryUUID plugin
+
+Bug Description: This implements EntryUUID - A plugin that generates
+uuid's on attributes, which can be used by external applications to
+associate an entry uniquely.
+
+Fix Description: This change is quite large as it contains multiple parts:
+
+* Schema for entryuuid.
+    ldap/schema/02common.ldif
+    ldap/schema/03entryuuid.ldif
+* Documentation of the plugin design
+    src/README.md
+* A rust plugin api.
+    src/slapi_r_plugin/Cargo.toml
+    src/slapi_r_plugin/README.md
+    src/slapi_r_plugin/build.rs
+    src/slapi_r_plugin/src/backend.rs
+    src/slapi_r_plugin/src/ber.rs
+    src/slapi_r_plugin/src/constants.rs
+    src/slapi_r_plugin/src/dn.rs
+    src/slapi_r_plugin/src/entry.rs
+    src/slapi_r_plugin/src/error.rs
+    src/slapi_r_plugin/src/init.c
+    src/slapi_r_plugin/src/lib.rs
+    src/slapi_r_plugin/src/log.rs
+    src/slapi_r_plugin/src/macros.rs
+    src/slapi_r_plugin/src/pblock.rs
+    src/slapi_r_plugin/src/plugin.rs
+    src/slapi_r_plugin/src/search.rs
+    src/slapi_r_plugin/src/syntax_plugin.rs
+    src/slapi_r_plugin/src/task.rs
+    src/slapi_r_plugin/src/value.rs
+* An entry uuid syntax plugin, that has functional indexing
+    src/plugins/entryuuid_syntax/Cargo.toml
+    src/plugins/entryuuid_syntax/src/lib.rs
+* A entry uuid plugin that generates entryuuid's and has a fixup task.
+    src/plugins/entryuuid/Cargo.toml
+    src/plugins/entryuuid/src/lib.rs
+* Supporting changes in the server core to enable and provide apis for the plugins.
+    ldap/servers/slapd/config.c
+    ldap/servers/slapd/entry.c
+    ldap/servers/slapd/fedse.c
+* A test suite for for the entryuuid plugin
+    dirsrvtests/tests/data/entryuuid/localhost-userRoot-2020_03_30_13_14_47.ldif
+    dirsrvtests/tests/suites/entryuuid/basic_test.py
+* Supporting changes in lib389
+    src/lib389/lib389/_constants.py
+    src/lib389/lib389/backend.py
+    src/lib389/lib389/instance/setup.py
+    src/lib389/lib389/plugins.py
+    src/lib389/lib389/tasks.py
+* Changes to support building the plugins
+    Makefile.am
+    configure.ac
+* Execution of cargo fmt on the tree, causing some clean up of files.
+    src/Cargo.lock
+    src/Cargo.toml
+    src/librnsslapd/build.rs
+    src/librnsslapd/src/lib.rs
+    src/librslapd/Cargo.toml
+    src/librslapd/build.rs
+    src/librslapd/src/lib.rs
+    src/libsds/sds/lib.rs
+    src/libsds/sds/tqueue.rs
+    src/slapd/src/error.rs
+    src/slapd/src/fernet.rs
+    src/slapd/src/lib.rs
+
+https://pagure.io/389-ds-base/issue/137
+
+Author: William Brown <william@blackhats.net.au>
+
+Review by: mreynolds, lkrispenz (Thanks)
+---
+ Makefile.am                                   |  96 +-
+ ...ocalhost-userRoot-2020_03_30_13_14_47.ldif | 233 +++++
+ .../tests/suites/entryuuid/basic_test.py      | 226 +++++
+ ldap/schema/02common.ldif                     |   1 +
+ ldap/schema/03entryuuid.ldif                  |  16 +
+ ldap/servers/slapd/config.c                   |  17 +
+ ldap/servers/slapd/entry.c                    |  12 +
+ ldap/servers/slapd/fedse.c                    |  28 +
+ src/Cargo.lock                                | 241 +++--
+ src/Cargo.toml                                |  11 +-
+ src/README.md                                 |   0
+ src/lib389/lib389/_constants.py               |   1 +
+ src/lib389/lib389/backend.py                  |   2 +-
+ src/lib389/lib389/instance/setup.py           |  14 +
+ src/lib389/lib389/plugins.py                  |  30 +
+ src/lib389/lib389/tasks.py                    |  14 +
+ src/librnsslapd/build.rs                      |  19 +-
+ src/librnsslapd/src/lib.rs                    |  16 +-
+ src/librslapd/Cargo.toml                      |   4 -
+ src/librslapd/build.rs                        |  19 +-
+ src/librslapd/src/lib.rs                      |  11 +-
+ src/libsds/sds/lib.rs                         |   2 -
+ src/libsds/sds/tqueue.rs                      |  23 +-
+ src/plugins/entryuuid/Cargo.toml              |  21 +
+ src/plugins/entryuuid/src/lib.rs              | 196 ++++
+ src/plugins/entryuuid_syntax/Cargo.toml       |  21 +
+ src/plugins/entryuuid_syntax/src/lib.rs       | 145 +++
+ src/slapd/src/error.rs                        |   2 -
+ src/slapd/src/fernet.rs                       |  31 +-
+ src/slapd/src/lib.rs                          |   3 -
+ src/slapi_r_plugin/Cargo.toml                 |  19 +
+ src/slapi_r_plugin/README.md                  | 216 +++++
+ src/slapi_r_plugin/build.rs                   |   8 +
+ src/slapi_r_plugin/src/backend.rs             |  71 ++
+ src/slapi_r_plugin/src/ber.rs                 |  90 ++
+ src/slapi_r_plugin/src/constants.rs           | 203 +++++
+ src/slapi_r_plugin/src/dn.rs                  | 108 +++
+ src/slapi_r_plugin/src/entry.rs               |  92 ++
+ src/slapi_r_plugin/src/error.rs               |  61 ++
+ src/slapi_r_plugin/src/init.c                 |   8 +
+ src/slapi_r_plugin/src/lib.rs                 |  36 +
+ src/slapi_r_plugin/src/log.rs                 |  87 ++
+ src/slapi_r_plugin/src/macros.rs              | 835 ++++++++++++++++++
+ src/slapi_r_plugin/src/pblock.rs              | 275 ++++++
+ src/slapi_r_plugin/src/plugin.rs              | 117 +++
+ src/slapi_r_plugin/src/search.rs              | 127 +++
+ src/slapi_r_plugin/src/syntax_plugin.rs       | 169 ++++
+ src/slapi_r_plugin/src/task.rs                | 148 ++++
+ src/slapi_r_plugin/src/value.rs               | 235 +++++
+ 49 files changed, 4213 insertions(+), 147 deletions(-)
+ create mode 100644 dirsrvtests/tests/data/entryuuid/localhost-userRoot-2020_03_30_13_14_47.ldif
+ create mode 100644 dirsrvtests/tests/suites/entryuuid/basic_test.py
+ create mode 100644 ldap/schema/03entryuuid.ldif
+ create mode 100644 src/README.md
+ create mode 100644 src/plugins/entryuuid/Cargo.toml
+ create mode 100644 src/plugins/entryuuid/src/lib.rs
+ create mode 100644 src/plugins/entryuuid_syntax/Cargo.toml
+ create mode 100644 src/plugins/entryuuid_syntax/src/lib.rs
+ create mode 100644 src/slapi_r_plugin/Cargo.toml
+ create mode 100644 src/slapi_r_plugin/README.md
+ create mode 100644 src/slapi_r_plugin/build.rs
+ create mode 100644 src/slapi_r_plugin/src/backend.rs
+ create mode 100644 src/slapi_r_plugin/src/ber.rs
+ create mode 100644 src/slapi_r_plugin/src/constants.rs
+ create mode 100644 src/slapi_r_plugin/src/dn.rs
+ create mode 100644 src/slapi_r_plugin/src/entry.rs
+ create mode 100644 src/slapi_r_plugin/src/error.rs
+ create mode 100644 src/slapi_r_plugin/src/init.c
+ create mode 100644 src/slapi_r_plugin/src/lib.rs
+ create mode 100644 src/slapi_r_plugin/src/log.rs
+ create mode 100644 src/slapi_r_plugin/src/macros.rs
+ create mode 100644 src/slapi_r_plugin/src/pblock.rs
+ create mode 100644 src/slapi_r_plugin/src/plugin.rs
+ create mode 100644 src/slapi_r_plugin/src/search.rs
+ create mode 100644 src/slapi_r_plugin/src/syntax_plugin.rs
+ create mode 100644 src/slapi_r_plugin/src/task.rs
+ create mode 100644 src/slapi_r_plugin/src/value.rs
+
+diff --git a/Makefile.am b/Makefile.am
+index 668a095da..627953850 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -38,6 +38,7 @@ if RUST_ENABLE
+ RUST_ON = 1
+ CARGO_FLAGS = @cargo_defs@
+ RUSTC_FLAGS = @asan_rust_defs@ @msan_rust_defs@ @tsan_rust_defs@ @debug_rust_defs@
++# -L@abs_top_builddir@/rs/@rust_target_dir@
+ RUST_LDFLAGS = -ldl -lpthread -lgcc_s -lc -lm -lrt -lutil
+ RUST_DEFINES = -DRUST_ENABLE
+ if RUST_ENABLE_OFFLINE
+@@ -298,7 +299,7 @@ clean-local:
+ 	-rm -rf $(abs_top_builddir)/html
+ 	-rm -rf $(abs_top_builddir)/man/man3
+ if RUST_ENABLE
+-	CARGO_TARGET_DIR=$(abs_top_builddir)/rs cargo clean --manifest-path=$(srcdir)/src/libsds/Cargo.toml
++	CARGO_TARGET_DIR=$(abs_top_builddir)/rs cargo clean --manifest-path=$(srcdir)/src/Cargo.toml
+ endif
+ 
+ dberrstrs.h: Makefile
+@@ -416,6 +417,11 @@ serverplugin_LTLIBRARIES = libacl-plugin.la \
+ 	$(LIBPAM_PASSTHRU_PLUGIN) $(LIBDNA_PLUGIN) \
+ 	$(LIBBITWISE_PLUGIN) $(LIBPRESENCE_PLUGIN) $(LIBPOSIX_WINSYNC_PLUGIN)
+ 
++if RUST_ENABLE
++serverplugin_LTLIBRARIES += libentryuuid-plugin.la libentryuuid-syntax-plugin.la
++endif
++
++
+ noinst_LIBRARIES = libavl.a
+ 
+ dist_noinst_HEADERS = \
+@@ -757,6 +763,10 @@ systemschema_DATA = $(srcdir)/ldap/schema/00core.ldif \
+ 	$(srcdir)/ldap/schema/60nss-ldap.ldif \
+ 	$(LIBACCTPOLICY_SCHEMA)
+ 
++if RUST_ENABLE
++systemschema_DATA += $(srcdir)/ldap/schema/03entryuuid.ldif
++endif
++
+ schema_DATA = $(srcdir)/ldap/schema/99user.ldif
+ 
+ libexec_SCRIPTS =
+@@ -1227,7 +1237,7 @@ libsds_la_LDFLAGS = $(AM_LDFLAGS) $(SDS_LDFLAGS)
+ 
+ if RUST_ENABLE
+ 
+-noinst_LTLIBRARIES = librsds.la librslapd.la librnsslapd.la
++noinst_LTLIBRARIES = librsds.la librslapd.la librnsslapd.la libentryuuid.la libentryuuid_syntax.la
+ 
+ ### Why does this exist?
+ #
+@@ -1252,6 +1262,8 @@ librsds_la_EXTRA = src/libsds/Cargo.lock
+ @abs_top_builddir@/rs/@rust_target_dir@/librsds.a: $(librsds_la_SOURCES)
+ 	RUST_BACKTRACE=1 RUSTC_BOOTSTRAP=1 \
+ 	CARGO_TARGET_DIR=$(abs_top_builddir)/rs \
++	SLAPD_DYLIB_DIR=$(abs_top_builddir)/ \
++	SLAPD_HEADER_DIR=$(abs_top_builddir)/ \
+ 		cargo rustc $(RUST_OFFLINE) --manifest-path=$(srcdir)/src/libsds/Cargo.toml \
+ 		$(CARGO_FLAGS) --verbose -- $(RUSTC_FLAGS)
+ 
+@@ -1268,6 +1280,7 @@ librslapd_la_EXTRA = src/librslapd/Cargo.lock
+ @abs_top_builddir@/rs/@rust_target_dir@/librslapd.a: $(librslapd_la_SOURCES)
+ 	RUST_BACKTRACE=1 RUSTC_BOOTSTRAP=1 \
+ 	CARGO_TARGET_DIR=$(abs_top_builddir)/rs \
++	SLAPD_DYLIB_DIR=$(abs_top_builddir)/ \
+ 	SLAPD_HEADER_DIR=$(abs_top_builddir)/ \
+ 		cargo rustc $(RUST_OFFLINE) --manifest-path=$(srcdir)/src/librslapd/Cargo.toml \
+ 		$(CARGO_FLAGS) --verbose -- $(RUSTC_FLAGS)
+@@ -1288,6 +1301,7 @@ librnsslapd_la_EXTRA = src/librnsslapd/Cargo.lock
+ @abs_top_builddir@/rs/@rust_target_dir@/librnsslapd.a: $(librnsslapd_la_SOURCES)
+ 	RUST_BACKTRACE=1 RUSTC_BOOTSTRAP=1 \
+ 	CARGO_TARGET_DIR=$(abs_top_builddir)/rs \
++	SLAPD_DYLIB_DIR=$(abs_top_builddir)/ \
+ 	SLAPD_HEADER_DIR=$(abs_top_builddir)/ \
+ 		cargo rustc $(RUST_OFFLINE) --manifest-path=$(srcdir)/src/librnsslapd/Cargo.toml \
+ 		$(CARGO_FLAGS) --verbose -- $(RUSTC_FLAGS)
+@@ -1295,8 +1309,64 @@ librnsslapd_la_EXTRA = src/librnsslapd/Cargo.lock
+ # The header needs the lib build first.
+ rust-nsslapd-private.h: @abs_top_builddir@/rs/@rust_target_dir@/librnsslapd.a
+ 
++libslapi_r_plugin_SOURCES = \
++	src/slapi_r_plugin/src/backend.rs \
++	src/slapi_r_plugin/src/ber.rs \
++	src/slapi_r_plugin/src/constants.rs \
++	src/slapi_r_plugin/src/dn.rs \
++	src/slapi_r_plugin/src/entry.rs \
++	src/slapi_r_plugin/src/error.rs \
++	src/slapi_r_plugin/src/log.rs \
++	src/slapi_r_plugin/src/macros.rs \
++	src/slapi_r_plugin/src/pblock.rs \
++	src/slapi_r_plugin/src/plugin.rs \
++	src/slapi_r_plugin/src/search.rs \
++	src/slapi_r_plugin/src/syntax_plugin.rs \
++	src/slapi_r_plugin/src/task.rs \
++	src/slapi_r_plugin/src/value.rs \
++	src/slapi_r_plugin/src/lib.rs
++
++# Build rust ns-slapd components as a library.
++ENTRYUUID_LIB = @abs_top_builddir@/rs/@rust_target_dir@/libentryuuid.a
++
++libentryuuid_la_SOURCES = \
++	src/plugins/entryuuid/Cargo.toml \
++	src/plugins/entryuuid/src/lib.rs \
++	$(libslapi_r_plugin_SOURCES)
++
++libentryuuid_la_EXTRA = src/plugin/entryuuid/Cargo.lock
++
++@abs_top_builddir@/rs/@rust_target_dir@/libentryuuid.a: $(libentryuuid_la_SOURCES) libslapd.la libentryuuid.la
++	RUST_BACKTRACE=1 RUSTC_BOOTSTRAP=1 \
++	CARGO_TARGET_DIR=$(abs_top_builddir)/rs \
++	SLAPD_DYLIB_DIR=$(abs_top_builddir)/ \
++	SLAPD_HEADER_DIR=$(abs_top_builddir)/ \
++		cargo rustc $(RUST_OFFLINE) --manifest-path=$(srcdir)/src/plugins/entryuuid/Cargo.toml \
++		$(CARGO_FLAGS) --verbose -- $(RUSTC_FLAGS)
++	cp $(ENTRYUUID_LIB) @abs_top_builddir@/.libs/libentryuuid.a
++
++ENTRYUUID_SYNTAX_LIB = @abs_top_builddir@/rs/@rust_target_dir@/libentryuuid_syntax.a
++
++libentryuuid_syntax_la_SOURCES = \
++	src/plugins/entryuuid_syntax/Cargo.toml \
++	src/plugins/entryuuid_syntax/src/lib.rs \
++	$(libslapi_r_plugin_SOURCES)
++
++libentryuuid_syntax_la_EXTRA = src/plugin/entryuuid_syntax/Cargo.lock
++
++@abs_top_builddir@/rs/@rust_target_dir@/libentryuuid_syntax.a: $(libentryuuid_syntax_la_SOURCES) libslapd.la libentryuuid_syntax.la
++	RUST_BACKTRACE=1 RUSTC_BOOTSTRAP=1 \
++	CARGO_TARGET_DIR=$(abs_top_builddir)/rs \
++	SLAPD_DYLIB_DIR=$(abs_top_builddir)/ \
++	SLAPD_HEADER_DIR=$(abs_top_builddir)/ \
++		cargo rustc $(RUST_OFFLINE) --manifest-path=$(srcdir)/src/plugins/entryuuid_syntax/Cargo.toml \
++		$(CARGO_FLAGS) --verbose -- $(RUSTC_FLAGS)
++	cp $(ENTRYUUID_SYNTAX_LIB) @abs_top_builddir@/.libs/libentryuuid_syntax.a
++
+ EXTRA_DIST = $(librsds_la_SOURCES) $(librsds_la_EXTRA) \
+ 			$(librslapd_la_SOURCES) $(librslapd_la_EXTRA) \
++			$(libentryuuid_la_SOURCES) $(libentryuuid_la_EXTRA) \
++			$(libentryuuid_syntax_la_SOURCES) $(libentryuuid_syntax_la_EXTRA) \
+ 			$(librnsslapd_la_SOURCES) $(librnsslapd_la_EXTRA)
+ 
+ ## Run rust tests
+@@ -1306,13 +1376,17 @@ else
+ check-local:
+ 	RUST_BACKTRACE=1 RUSTC_BOOTSTRAP=1 \
+ 	CARGO_TARGET_DIR=$(abs_top_builddir)/rs \
++	SLAPD_DYLIB_DIR=$(abs_top_builddir)/ \
++	SLAPD_HEADER_DIR=$(abs_top_builddir)/ \
+ 		cargo test $(RUST_OFFLINE) --manifest-path=$(srcdir)/src/libsds/Cargo.toml
+ 	RUST_BACKTRACE=1 RUSTC_BOOTSTRAP=1 \
+ 	CARGO_TARGET_DIR=$(abs_top_builddir)/rs \
++	SLAPD_DYLIB_DIR=$(abs_top_builddir)/ \
+ 	SLAPD_HEADER_DIR=$(abs_top_builddir)/ \
+ 		cargo test $(RUST_OFFLINE) --manifest-path=$(srcdir)/src/librslapd/Cargo.toml
+ 	RUST_BACKTRACE=1 RUSTC_BOOTSTRAP=1 \
+ 	CARGO_TARGET_DIR=$(abs_top_builddir)/rs \
++	SLAPD_DYLIB_DIR=$(abs_top_builddir)/ \
+ 	SLAPD_HEADER_DIR=$(abs_top_builddir)/ \
+ 		cargo test $(RUST_OFFLINE) --manifest-path=$(srcdir)/src/librnsslapd/Cargo.toml
+ endif
+@@ -1735,6 +1809,24 @@ libderef_plugin_la_LIBADD = libslapd.la $(LDAPSDK_LINK) $(NSPR_LINK)
+ libderef_plugin_la_DEPENDENCIES = libslapd.la
+ libderef_plugin_la_LDFLAGS = -avoid-version
+ 
++if RUST_ENABLE
++#------------------------
++# libentryuuid-syntax-plugin
++#-----------------------
++libentryuuid_syntax_plugin_la_SOURCES = src/slapi_r_plugin/src/init.c
++libentryuuid_syntax_plugin_la_LIBADD = libslapd.la $(LDAPSDK_LINK) $(NSPR_LINK) -lentryuuid_syntax
++libentryuuid_syntax_plugin_la_DEPENDENCIES = libslapd.la $(ENTRYUUID_SYNTAX_LIB)
++libentryuuid_syntax_plugin_la_LDFLAGS = -avoid-version
++
++#------------------------
++# libentryuuid-plugin
++#-----------------------
++libentryuuid_plugin_la_SOURCES = src/slapi_r_plugin/src/init.c
++libentryuuid_plugin_la_LIBADD = libslapd.la $(LDAPSDK_LINK) $(NSPR_LINK) -lentryuuid
++libentryuuid_plugin_la_DEPENDENCIES = libslapd.la $(ENTRYUUID_LIB)
++libentryuuid_plugin_la_LDFLAGS = -avoid-version
++endif
++
+ #------------------------
+ # libpbe-plugin
+ #-----------------------
+diff --git a/dirsrvtests/tests/data/entryuuid/localhost-userRoot-2020_03_30_13_14_47.ldif b/dirsrvtests/tests/data/entryuuid/localhost-userRoot-2020_03_30_13_14_47.ldif
+new file mode 100644
+index 000000000..b64090af7
+--- /dev/null
++++ b/dirsrvtests/tests/data/entryuuid/localhost-userRoot-2020_03_30_13_14_47.ldif
+@@ -0,0 +1,233 @@
++version: 1
++
++# entry-id: 1
++dn: dc=example,dc=com
++objectClass: top
++objectClass: domain
++dc: example
++description: dc=example,dc=com
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015542Z
++modifyTimestamp: 20200325015542Z
++nsUniqueId: a2b33229-6e3b11ea-8de0c78c-83e27eda
++aci: (targetattr="dc || description || objectClass")(targetfilter="(objectClas
++ s=domain)")(version 3.0; acl "Enable anyone domain read"; allow (read, search
++ , compare)(userdn="ldap:///anyone");)
++aci: (targetattr="ou || objectClass")(targetfilter="(objectClass=organizationa
++ lUnit)")(version 3.0; acl "Enable anyone ou read"; allow (read, search, compa
++ re)(userdn="ldap:///anyone");)
++
++# entry-id: 2
++dn: cn=389_ds_system,dc=example,dc=com
++objectClass: top
++objectClass: nscontainer
++objectClass: ldapsubentry
++cn: 389_ds_system
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015542Z
++modifyTimestamp: 20200325015542Z
++nsUniqueId: a2b3322a-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 3
++dn: ou=groups,dc=example,dc=com
++objectClass: top
++objectClass: organizationalunit
++ou: groups
++aci: (targetattr="cn || member || gidNumber || nsUniqueId || description || ob
++ jectClass")(targetfilter="(objectClass=groupOfNames)")(version 3.0; acl "Enab
++ le anyone group read"; allow (read, search, compare)(userdn="ldap:///anyone")
++ ;)
++aci: (targetattr="member")(targetfilter="(objectClass=groupOfNames)")(version 
++ 3.0; acl "Enable group_modify to alter members"; allow (write)(groupdn="ldap:
++ ///cn=group_modify,ou=permissions,dc=example,dc=com");)
++aci: (targetattr="cn || member || gidNumber || description || objectClass")(ta
++ rgetfilter="(objectClass=groupOfNames)")(version 3.0; acl "Enable group_admin
++  to manage groups"; allow (write, add, delete)(groupdn="ldap:///cn=group_admi
++ n,ou=permissions,dc=example,dc=com");)
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015543Z
++modifyTimestamp: 20200325015543Z
++nsUniqueId: a2b3322b-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 4
++dn: ou=people,dc=example,dc=com
++objectClass: top
++objectClass: organizationalunit
++ou: people
++aci: (targetattr="objectClass || description || nsUniqueId || uid || displayNa
++ me || loginShell || uidNumber || gidNumber || gecos || homeDirectory || cn ||
++  memberOf || mail || nsSshPublicKey || nsAccountLock || userCertificate")(tar
++ getfilter="(objectClass=posixaccount)")(version 3.0; acl "Enable anyone user 
++ read"; allow (read, search, compare)(userdn="ldap:///anyone");)
++aci: (targetattr="displayName || legalName || userPassword || nsSshPublicKey")
++ (version 3.0; acl "Enable self partial modify"; allow (write)(userdn="ldap://
++ /self");)
++aci: (targetattr="legalName || telephoneNumber || mobile || sn")(targetfilter=
++ "(|(objectClass=nsPerson)(objectClass=inetOrgPerson))")(version 3.0; acl "Ena
++ ble self legalname read"; allow (read, search, compare)(userdn="ldap:///self"
++ );)
++aci: (targetattr="legalName || telephoneNumber")(targetfilter="(objectClass=ns
++ Person)")(version 3.0; acl "Enable user legalname read"; allow (read, search,
++  compare)(groupdn="ldap:///cn=user_private_read,ou=permissions,dc=example,dc=
++ com");)
++aci: (targetattr="uid || description || displayName || loginShell || uidNumber
++  || gidNumber || gecos || homeDirectory || cn || memberOf || mail || legalNam
++ e || telephoneNumber || mobile")(targetfilter="(&(objectClass=nsPerson)(objec
++ tClass=nsAccount))")(version 3.0; acl "Enable user admin create"; allow (writ
++ e, add, delete, read)(groupdn="ldap:///cn=user_admin,ou=permissions,dc=exampl
++ e,dc=com");)
++aci: (targetattr="uid || description || displayName || loginShell || uidNumber
++  || gidNumber || gecos || homeDirectory || cn || memberOf || mail || legalNam
++ e || telephoneNumber || mobile")(targetfilter="(&(objectClass=nsPerson)(objec
++ tClass=nsAccount))")(version 3.0; acl "Enable user modify to change users"; a
++ llow (write, read)(groupdn="ldap:///cn=user_modify,ou=permissions,dc=example,
++ dc=com");)
++aci: (targetattr="userPassword || nsAccountLock || userCertificate || nsSshPub
++ licKey")(targetfilter="(objectClass=nsAccount)")(version 3.0; acl "Enable use
++ r password reset"; allow (write, read)(groupdn="ldap:///cn=user_passwd_reset,
++ ou=permissions,dc=example,dc=com");)
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015543Z
++modifyTimestamp: 20200325015543Z
++nsUniqueId: a2b3322c-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 5
++dn: ou=permissions,dc=example,dc=com
++objectClass: top
++objectClass: organizationalunit
++ou: permissions
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015543Z
++modifyTimestamp: 20200325015543Z
++nsUniqueId: a2b3322d-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 6
++dn: ou=services,dc=example,dc=com
++objectClass: top
++objectClass: organizationalunit
++ou: services
++aci: (targetattr="objectClass || description || nsUniqueId || cn || memberOf |
++ | nsAccountLock ")(targetfilter="(objectClass=netscapeServer)")(version 3.0; 
++ acl "Enable anyone service account read"; allow (read, search, compare)(userd
++ n="ldap:///anyone");)
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015544Z
++modifyTimestamp: 20200325015544Z
++nsUniqueId: a2b3322e-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 7
++dn: uid=demo_user,ou=people,dc=example,dc=com
++objectClass: top
++objectClass: nsPerson
++objectClass: nsAccount
++objectClass: nsOrgPerson
++objectClass: posixAccount
++uid: demo_user
++cn: Demo User
++displayName: Demo User
++legalName: Demo User Name
++uidNumber: 99998
++gidNumber: 99998
++homeDirectory: /var/empty
++loginShell: /bin/false
++nsAccountLock: true
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015544Z
++modifyTimestamp: 20200325061615Z
++nsUniqueId: a2b3322f-6e3b11ea-8de0c78c-83e27eda
++entryUUID: 973e1bbf-ba9c-45d4-b01b-ff7371fd9008
++
++# entry-id: 8
++dn: cn=demo_group,ou=groups,dc=example,dc=com
++objectClass: top
++objectClass: groupOfNames
++objectClass: posixGroup
++objectClass: nsMemberOf
++cn: demo_group
++gidNumber: 99999
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015544Z
++modifyTimestamp: 20200325015544Z
++nsUniqueId: a2b33230-6e3b11ea-8de0c78c-83e27eda
++entryUUID: f6df8fe9-6b30-46aa-aa13-f0bf755371e8
++
++# entry-id: 9
++dn: cn=group_admin,ou=permissions,dc=example,dc=com
++objectClass: top
++objectClass: groupOfNames
++objectClass: nsMemberOf
++cn: group_admin
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015545Z
++modifyTimestamp: 20200325015545Z
++nsUniqueId: a2b33231-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 10
++dn: cn=group_modify,ou=permissions,dc=example,dc=com
++objectClass: top
++objectClass: groupOfNames
++objectClass: nsMemberOf
++cn: group_modify
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015545Z
++modifyTimestamp: 20200325015545Z
++nsUniqueId: a2b33232-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 11
++dn: cn=user_admin,ou=permissions,dc=example,dc=com
++objectClass: top
++objectClass: groupOfNames
++objectClass: nsMemberOf
++cn: user_admin
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015545Z
++modifyTimestamp: 20200325015545Z
++nsUniqueId: a2b33233-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 12
++dn: cn=user_modify,ou=permissions,dc=example,dc=com
++objectClass: top
++objectClass: groupOfNames
++objectClass: nsMemberOf
++cn: user_modify
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015546Z
++modifyTimestamp: 20200325015546Z
++nsUniqueId: a2b33234-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 13
++dn: cn=user_passwd_reset,ou=permissions,dc=example,dc=com
++objectClass: top
++objectClass: groupOfNames
++objectClass: nsMemberOf
++cn: user_passwd_reset
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015546Z
++modifyTimestamp: 20200325015546Z
++nsUniqueId: a2b33235-6e3b11ea-8de0c78c-83e27eda
++
++# entry-id: 14
++dn: cn=user_private_read,ou=permissions,dc=example,dc=com
++objectClass: top
++objectClass: groupOfNames
++objectClass: nsMemberOf
++cn: user_private_read
++creatorsName: cn=Directory Manager
++modifiersName: cn=Directory Manager
++createTimestamp: 20200325015547Z
++modifyTimestamp: 20200325015547Z
++nsUniqueId: a2b33236-6e3b11ea-8de0c78c-83e27eda
++
+diff --git a/dirsrvtests/tests/suites/entryuuid/basic_test.py b/dirsrvtests/tests/suites/entryuuid/basic_test.py
+new file mode 100644
+index 000000000..beb73701d
+--- /dev/null
++++ b/dirsrvtests/tests/suites/entryuuid/basic_test.py
+@@ -0,0 +1,226 @@
++# --- BEGIN COPYRIGHT BLOCK ---
++# Copyright (C) 2020 William Brown <william@blackhats.net.au>
++# All rights reserved.
++#
++# License: GPL (version 3 or any later version).
++# See LICENSE for details.
++# --- END COPYRIGHT BLOCK ---
++
++import ldap
++import pytest
++import time
++import shutil
++from lib389.idm.user import nsUserAccounts, UserAccounts
++from lib389.idm.account import Accounts
++from lib389.topologies import topology_st as topology
++from lib389.backend import Backends
++from lib389.paths import Paths
++from lib389.utils import ds_is_older
++from lib389._constants import *
++from lib389.plugins import EntryUUIDPlugin
++
++default_paths = Paths()
++
++pytestmark = pytest.mark.tier1
++
++DATADIR1 = os.path.join(os.path.dirname(__file__), '../../data/entryuuid/')
++IMPORT_UUID_A = "973e1bbf-ba9c-45d4-b01b-ff7371fd9008"
++UUID_BETWEEN = "eeeeeeee-0000-0000-0000-000000000000"
++IMPORT_UUID_B = "f6df8fe9-6b30-46aa-aa13-f0bf755371e8"
++UUID_MIN = "00000000-0000-0000-0000-000000000000"
++UUID_MAX = "ffffffff-ffff-ffff-ffff-ffffffffffff"
++
++def _entryuuid_import_and_search(topology):
++    # 1
++    ldif_dir = topology.standalone.get_ldif_dir()
++    target_ldif = os.path.join(ldif_dir, 'localhost-userRoot-2020_03_30_13_14_47.ldif')
++    import_ldif = os.path.join(DATADIR1, 'localhost-userRoot-2020_03_30_13_14_47.ldif')
++    shutil.copyfile(import_ldif, target_ldif)
++
++    be = Backends(topology.standalone).get('userRoot')
++    task = be.import_ldif([target_ldif])
++    task.wait()
++    assert(task.is_complete() and task.get_exit_code() == 0)
++
++    accounts = Accounts(topology.standalone, DEFAULT_SUFFIX)
++    # 2 - positive eq test
++    r2 = accounts.filter("(entryUUID=%s)" % IMPORT_UUID_A)
++    assert(len(r2) == 1)
++    r3 = accounts.filter("(entryuuid=%s)" % IMPORT_UUID_B)
++    assert(len(r3) == 1)
++    # 3 - negative eq test
++    r4 = accounts.filter("(entryuuid=%s)" % UUID_MAX)
++    assert(len(r4) == 0)
++    # 4 - le search
++    r5 = accounts.filter("(entryuuid<=%s)" % UUID_BETWEEN)
++    assert(len(r5) == 1)
++    # 5 - ge search
++    r6 = accounts.filter("(entryuuid>=%s)" % UUID_BETWEEN)
++    assert(len(r6) == 1)
++    # 6 - le 0 search
++    r7 = accounts.filter("(entryuuid<=%s)" % UUID_MIN)
++    assert(len(r7) == 0)
++    # 7 - ge f search
++    r8 = accounts.filter("(entryuuid>=%s)" % UUID_MAX)
++    assert(len(r8) == 0)
++    # 8 - export db
++    task = be.export_ldif()
++    task.wait()
++    assert(task.is_complete() and task.get_exit_code() == 0)
++
++
++@pytest.mark.skipif(not default_paths.rust_enabled or ds_is_older('1.4.2.0'), reason="Entryuuid is not available in older versions")
++def test_entryuuid_indexed_import_and_search(topology):
++    """ Test that an ldif of entries containing entryUUID's can be indexed and searched
++    correctly. As https://tools.ietf.org/html/rfc4530 states, the MR's are equality and
++    ordering, so we check these are correct.
++
++    :id: c98ee6dc-a7ee-4bd4-974d-597ea966dad9
++
++    :setup: Standalone instance
++
++    :steps:
++        1. Import the db from the ldif
++        2. EQ search for an entryuuid (match)
++        3. EQ search for an entryuuid that does not exist
++        4. LE search for an entryuuid lower (1 res)
++        5. GE search for an entryuuid greater (1 res)
++        6. LE for the 0 uuid (0 res)
++        7. GE for the f uuid (0 res)
++        8. export the db to ldif
++
++    :expectedresults:
++        1. Success
++        2. 1 match
++        3. 0 match
++        4. 1 match
++        5. 1 match
++        6. 0 match
++        7. 0 match
++        8. success
++    """
++    # Assert that the index correctly exists.
++    be = Backends(topology.standalone).get('userRoot')
++    indexes = be.get_indexes()
++    indexes.ensure_state(properties={
++        'cn': 'entryUUID',
++        'nsSystemIndex': 'false',
++        'nsIndexType': ['eq', 'pres'],
++    })
++    _entryuuid_import_and_search(topology)
++
++@pytest.mark.skipif(not default_paths.rust_enabled or ds_is_older('1.4.2.0'), reason="Entryuuid is not available in older versions")
++def test_entryuuid_unindexed_import_and_search(topology):
++    """ Test that an ldif of entries containing entryUUID's can be UNindexed searched
++    correctly. As https://tools.ietf.org/html/rfc4530 states, the MR's are equality and
++    ordering, so we check these are correct.
++
++    :id: b652b54d-f009-464b-b5bd-299a33f97243
++
++    :setup: Standalone instance
++
++    :steps:
++        1. Import the db from the ldif
++        2. EQ search for an entryuuid (match)
++        3. EQ search for an entryuuid that does not exist
++        4. LE search for an entryuuid lower (1 res)
++        5. GE search for an entryuuid greater (1 res)
++        6. LE for the 0 uuid (0 res)
++        7. GE for the f uuid (0 res)
++        8. export the db to ldif
++
++    :expectedresults:
++        1. Success
++        2. 1 match
++        3. 0 match
++        4. 1 match
++        5. 1 match
++        6. 0 match
++        7. 0 match
++        8. success
++    """
++    # Assert that the index does NOT exist for this test.
++    be = Backends(topology.standalone).get('userRoot')
++    indexes = be.get_indexes()
++    try:
++        idx = indexes.get('entryUUID')
++        idx.delete()
++    except ldap.NO_SUCH_OBJECT:
++        # It's already not present, move along, nothing to see here.
++        pass
++    _entryuuid_import_and_search(topology)
++
++# Test entryUUID generation
++@pytest.mark.skipif(not default_paths.rust_enabled or ds_is_older('1.4.2.0'), reason="Entryuuid is not available in older versions")
++def test_entryuuid_generation_on_add(topology):
++    """ Test that when an entry is added, the entryuuid is added.
++
++    :id: a7439b0a-dcee-4cd6-b8ef-771476c0b4f6
++
++    :setup: Standalone instance
++
++    :steps:
++        1. Create a new entry in the db
++        2. Check it has an entry uuid
++
++    :expectedresults:
++        1. Success
++        2. An entry uuid is present
++    """
++    # Step one - create a user!
++    account = nsUserAccounts(topology.standalone, DEFAULT_SUFFIX).create_test_user()
++    # Step two - does it have an entryuuid?
++    euuid = account.get_attr_val_utf8('entryUUID')
++    print(euuid)
++    assert(euuid is not None)
++
++# Test fixup task
++@pytest.mark.skipif(not default_paths.rust_enabled or ds_is_older('1.4.2.0'), reason="Entryuuid is not available in older versions")
++def test_entryuuid_fixup_task(topology):
++    """Test that when an entries without UUID's can have one generated via
++    the fixup process.
++
++    :id: ad42bba2-ffb2-4c22-a37d-cbe7bcf73d6b
++
++    :setup: Standalone instance
++
++    :steps:
++        1. Disable the entryuuid plugin
++        2. Create an entry
++        3. Enable the entryuuid plugin
++        4. Run the fixup
++        5. Assert the entryuuid now exists
++
++    :expectedresults:
++        1. Success
++        2. Success
++        3. Success
++        4. Success
++        5. Suddenly EntryUUID!
++    """
++    # 1. Disable the plugin
++    plug = EntryUUIDPlugin(topology.standalone)
++    plug.disable()
++    topology.standalone.restart()
++
++    # 2. create the account
++    account = nsUserAccounts(topology.standalone, DEFAULT_SUFFIX).create_test_user(uid=2000)
++    euuid = account.get_attr_val_utf8('entryUUID')
++    assert(euuid is None)
++
++    # 3. enable the plugin
++    plug.enable()
++    topology.standalone.restart()
++
++    # 4. run the fix up
++    # For now set the log level to high!
++    topology.standalone.config.loglevel(vals=(ErrorLog.DEFAULT,ErrorLog.TRACE))
++    task = plug.fixup(DEFAULT_SUFFIX)
++    task.wait()
++    assert(task.is_complete() and task.get_exit_code() == 0)
++    topology.standalone.config.loglevel(vals=(ErrorLog.DEFAULT,))
++
++    # 5. Assert the uuid.
++    euuid = account.get_attr_val_utf8('entryUUID')
++    assert(euuid is not None)
++
+diff --git a/ldap/schema/02common.ldif b/ldap/schema/02common.ldif
+index 57e6be3b3..3b0ad0a97 100644
+--- a/ldap/schema/02common.ldif
++++ b/ldap/schema/02common.ldif
+@@ -11,6 +11,7 @@
+ #
+ # Core schema, highly recommended but not required to start the Directory Server itself.
+ #
++#
+ dn: cn=schema
+ #
+ # attributes
+diff --git a/ldap/schema/03entryuuid.ldif b/ldap/schema/03entryuuid.ldif
+new file mode 100644
+index 000000000..cbde981fe
+--- /dev/null
++++ b/ldap/schema/03entryuuid.ldif
+@@ -0,0 +1,16 @@
++#
++# BEGIN COPYRIGHT BLOCK
++# Copyright (C) 2020 William Brown <william@blackhats.net.au>
++# All rights reserved.
++#
++# License: GPL (version 3 or any later version).
++# See LICENSE for details.
++# END COPYRIGHT BLOCK
++#
++# Core schema, highly recommended but not required to start the Directory Server itself.
++#
++dn: cn=schema
++#
++# attributes
++#
++attributeTypes: ( 1.3.6.1.1.16.4 NAME 'entryUUID' DESC 'UUID of the entry' EQUALITY UUIDMatch ORDERING UUIDOrderingMatch SYNTAX 1.3.6.1.1.16.1 SINGLE-VALUE NO-USER-MODIFICATION USAGE directoryOperation )
+diff --git a/ldap/servers/slapd/config.c b/ldap/servers/slapd/config.c
+index 7e1618e79..bf5476272 100644
+--- a/ldap/servers/slapd/config.c
++++ b/ldap/servers/slapd/config.c
+@@ -35,6 +35,10 @@ extern char *slapd_SSL3ciphers;
+ extern char *localuser;
+ char *rel2abspath(char *);
+ 
++/*
++ * WARNING - this can only bootstrap PASSWORD and SYNTAX plugins!
++ * see fedse.c instead!
++ */
+ static char *bootstrap_plugins[] = {
+     "dn: cn=PBKDF2_SHA256,cn=Password Storage Schemes,cn=plugins,cn=config\n"
+     "objectclass: top\n"
+@@ -45,6 +49,19 @@ static char *bootstrap_plugins[] = {
+     "nsslapd-plugintype: pwdstoragescheme\n"
+     "nsslapd-pluginenabled: on",
+ 
++    "dn: cn=entryuuid_syntax,cn=plugins,cn=config\n"
++    "objectclass: top\n"
++    "objectclass: nsSlapdPlugin\n"
++    "cn: entryuuid_syntax\n"
++    "nsslapd-pluginpath: libentryuuid-syntax-plugin\n"
++    "nsslapd-plugininitfunc: entryuuid_syntax_plugin_init\n"
++    "nsslapd-plugintype: syntax\n"
++    "nsslapd-pluginenabled: on\n"
++    "nsslapd-pluginId: entryuuid_syntax\n"
++    "nsslapd-pluginVersion: none\n"
++    "nsslapd-pluginVendor: 389 Project\n"
++    "nsslapd-pluginDescription: entryuuid_syntax\n",
++
+     NULL
+ };
+ 
+diff --git a/ldap/servers/slapd/entry.c b/ldap/servers/slapd/entry.c
+index 7697e2b88..9ae9523e2 100644
+--- a/ldap/servers/slapd/entry.c
++++ b/ldap/servers/slapd/entry.c
+@@ -2882,6 +2882,18 @@ slapi_entry_attr_get_bool(const Slapi_Entry *e, const char *type)
+     return slapi_entry_attr_get_bool_ext(e, type, PR_FALSE);
+ }
+ 
++const struct slapi_value **
++slapi_entry_attr_get_valuearray(const Slapi_Entry *e, const char *attrname)
++{
++    Slapi_Attr *attr;
++
++    if (slapi_entry_attr_find(e, attrname, &attr) != 0) {
++        return NULL;
++    }
++
++    return attr->a_present_values.va;
++}
++
+ /*
+  * Extract a single value from an entry (as a string). You do not need
+  * to free the returned string value.
+diff --git a/ldap/servers/slapd/fedse.c b/ldap/servers/slapd/fedse.c
+index 3b076eb17..0d645f909 100644
+--- a/ldap/servers/slapd/fedse.c
++++ b/ldap/servers/slapd/fedse.c
+@@ -119,6 +119,34 @@ static const char *internal_entries[] =
+         "cn:SNMP\n"
+         "nsSNMPEnabled: on\n",
+ 
++#ifdef RUST_ENABLE
++        "dn: cn=entryuuid_syntax,cn=plugins,cn=config\n"
++        "objectclass: top\n"
++        "objectclass: nsSlapdPlugin\n"
++        "cn: entryuuid_syntax\n"
++        "nsslapd-pluginpath: libentryuuid-syntax-plugin\n"
++        "nsslapd-plugininitfunc: entryuuid_syntax_plugin_init\n"
++        "nsslapd-plugintype: syntax\n"
++        "nsslapd-pluginenabled: on\n"
++        "nsslapd-pluginId: entryuuid_syntax\n"
++        "nsslapd-pluginVersion: none\n"
++        "nsslapd-pluginVendor: 389 Project\n"
++        "nsslapd-pluginDescription: entryuuid_syntax\n",
++
++        "dn: cn=entryuuid,cn=plugins,cn=config\n"
++        "objectclass: top\n"
++        "objectclass: nsSlapdPlugin\n"
++        "cn: entryuuid\n"
++        "nsslapd-pluginpath: libentryuuid-plugin\n"
++        "nsslapd-plugininitfunc: entryuuid_plugin_init\n"
++        "nsslapd-plugintype: betxnpreoperation\n"
++        "nsslapd-pluginenabled: on\n"
++        "nsslapd-pluginId: entryuuid\n"
++        "nsslapd-pluginVersion: none\n"
++        "nsslapd-pluginVendor: 389 Project\n"
++        "nsslapd-pluginDescription: entryuuid\n",
++#endif
++
+         "dn: cn=Password Storage Schemes,cn=plugins,cn=config\n"
+         "objectclass: top\n"
+         "objectclass: nsContainer\n"
+diff --git a/src/Cargo.lock b/src/Cargo.lock
+index ce3c7ed27..33d7b8f23 100644
+--- a/src/Cargo.lock
++++ b/src/Cargo.lock
+@@ -28,12 +28,9 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
+ 
+ [[package]]
+ name = "base64"
+-version = "0.10.1"
++version = "0.13.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0b25d992356d2eb0ed82172f5248873db5560c4721f564b13cb5193bda5e668e"
+-dependencies = [
+- "byteorder",
+-]
++checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
+ 
+ [[package]]
+ name = "bitflags"
+@@ -43,9 +40,9 @@ checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
+ 
+ [[package]]
+ name = "byteorder"
+-version = "1.4.2"
++version = "1.4.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ae44d1a3d5a19df61dd0c8beb138458ac2a53a7ac09eba97d55592540004306b"
++checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
+ 
+ [[package]]
+ name = "cbindgen"
+@@ -66,15 +63,12 @@ dependencies = [
+ 
+ [[package]]
+ name = "cc"
+-version = "1.0.66"
++version = "1.0.67"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "4c0496836a84f8d0495758516b8621a622beb77c0fed418570e50764093ced48"
+-
+-[[package]]
+-name = "cfg-if"
+-version = "0.1.10"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "4785bdd1c96b2a846b2bd7cc02e86b6b3dbf14e7e53446c4f54c92a361040822"
++checksum = "e3c69b077ad434294d3ce9f1f6143a2a4b89a8a2d54ef813d85003a4fd1137fd"
++dependencies = [
++ "jobserver",
++]
+ 
+ [[package]]
+ name = "cfg-if"
+@@ -97,16 +91,39 @@ dependencies = [
+  "vec_map",
+ ]
+ 
++[[package]]
++name = "entryuuid"
++version = "0.1.0"
++dependencies = [
++ "cc",
++ "libc",
++ "paste",
++ "slapi_r_plugin",
++ "uuid",
++]
++
++[[package]]
++name = "entryuuid_syntax"
++version = "0.1.0"
++dependencies = [
++ "cc",
++ "libc",
++ "paste",
++ "slapi_r_plugin",
++ "uuid",
++]
++
+ [[package]]
+ name = "fernet"
+-version = "0.1.3"
++version = "0.1.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e7ac567fd75ce6bc28b68e63b5beaa3ce34f56bafd1122f64f8647c822e38a8b"
++checksum = "93804560e638370a8be6d59ce71ed803e55e230abdbf42598e666b41adda9b1f"
+ dependencies = [
+  "base64",
+  "byteorder",
+  "getrandom",
+  "openssl",
++ "zeroize",
+ ]
+ 
+ [[package]]
+@@ -126,20 +143,20 @@ checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
+ 
+ [[package]]
+ name = "getrandom"
+-version = "0.1.16"
++version = "0.2.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8fc3cb4d91f53b50155bdcfd23f6a4c39ae1969c2ae85982b135750cccaf5fce"
++checksum = "7fcd999463524c52659517fe2cea98493cfe485d10565e7b0fb07dbba7ad2753"
+ dependencies = [
+- "cfg-if 1.0.0",
++ "cfg-if",
+  "libc",
+  "wasi",
+ ]
+ 
+ [[package]]
+ name = "hermit-abi"
+-version = "0.1.17"
++version = "0.1.18"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5aca5565f760fb5b220e499d72710ed156fdb74e631659e99377d9ebfbd13ae8"
++checksum = "322f4de77956e22ed0e5032c359a0f1273f1f7f0d79bfa3b8ffbc730d7fbcc5c"
+ dependencies = [
+  "libc",
+ ]
+@@ -150,6 +167,15 @@ version = "0.4.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "dd25036021b0de88a0aff6b850051563c6516d0bf53f8638938edbb9de732736"
+ 
++[[package]]
++name = "jobserver"
++version = "0.1.22"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "972f5ae5d1cb9c6ae417789196c803205313edde988685da5e3aae0827b9e7fd"
++dependencies = [
++ "libc",
++]
++
+ [[package]]
+ name = "lazy_static"
+ version = "1.4.0"
+@@ -158,9 +184,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
+ 
+ [[package]]
+ name = "libc"
+-version = "0.2.82"
++version = "0.2.94"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "89203f3fba0a3795506acaad8ebce3c80c0af93f994d5a1d7a0b1eeb23271929"
++checksum = "18794a8ad5b29321f790b55d93dfba91e125cb1a9edbd4f8e3150acc771c1a5e"
+ 
+ [[package]]
+ name = "librnsslapd"
+@@ -182,32 +208,38 @@ dependencies = [
+ 
+ [[package]]
+ name = "log"
+-version = "0.4.11"
++version = "0.4.14"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "4fabed175da42fed1fa0746b0ea71f412aa9d35e76e95e59b192c64b9dc2bf8b"
++checksum = "51b9bbe6c47d51fc3e1a9b945965946b4c44142ab8792c50835a980d362c2710"
+ dependencies = [
+- "cfg-if 0.1.10",
++ "cfg-if",
+ ]
+ 
++[[package]]
++name = "once_cell"
++version = "1.7.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "af8b08b04175473088b46763e51ee54da5f9a164bc162f615b91bc179dbf15a3"
++
+ [[package]]
+ name = "openssl"
+-version = "0.10.32"
++version = "0.10.34"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "038d43985d1ddca7a9900630d8cd031b56e4794eecc2e9ea39dd17aa04399a70"
++checksum = "6d7830286ad6a3973c0f1d9b73738f69c76b739301d0229c4b96501695cbe4c8"
+ dependencies = [
+  "bitflags",
+- "cfg-if 1.0.0",
++ "cfg-if",
+  "foreign-types",
+- "lazy_static",
+  "libc",
++ "once_cell",
+  "openssl-sys",
+ ]
+ 
+ [[package]]
+ name = "openssl-sys"
+-version = "0.9.60"
++version = "0.9.63"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "921fc71883267538946025deffb622905ecad223c28efbfdef9bb59a0175f3e6"
++checksum = "b6b0d6fb7d80f877617dfcb014e605e2b5ab2fb0afdf27935219bb6bd984cb98"
+ dependencies = [
+  "autocfg",
+  "cc",
+@@ -216,6 +248,25 @@ dependencies = [
+  "vcpkg",
+ ]
+ 
++[[package]]
++name = "paste"
++version = "0.1.18"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "45ca20c77d80be666aef2b45486da86238fabe33e38306bd3118fe4af33fa880"
++dependencies = [
++ "paste-impl",
++ "proc-macro-hack",
++]
++
++[[package]]
++name = "paste-impl"
++version = "0.1.18"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d95a7db200b97ef370c8e6de0088252f7e0dfff7d047a28528e47456c0fc98b6"
++dependencies = [
++ "proc-macro-hack",
++]
++
+ [[package]]
+ name = "pkg-config"
+ version = "0.3.19"
+@@ -228,31 +279,36 @@ version = "0.2.10"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
+ 
++[[package]]
++name = "proc-macro-hack"
++version = "0.5.19"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "dbf0c48bc1d91375ae5c3cd81e3722dff1abcf81a30960240640d223f59fe0e5"
++
+ [[package]]
+ name = "proc-macro2"
+-version = "1.0.24"
++version = "1.0.27"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1e0704ee1a7e00d7bb417d0770ea303c1bccbabf0ef1667dae92b5967f5f8a71"
++checksum = "f0d8caf72986c1a598726adc988bb5984792ef84f5ee5aa50209145ee8077038"
+ dependencies = [
+  "unicode-xid",
+ ]
+ 
+ [[package]]
+ name = "quote"
+-version = "1.0.8"
++version = "1.0.9"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "991431c3519a3f36861882da93630ce66b52918dcf1b8e2fd66b397fc96f28df"
++checksum = "c3d0b9745dc2debf507c8422de05d7226cc1f0644216dfdfead988f9b1ab32a7"
+ dependencies = [
+  "proc-macro2",
+ ]
+ 
+ [[package]]
+ name = "rand"
+-version = "0.7.3"
++version = "0.8.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "6a6b1679d49b24bbfe0c803429aa1874472f50d9b363131f0e89fc356b544d03"
++checksum = "0ef9e7e66b4468674bfcb0c81af8b7fa0bb154fa9f28eb840da5c447baeb8d7e"
+ dependencies = [
+- "getrandom",
+  "libc",
+  "rand_chacha",
+  "rand_core",
+@@ -261,9 +317,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "rand_chacha"
+-version = "0.2.2"
++version = "0.3.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f4c8ed856279c9737206bf725bf36935d8666ead7aa69b52be55af369d193402"
++checksum = "e12735cf05c9e10bf21534da50a147b924d555dc7a547c42e6bb2d5b6017ae0d"
+ dependencies = [
+  "ppv-lite86",
+  "rand_core",
+@@ -271,27 +327,30 @@ dependencies = [
+ 
+ [[package]]
+ name = "rand_core"
+-version = "0.5.1"
++version = "0.6.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "90bde5296fc891b0cef12a6d03ddccc162ce7b2aff54160af9338f8d40df6d19"
++checksum = "34cf66eb183df1c5876e2dcf6b13d57340741e8dc255b48e40a26de954d06ae7"
+ dependencies = [
+  "getrandom",
+ ]
+ 
+ [[package]]
+ name = "rand_hc"
+-version = "0.2.0"
++version = "0.3.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ca3129af7b92a17112d59ad498c6f81eaf463253766b90396d39ea7a39d6613c"
++checksum = "3190ef7066a446f2e7f42e239d161e905420ccab01eb967c9eb27d21b2322a73"
+ dependencies = [
+  "rand_core",
+ ]
+ 
+ [[package]]
+ name = "redox_syscall"
+-version = "0.1.57"
++version = "0.2.8"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "41cc0f7e4d5d4544e8861606a285bb08d3e70712ccc7d2b84d7c0ccfaf4b05ce"
++checksum = "742739e41cd49414de871ea5e549afb7e2a3ac77b589bcbebe8c82fab37147fc"
++dependencies = [
++ "bitflags",
++]
+ 
+ [[package]]
+ name = "remove_dir_all"
+@@ -314,18 +373,18 @@ checksum = "71d301d4193d031abdd79ff7e3dd721168a9572ef3fe51a1517aba235bd8f86e"
+ 
+ [[package]]
+ name = "serde"
+-version = "1.0.118"
++version = "1.0.126"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "06c64263859d87aa2eb554587e2d23183398d617427327cf2b3d0ed8c69e4800"
++checksum = "ec7505abeacaec74ae4778d9d9328fe5a5d04253220a85c4ee022239fc996d03"
+ dependencies = [
+  "serde_derive",
+ ]
+ 
+ [[package]]
+ name = "serde_derive"
+-version = "1.0.118"
++version = "1.0.126"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c84d3526699cd55261af4b941e4e725444df67aa4f9e6a3564f18030d12672df"
++checksum = "963a7dbc9895aeac7ac90e74f34a5d5261828f79df35cbed41e10189d3804d43"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -334,9 +393,9 @@ dependencies = [
+ 
+ [[package]]
+ name = "serde_json"
+-version = "1.0.61"
++version = "1.0.64"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "4fceb2595057b6891a4ee808f70054bd2d12f0e97f1cbb78689b59f676df325a"
++checksum = "799e97dc9fdae36a5c8b8f2cae9ce2ee9fdce2058c57a93e6099d919fd982f79"
+ dependencies = [
+  "itoa",
+  "ryu",
+@@ -350,6 +409,16 @@ dependencies = [
+  "fernet",
+ ]
+ 
++[[package]]
++name = "slapi_r_plugin"
++version = "0.1.0"
++dependencies = [
++ "lazy_static",
++ "libc",
++ "paste",
++ "uuid",
++]
++
+ [[package]]
+ name = "strsim"
+ version = "0.8.0"
+@@ -358,22 +427,34 @@ checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
+ 
+ [[package]]
+ name = "syn"
+-version = "1.0.58"
++version = "1.0.72"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a1e8cdbefb79a9a5a65e0db8b47b723ee907b7c7f8496c76a1770b5c310bab82"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "unicode-xid",
++]
++
++[[package]]
++name = "synstructure"
++version = "0.12.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "cc60a3d73ea6594cd712d830cc1f0390fd71542d8c8cd24e70cc54cdfd5e05d5"
++checksum = "b834f2d66f734cb897113e34aaff2f1ab4719ca946f9a7358dba8f8064148701"
+ dependencies = [
+  "proc-macro2",
+  "quote",
++ "syn",
+  "unicode-xid",
+ ]
+ 
+ [[package]]
+ name = "tempfile"
+-version = "3.1.0"
++version = "3.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7a6e24d9338a0a5be79593e2fa15a648add6138caa803e2d5bc782c371732ca9"
++checksum = "dac1c663cfc93810f88aed9b8941d48cabf856a1b111c29a40439018d870eb22"
+ dependencies = [
+- "cfg-if 0.1.10",
++ "cfg-if",
+  "libc",
+  "rand",
+  "redox_syscall",
+@@ -407,15 +488,24 @@ checksum = "9337591893a19b88d8d87f2cec1e73fad5cdfd10e5a6f349f498ad6ea2ffb1e3"
+ 
+ [[package]]
+ name = "unicode-xid"
+-version = "0.2.1"
++version = "0.2.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f7fe0bb3479651439c9112f72b6c505038574c9fbb575ed1bf3b797fa39dd564"
++checksum = "8ccb82d61f80a663efe1f787a51b16b5a51e3314d6ac365b08639f52387b33f3"
++
++[[package]]
++name = "uuid"
++version = "0.8.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
++dependencies = [
++ "getrandom",
++]
+ 
+ [[package]]
+ name = "vcpkg"
+-version = "0.2.11"
++version = "0.2.12"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b00bca6106a5e23f3eee943593759b7fcddb00554332e856d990c893966879fb"
++checksum = "cbdbff6266a24120518560b5dc983096efb98462e51d0d68169895b237be3e5d"
+ 
+ [[package]]
+ name = "vec_map"
+@@ -425,9 +515,9 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
+ 
+ [[package]]
+ name = "wasi"
+-version = "0.9.0+wasi-snapshot-preview1"
++version = "0.10.2+wasi-snapshot-preview1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
++checksum = "fd6fbd9a79829dd1ad0cc20627bf1ed606756a7f77edff7b66b7064f9cb327c6"
+ 
+ [[package]]
+ name = "winapi"
+@@ -450,3 +540,24 @@ name = "winapi-x86_64-pc-windows-gnu"
+ version = "0.4.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
++
++[[package]]
++name = "zeroize"
++version = "1.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4756f7db3f7b5574938c3eb1c117038b8e07f95ee6718c0efad4ac21508f1efd"
++dependencies = [
++ "zeroize_derive",
++]
++
++[[package]]
++name = "zeroize_derive"
++version = "1.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a2c1e130bebaeab2f23886bf9acbaca14b092408c452543c857f66399cd6dab1"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn",
++ "synstructure",
++]
+diff --git a/src/Cargo.toml b/src/Cargo.toml
+index f6dac010f..1ad2b21b0 100644
+--- a/src/Cargo.toml
++++ b/src/Cargo.toml
+@@ -1,10 +1,13 @@
+ 
+ [workspace]
+ members = [
+-	"librslapd",
+-	"librnsslapd",
+-	"libsds",
+-	"slapd",
++    "librslapd",
++    "librnsslapd",
++    "libsds",
++    "slapd",
++    "slapi_r_plugin",
++    "plugins/entryuuid",
++    "plugins/entryuuid_syntax",
+ ]
+ 
+ [profile.release]
+diff --git a/src/README.md b/src/README.md
+new file mode 100644
+index 000000000..e69de29bb
+diff --git a/src/lib389/lib389/_constants.py b/src/lib389/lib389/_constants.py
+index 52aac0f21..c184c8d4f 100644
+--- a/src/lib389/lib389/_constants.py
++++ b/src/lib389/lib389/_constants.py
+@@ -150,6 +150,7 @@ DN_IMPORT_TASK = "cn=import,%s" % DN_TASKS
+ DN_BACKUP_TASK = "cn=backup,%s" % DN_TASKS
+ DN_RESTORE_TASK = "cn=restore,%s" % DN_TASKS
+ DN_MBO_TASK = "cn=memberOf task,%s" % DN_TASKS
++DN_EUUID_TASK = "cn=entryuuid task,%s" % DN_TASKS
+ DN_TOMB_FIXUP_TASK = "cn=fixup tombstones,%s" % DN_TASKS
+ DN_FIXUP_LINKED_ATTIBUTES = "cn=fixup linked attributes,%s" % DN_TASKS
+ DN_AUTOMEMBER_REBUILD_TASK = "cn=automember rebuild membership,%s" % DN_TASKS
+diff --git a/src/lib389/lib389/backend.py b/src/lib389/lib389/backend.py
+index aab07c028..bcd7b383f 100644
+--- a/src/lib389/lib389/backend.py
++++ b/src/lib389/lib389/backend.py
+@@ -765,7 +765,7 @@ class Backend(DSLdapObject):
+                 enc_attr.delete()
+                 break
+ 
+-    def import_ldif(self, ldifs, chunk_size=None, encrypted=False, gen_uniq_id=False, only_core=False,
++    def import_ldif(self, ldifs, chunk_size=None, encrypted=False, gen_uniq_id=None, only_core=False,
+                     include_suffixes=None, exclude_suffixes=None):
+         """Do an import of the suffix"""
+ 
+diff --git a/src/lib389/lib389/instance/setup.py b/src/lib389/lib389/instance/setup.py
+index 530fb367a..ac0fe1a8c 100644
+--- a/src/lib389/lib389/instance/setup.py
++++ b/src/lib389/lib389/instance/setup.py
+@@ -34,6 +34,7 @@ from lib389.instance.options import General2Base, Slapd2Base, Backend2Base
+ from lib389.paths import Paths
+ from lib389.saslmap import SaslMappings
+ from lib389.instance.remove import remove_ds_instance
++from lib389.index import Indexes
+ from lib389.utils import (
+     assert_c,
+     is_a_dn,
+@@ -928,6 +929,19 @@ class SetupDs(object):
+         if slapd['self_sign_cert']:
+             ds_instance.config.set('nsslapd-security', 'on')
+ 
++        # Before we create any backends, create any extra default indexes that may be
++        # dynamicly provisioned, rather than from template-dse.ldif. Looking at you
++        # entryUUID (requires rust enabled).
++        #
++        # Indexes defaults to default_index_dn
++        indexes = Indexes(ds_instance)
++        if ds_instance.ds_paths.rust_enabled:
++            indexes.create(properties={
++                'cn': 'entryUUID',
++                'nsSystemIndex': 'false',
++                'nsIndexType': ['eq', 'pres'],
++            })
++
+         # Create the backends as listed
+         # Load example data if needed.
+         for backend in backends:
+diff --git a/src/lib389/lib389/plugins.py b/src/lib389/lib389/plugins.py
+index 16899f6d3..2d88e60bd 100644
+--- a/src/lib389/lib389/plugins.py
++++ b/src/lib389/lib389/plugins.py
+@@ -2244,3 +2244,33 @@ class ContentSyncPlugin(Plugin):
+ 
+     def __init__(self, instance, dn="cn=Content Synchronization,cn=plugins,cn=config"):
+         super(ContentSyncPlugin, self).__init__(instance, dn)
++
++
++class EntryUUIDPlugin(Plugin):
++    """The EntryUUID plugin configuration
++    :param instance: An instance
++    :type instance: lib389.DirSrv
++    :param dn: Entry DN
++    :type dn: str
++    """
++    def __init__(self, instance, dn="cn=entryuuid,cn=plugins,cn=config"):
++        super(EntryUUIDPlugin, self).__init__(instance, dn)
++
++    def fixup(self, basedn, _filter=None):
++        """Create an entryuuid fixup task
++
++        :param basedn: Basedn to fix up
++        :type basedn: str
++        :param _filter: a filter for entries to fix up
++        :type _filter: str
++
++        :returns: an instance of Task(DSLdapObject)
++        """
++
++        task = tasks.EntryUUIDFixupTask(self._instance)
++        task_properties = {'basedn': basedn}
++        if _filter is not None:
++            task_properties['filter'] = _filter
++        task.create(properties=task_properties)
++
++        return task
+diff --git a/src/lib389/lib389/tasks.py b/src/lib389/lib389/tasks.py
+index b19e7918d..590c6ee79 100644
+--- a/src/lib389/lib389/tasks.py
++++ b/src/lib389/lib389/tasks.py
+@@ -203,6 +203,20 @@ class USNTombstoneCleanupTask(Task):
+         return super(USNTombstoneCleanupTask, self)._validate(rdn, properties, basedn)
+ 
+ 
++class EntryUUIDFixupTask(Task):
++    """A single instance of memberOf task entry
++
++    :param instance: An instance
++    :type instance: lib389.DirSrv
++    """
++
++    def __init__(self, instance, dn=None):
++        self.cn = 'entryuuid_fixup_' + Task._get_task_date()
++        dn = "cn=" + self.cn + "," + DN_EUUID_TASK
++        super(EntryUUIDFixupTask, self).__init__(instance, dn)
++        self._must_attributes.extend(['basedn'])
++
++
+ class SchemaReloadTask(Task):
+     """A single instance of schema reload task entry
+ 
+diff --git a/src/librnsslapd/build.rs b/src/librnsslapd/build.rs
+index 9b953b246..13f6d2e03 100644
+--- a/src/librnsslapd/build.rs
++++ b/src/librnsslapd/build.rs
+@@ -3,13 +3,14 @@ extern crate cbindgen;
+ use std::env;
+ 
+ fn main() {
+-    let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+-    let out_dir = env::var("SLAPD_HEADER_DIR").unwrap();
+-
+-    cbindgen::Builder::new()
+-        .with_language(cbindgen::Language::C)
+-        .with_crate(crate_dir)
+-        .generate()
+-        .expect("Unable to generate bindings")
+-        .write_to_file(format!("{}/rust-nsslapd-private.h", out_dir));
++    if let Ok(crate_dir) = env::var("CARGO_MANIFEST_DIR") {
++        if let Ok(out_dir) = env::var("SLAPD_HEADER_DIR") {
++            cbindgen::Builder::new()
++                .with_language(cbindgen::Language::C)
++                .with_crate(crate_dir)
++                .generate()
++                .expect("Unable to generate bindings")
++                .write_to_file(format!("{}/rust-nsslapd-private.h", out_dir));
++        }
++    }
+ }
+diff --git a/src/librnsslapd/src/lib.rs b/src/librnsslapd/src/lib.rs
+index c5fd2bbaf..dffe4ce1c 100644
+--- a/src/librnsslapd/src/lib.rs
++++ b/src/librnsslapd/src/lib.rs
+@@ -4,9 +4,9 @@
+ // Remember this is just a c-bindgen stub, all logic should come from slapd!
+ 
+ extern crate libc;
+-use slapd;
+ use libc::c_char;
+-use std::ffi::{CString, CStr};
++use slapd;
++use std::ffi::{CStr, CString};
+ 
+ #[no_mangle]
+ pub extern "C" fn do_nothing_again_rust() -> usize {
+@@ -29,9 +29,7 @@ pub extern "C" fn fernet_generate_token(dn: *const c_char, raw_key: *const c_cha
+                     // We have to move string memory ownership by copying so the system
+                     // allocator has it.
+                     let raw = tok.into_raw();
+-                    let dup_tok = unsafe {
+-                        libc::strdup(raw)
+-                    };
++                    let dup_tok = unsafe { libc::strdup(raw) };
+                     unsafe {
+                         CString::from_raw(raw);
+                     };
+@@ -45,7 +43,12 @@ pub extern "C" fn fernet_generate_token(dn: *const c_char, raw_key: *const c_cha
+ }
+ 
+ #[no_mangle]
+-pub extern "C" fn fernet_verify_token(dn: *const c_char, token: *const c_char, raw_key: *const c_char, ttl: u64) -> bool {
++pub extern "C" fn fernet_verify_token(
++    dn: *const c_char,
++    token: *const c_char,
++    raw_key: *const c_char,
++    ttl: u64,
++) -> bool {
+     if dn.is_null() || raw_key.is_null() || token.is_null() {
+         return false;
+     }
+@@ -67,4 +70,3 @@ pub extern "C" fn fernet_verify_token(dn: *const c_char, token: *const c_char, r
+         Err(_) => false,
+     }
+ }
+-
+diff --git a/src/librslapd/Cargo.toml b/src/librslapd/Cargo.toml
+index 1dd715ed2..08309c224 100644
+--- a/src/librslapd/Cargo.toml
++++ b/src/librslapd/Cargo.toml
+@@ -12,10 +12,6 @@ path = "src/lib.rs"
+ name = "rslapd"
+ crate-type = ["staticlib", "lib"]
+ 
+-# [profile.release]
+-# panic = "abort"
+-# lto = true
+-
+ [dependencies]
+ slapd = { path = "../slapd" }
+ libc = "0.2"
+diff --git a/src/librslapd/build.rs b/src/librslapd/build.rs
+index 4d4c1ce42..84aff156b 100644
+--- a/src/librslapd/build.rs
++++ b/src/librslapd/build.rs
+@@ -3,13 +3,14 @@ extern crate cbindgen;
+ use std::env;
+ 
+ fn main() {
+-    let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+-    let out_dir = env::var("SLAPD_HEADER_DIR").unwrap();
+-
+-    cbindgen::Builder::new()
+-        .with_language(cbindgen::Language::C)
+-        .with_crate(crate_dir)
+-        .generate()
+-        .expect("Unable to generate bindings")
+-        .write_to_file(format!("{}/rust-slapi-private.h", out_dir));
++    if let Ok(crate_dir) = env::var("CARGO_MANIFEST_DIR") {
++        if let Ok(out_dir) = env::var("SLAPD_HEADER_DIR") {
++            cbindgen::Builder::new()
++                .with_language(cbindgen::Language::C)
++                .with_crate(crate_dir)
++                .generate()
++                .expect("Unable to generate bindings")
++                .write_to_file(format!("{}/rust-slapi-private.h", out_dir));
++        }
++    }
+ }
+diff --git a/src/librslapd/src/lib.rs b/src/librslapd/src/lib.rs
+index 9cce193a0..cf283a7ce 100644
+--- a/src/librslapd/src/lib.rs
++++ b/src/librslapd/src/lib.rs
+@@ -8,7 +8,7 @@ extern crate libc;
+ use slapd;
+ 
+ use libc::c_char;
+-use std::ffi::{CString, CStr};
++use std::ffi::{CStr, CString};
+ 
+ #[no_mangle]
+ pub extern "C" fn do_nothing_rust() -> usize {
+@@ -18,9 +18,7 @@ pub extern "C" fn do_nothing_rust() -> usize {
+ #[no_mangle]
+ pub extern "C" fn rust_free_string(s: *mut c_char) {
+     if !s.is_null() {
+-        let _ = unsafe {
+-            CString::from_raw(s)
+-        };
++        let _ = unsafe { CString::from_raw(s) };
+     }
+ }
+ 
+@@ -35,9 +33,7 @@ pub extern "C" fn fernet_generate_new_key() -> *mut c_char {
+     match res_key {
+         Ok(key) => {
+             let raw = key.into_raw();
+-            let dup_key = unsafe {
+-                libc::strdup(raw)
+-            };
++            let dup_key = unsafe { libc::strdup(raw) };
+             rust_free_string(raw);
+             dup_key
+         }
+@@ -53,4 +49,3 @@ pub extern "C" fn fernet_validate_key(raw_key: *const c_char) -> bool {
+         Err(_) => false,
+     }
+ }
+-
+diff --git a/src/libsds/sds/lib.rs b/src/libsds/sds/lib.rs
+index aa70c7a8e..9e2973222 100644
+--- a/src/libsds/sds/lib.rs
++++ b/src/libsds/sds/lib.rs
+@@ -28,5 +28,3 @@ pub enum sds_result {
+     /// The list is exhausted, no more elements can be returned.
+     ListExhausted = 16,
+ }
+-
+-
+diff --git a/src/libsds/sds/tqueue.rs b/src/libsds/sds/tqueue.rs
+index b7042e514..ebe1f4b6c 100644
+--- a/src/libsds/sds/tqueue.rs
++++ b/src/libsds/sds/tqueue.rs
+@@ -9,8 +9,8 @@
+ #![warn(missing_docs)]
+ 
+ use super::sds_result;
+-use std::sync::Mutex;
+ use std::collections::LinkedList;
++use std::sync::Mutex;
+ 
+ // Borrow from libc
+ #[doc(hidden)]
+@@ -75,7 +75,10 @@ impl Drop for TQueue {
+ /// C compatible wrapper around the TQueue. Given a valid point, a TQueue pointer
+ /// is allocated on the heap and referenced in retq. free_fn_ptr may be NULL
+ /// but if it references a function, this will be called during drop of the TQueue.
+-pub extern fn sds_tqueue_init(retq: *mut *mut TQueue, free_fn_ptr: Option<extern "C" fn(*const c_void)>) -> sds_result {
++pub extern "C" fn sds_tqueue_init(
++    retq: *mut *mut TQueue,
++    free_fn_ptr: Option<extern "C" fn(*const c_void)>,
++) -> sds_result {
+     // This piece of type signature magic is because in rust types that extern C,
+     // with option has None resolve to null. What this causes is we can wrap
+     // our fn ptr with Option in rust, but the C side gives us fn ptr or NULL, and
+@@ -93,7 +96,7 @@ pub extern fn sds_tqueue_init(retq: *mut *mut TQueue, free_fn_ptr: Option<extern
+ 
+ #[no_mangle]
+ /// Push an element to the tail of the queue. The element may be NULL
+-pub extern fn sds_tqueue_enqueue(q: *const TQueue, elem: *const c_void) -> sds_result {
++pub extern "C" fn sds_tqueue_enqueue(q: *const TQueue, elem: *const c_void) -> sds_result {
+     // Check for null ....
+     unsafe { (*q).enqueue(elem) };
+     sds_result::Success
+@@ -103,29 +106,27 @@ pub extern fn sds_tqueue_enqueue(q: *const TQueue, elem: *const c_void) -> sds_r
+ /// Dequeue from the head of the queue. The result will be placed into elem.
+ /// if elem is NULL no dequeue is attempted. If there are no more items
+ /// ListExhausted is returned.
+-pub extern fn sds_tqueue_dequeue(q: *const TQueue, elem: *mut *const c_void) -> sds_result {
++pub extern "C" fn sds_tqueue_dequeue(q: *const TQueue, elem: *mut *const c_void) -> sds_result {
+     if elem.is_null() {
+         return sds_result::NullPointer;
+     }
+     match unsafe { (*q).dequeue() } {
+         Some(e) => {
+-            unsafe { *elem = e; };
++            unsafe {
++                *elem = e;
++            };
+             sds_result::Success
+         }
+-        None => {
+-            sds_result::ListExhausted
+-        }
++        None => sds_result::ListExhausted,
+     }
+ }
+ 
+ #[no_mangle]
+ /// Free the queue and all remaining elements. After this point it is
+ /// not safe to access the queue.
+-pub extern fn sds_tqueue_destroy(q: *mut TQueue) -> sds_result {
++pub extern "C" fn sds_tqueue_destroy(q: *mut TQueue) -> sds_result {
+     // This will drop the queue and free it's content
+     // mem::drop(q);
+     let _q = unsafe { Box::from_raw(q) };
+     sds_result::Success
+ }
+-
+-
+diff --git a/src/plugins/entryuuid/Cargo.toml b/src/plugins/entryuuid/Cargo.toml
+new file mode 100644
+index 000000000..c43d7a771
+--- /dev/null
++++ b/src/plugins/entryuuid/Cargo.toml
+@@ -0,0 +1,21 @@
++[package]
++name = "entryuuid"
++version = "0.1.0"
++authors = ["William Brown <william@blackhats.net.au>"]
++edition = "2018"
++
++# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
++
++[lib]
++path = "src/lib.rs"
++name = "entryuuid"
++crate-type = ["staticlib", "lib"]
++
++[dependencies]
++libc = "0.2"
++paste = "0.1"
++slapi_r_plugin = { path="../../slapi_r_plugin" }
++uuid = { version = "0.8", features = [ "v4" ] }
++
++[build-dependencies]
++cc = { version = "1.0", features = ["parallel"] }
+diff --git a/src/plugins/entryuuid/src/lib.rs b/src/plugins/entryuuid/src/lib.rs
+new file mode 100644
+index 000000000..6b5e8d1bb
+--- /dev/null
++++ b/src/plugins/entryuuid/src/lib.rs
+@@ -0,0 +1,196 @@
++#[macro_use]
++extern crate slapi_r_plugin;
++use slapi_r_plugin::prelude::*;
++use std::convert::{TryFrom, TryInto};
++use std::os::raw::c_char;
++use uuid::Uuid;
++
++#[derive(Debug)]
++struct FixupData {
++    basedn: Sdn,
++    raw_filter: String,
++}
++
++struct EntryUuid;
++/*
++ *                    /---- plugin ident
++ *                    |          /---- Struct name.
++ *                    V          V
++ */
++slapi_r_plugin_hooks!(entryuuid, EntryUuid);
++
++/*
++ *                             /---- plugin ident
++ *                             |          /---- cb ident
++ *                             |          |                   /---- map function
++ *                             V          V                   V
++ */
++slapi_r_search_callback_mapfn!(entryuuid, entryuuid_fixup_cb, entryuuid_fixup_mapfn);
++
++fn assign_uuid(e: &mut EntryRef) {
++    let sdn = e.get_sdnref();
++
++    // We could consider making these lazy static.
++    let config_sdn = Sdn::try_from("cn=config").expect("Invalid static dn");
++    let schema_sdn = Sdn::try_from("cn=schema").expect("Invalid static dn");
++
++    if sdn.is_below_suffix(&*config_sdn) || sdn.is_below_suffix(&*schema_sdn) {
++        // We don't need to assign to these suffixes.
++        log_error!(
++            ErrorLevel::Trace,
++            "assign_uuid -> not assigning to {:?} as part of system suffix",
++            sdn.to_dn_string()
++        );
++        return;
++    }
++
++    // Generate a new Uuid.
++    let u: Uuid = Uuid::new_v4();
++    log_error!(
++        ErrorLevel::Trace,
++        "assign_uuid -> assigning {:?} to dn {}",
++        u,
++        sdn.to_dn_string()
++    );
++
++    let uuid_value = Value::from(&u);
++
++    // Add it to the entry
++    e.add_value("entryUUID", &uuid_value);
++}
++
++impl SlapiPlugin3 for EntryUuid {
++    // Indicate we have pre add
++    fn has_betxn_pre_add() -> bool {
++        true
++    }
++
++    fn betxn_pre_add(pb: &mut PblockRef) -> Result<(), PluginError> {
++        log_error!(ErrorLevel::Trace, "betxn_pre_add");
++
++        let mut e = pb.get_op_add_entryref().map_err(|_| PluginError::Pblock)?;
++        assign_uuid(&mut e);
++
++        Ok(())
++    }
++
++    fn has_task_handler() -> Option<&'static str> {
++        Some("entryuuid task")
++    }
++
++    type TaskData = FixupData;
++
++    fn task_validate(e: &EntryRef) -> Result<Self::TaskData, LDAPError> {
++        // Does the entry have what we need?
++        let basedn: Sdn = match e.get_attr("basedn") {
++            Some(values) => values
++                .first()
++                .ok_or_else(|| {
++                    log_error!(
++                        ErrorLevel::Trace,
++                        "task_validate basedn error -> empty value array?"
++                    );
++                    LDAPError::Operation
++                })?
++                .as_ref()
++                .try_into()
++                .map_err(|e| {
++                    log_error!(ErrorLevel::Trace, "task_validate basedn error -> {:?}", e);
++                    LDAPError::Operation
++                })?,
++            None => return Err(LDAPError::ObjectClassViolation),
++        };
++
++        let raw_filter: String = match e.get_attr("filter") {
++            Some(values) => values
++                .first()
++                .ok_or_else(|| {
++                    log_error!(
++                        ErrorLevel::Trace,
++                        "task_validate filter error -> empty value array?"
++                    );
++                    LDAPError::Operation
++                })?
++                .as_ref()
++                .try_into()
++                .map_err(|e| {
++                    log_error!(ErrorLevel::Trace, "task_validate filter error -> {:?}", e);
++                    LDAPError::Operation
++                })?,
++            None => {
++                // Give a default filter.
++                "(objectClass=*)".to_string()
++            }
++        };
++
++        // Error if the first filter is empty?
++
++        // Now, to make things faster, we wrap the filter in a exclude term.
++        let raw_filter = format!("(&{}(!(entryuuid=*)))", raw_filter);
++
++        Ok(FixupData { basedn, raw_filter })
++    }
++
++    fn task_be_dn_hint(data: &Self::TaskData) -> Option<Sdn> {
++        Some(data.basedn.clone())
++    }
++
++    fn task_handler(_task: &Task, data: Self::TaskData) -> Result<Self::TaskData, PluginError> {
++        log_error!(
++            ErrorLevel::Trace,
++            "task_handler -> start thread with -> {:?}",
++            data
++        );
++
++        let search = Search::new_map_entry(
++            &(*data.basedn),
++            SearchScope::Subtree,
++            &data.raw_filter,
++            plugin_id(),
++            &(),
++            entryuuid_fixup_cb,
++        )
++        .map_err(|e| {
++            log_error!(
++                ErrorLevel::Error,
++                "task_handler -> Unable to construct search -> {:?}",
++                e
++            );
++            e
++        })?;
++
++        match search.execute() {
++            Ok(_) => {
++                log_error!(ErrorLevel::Info, "task_handler -> fixup complete, success!");
++                Ok(data)
++            }
++            Err(e) => {
++                // log, and return
++                log_error!(
++                    ErrorLevel::Error,
++                    "task_handler -> fixup complete, failed -> {:?}",
++                    e
++                );
++                Err(PluginError::GenericFailure)
++            }
++        }
++    }
++
++    fn start(_pb: &mut PblockRef) -> Result<(), PluginError> {
++        log_error!(ErrorLevel::Trace, "plugin start");
++        Ok(())
++    }
++
++    fn close(_pb: &mut PblockRef) -> Result<(), PluginError> {
++        log_error!(ErrorLevel::Trace, "plugin close");
++        Ok(())
++    }
++}
++
++pub fn entryuuid_fixup_mapfn(mut e: EntryRef, _data: &()) -> Result<(), PluginError> {
++    assign_uuid(&mut e);
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests {}
+diff --git a/src/plugins/entryuuid_syntax/Cargo.toml b/src/plugins/entryuuid_syntax/Cargo.toml
+new file mode 100644
+index 000000000..f7d3d64c9
+--- /dev/null
++++ b/src/plugins/entryuuid_syntax/Cargo.toml
+@@ -0,0 +1,21 @@
++[package]
++name = "entryuuid_syntax"
++version = "0.1.0"
++authors = ["William Brown <william@blackhats.net.au>"]
++edition = "2018"
++
++# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
++
++[lib]
++path = "src/lib.rs"
++name = "entryuuid_syntax"
++crate-type = ["staticlib", "lib"]
++
++[dependencies]
++libc = "0.2"
++paste = "0.1"
++slapi_r_plugin = { path="../../slapi_r_plugin" }
++uuid = { version = "0.8", features = [ "v4" ] }
++
++[build-dependencies]
++cc = { version = "1.0", features = ["parallel"] }
+diff --git a/src/plugins/entryuuid_syntax/src/lib.rs b/src/plugins/entryuuid_syntax/src/lib.rs
+new file mode 100644
+index 000000000..0a4b89f16
+--- /dev/null
++++ b/src/plugins/entryuuid_syntax/src/lib.rs
+@@ -0,0 +1,145 @@
++#[macro_use]
++extern crate slapi_r_plugin;
++use slapi_r_plugin::prelude::*;
++use std::cmp::Ordering;
++use std::convert::TryInto;
++use uuid::Uuid;
++
++struct EntryUuidSyntax;
++
++// https://tools.ietf.org/html/rfc4530
++
++slapi_r_syntax_plugin_hooks!(entryuuid_syntax, EntryUuidSyntax);
++
++impl SlapiSyntaxPlugin1 for EntryUuidSyntax {
++    fn attr_oid() -> &'static str {
++        "1.3.6.1.1.16.1"
++    }
++
++    fn attr_compat_oids() -> Vec<&'static str> {
++        Vec::new()
++    }
++
++    fn attr_supported_names() -> Vec<&'static str> {
++        vec!["1.3.6.1.1.16.1", "UUID"]
++    }
++
++    fn syntax_validate(bval: &BerValRef) -> Result<(), PluginError> {
++        let r: Result<Uuid, PluginError> = bval.try_into();
++        r.map(|_| ())
++    }
++
++    fn eq_mr_oid() -> &'static str {
++        "1.3.6.1.1.16.2"
++    }
++
++    fn eq_mr_name() -> &'static str {
++        "UUIDMatch"
++    }
++
++    fn eq_mr_desc() -> &'static str {
++        "UUIDMatch matching rule."
++    }
++
++    fn eq_mr_supported_names() -> Vec<&'static str> {
++        vec!["1.3.6.1.1.16.2", "uuidMatch", "UUIDMatch"]
++    }
++
++    fn filter_ava_eq(
++        _pb: &mut PblockRef,
++        bval_filter: &BerValRef,
++        vals: &ValueArrayRef,
++    ) -> Result<bool, PluginError> {
++        let u = match bval_filter.try_into() {
++            Ok(u) => u,
++            Err(_e) => return Ok(false),
++        };
++
++        let r = vals.iter().fold(false, |acc, va| {
++            if acc {
++                acc
++            } else {
++                // is u in va?
++                log_error!(ErrorLevel::Trace, "filter_ava_eq debug -> {:?}", va);
++                let res: Result<Uuid, PluginError> = (&*va).try_into();
++                match res {
++                    Ok(vu) => vu == u,
++                    Err(_) => acc,
++                }
++            }
++        });
++        log_error!(ErrorLevel::Trace, "filter_ava_eq result -> {:?}", r);
++        Ok(r)
++    }
++
++    fn eq_mr_filter_values2keys(
++        _pb: &mut PblockRef,
++        vals: &ValueArrayRef,
++    ) -> Result<ValueArray, PluginError> {
++        vals.iter()
++            .map(|va| {
++                let u: Uuid = (&*va).try_into()?;
++                Ok(Value::from(&u))
++            })
++            .collect()
++    }
++}
++
++impl SlapiSubMr for EntryUuidSyntax {}
++
++impl SlapiOrdMr for EntryUuidSyntax {
++    fn ord_mr_oid() -> Option<&'static str> {
++        Some("1.3.6.1.1.16.3")
++    }
++
++    fn ord_mr_name() -> &'static str {
++        "UUIDOrderingMatch"
++    }
++
++    fn ord_mr_desc() -> &'static str {
++        "UUIDMatch matching rule."
++    }
++
++    fn ord_mr_supported_names() -> Vec<&'static str> {
++        vec!["1.3.6.1.1.16.3", "uuidOrderingMatch", "UUIDOrderingMatch"]
++    }
++
++    fn filter_ava_ord(
++        _pb: &mut PblockRef,
++        bval_filter: &BerValRef,
++        vals: &ValueArrayRef,
++    ) -> Result<Option<Ordering>, PluginError> {
++        let u: Uuid = match bval_filter.try_into() {
++            Ok(u) => u,
++            Err(_e) => return Ok(None),
++        };
++
++        let r = vals.iter().fold(None, |acc, va| {
++            if acc.is_some() {
++                acc
++            } else {
++                // is u in va?
++                log_error!(ErrorLevel::Trace, "filter_ava_ord debug -> {:?}", va);
++                let res: Result<Uuid, PluginError> = (&*va).try_into();
++                match res {
++                    Ok(vu) => {
++                        // 1.partial_cmp(2) => ordering::less
++                        vu.partial_cmp(&u)
++                    }
++                    Err(_) => acc,
++                }
++            }
++        });
++        log_error!(ErrorLevel::Trace, "filter_ava_ord result -> {:?}", r);
++        Ok(r)
++    }
++
++    fn filter_compare(a: &BerValRef, b: &BerValRef) -> Ordering {
++        let ua: Uuid = a.try_into().expect("An invalid value a was given!");
++        let ub: Uuid = b.try_into().expect("An invalid value b was given!");
++        ua.cmp(&ub)
++    }
++}
++
++#[cfg(test)]
++mod tests {}
+diff --git a/src/slapd/src/error.rs b/src/slapd/src/error.rs
+index 06ddb27b4..6f4d782ee 100644
+--- a/src/slapd/src/error.rs
++++ b/src/slapd/src/error.rs
+@@ -1,8 +1,6 @@
+-
+ pub enum SlapdError {
+     // This occurs when a string contains an inner null byte
+     // that cstring can't handle.
+     CStringInvalidError,
+     FernetInvalidKey,
+ }
+-
+diff --git a/src/slapd/src/fernet.rs b/src/slapd/src/fernet.rs
+index fcbd873f8..1a3251fd9 100644
+--- a/src/slapd/src/fernet.rs
++++ b/src/slapd/src/fernet.rs
+@@ -1,39 +1,30 @@
+ // Routines for managing fernet encryption
+ 
+-use std::ffi::{CString, CStr};
+-use fernet::Fernet;
+ use crate::error::SlapdError;
++use fernet::Fernet;
++use std::ffi::{CStr, CString};
+ 
+ pub fn generate_new_key() -> Result<CString, SlapdError> {
+     let k = Fernet::generate_key();
+-    CString::new(k)
+-        .map_err(|_| {
+-            SlapdError::CStringInvalidError
+-        })
++    CString::new(k).map_err(|_| SlapdError::CStringInvalidError)
+ }
+ 
+ pub fn new(c_str_key: &CStr) -> Result<Fernet, SlapdError> {
+-    let str_key = c_str_key.to_str()
++    let str_key = c_str_key
++        .to_str()
+         .map_err(|_| SlapdError::CStringInvalidError)?;
+-    Fernet::new(str_key)
+-        .ok_or(SlapdError::FernetInvalidKey)
++    Fernet::new(str_key).ok_or(SlapdError::FernetInvalidKey)
+ }
+ 
+ pub fn encrypt(fernet: &Fernet, dn: &CStr) -> Result<CString, SlapdError> {
+     let tok = fernet.encrypt(dn.to_bytes());
+-    CString::new(tok)
+-        .map_err(|_| {
+-            SlapdError::CStringInvalidError
+-        })
++    CString::new(tok).map_err(|_| SlapdError::CStringInvalidError)
+ }
+ 
+ pub fn decrypt(fernet: &Fernet, tok: &CStr, ttl: u64) -> Result<CString, SlapdError> {
+-    let s = tok.to_str()
+-        .map_err(|_| SlapdError::CStringInvalidError)?;
+-    let r: Vec<u8> = fernet.decrypt_with_ttl(s, ttl)
++    let s = tok.to_str().map_err(|_| SlapdError::CStringInvalidError)?;
++    let r: Vec<u8> = fernet
++        .decrypt_with_ttl(s, ttl)
+         .map_err(|_| SlapdError::FernetInvalidKey)?;
+-    CString::new(r)
+-        .map_err(|_| SlapdError::CStringInvalidError)
++    CString::new(r).map_err(|_| SlapdError::CStringInvalidError)
+ }
+-
+-
+diff --git a/src/slapd/src/lib.rs b/src/slapd/src/lib.rs
+index 5b1f20368..79f1600c2 100644
+--- a/src/slapd/src/lib.rs
++++ b/src/slapd/src/lib.rs
+@@ -1,5 +1,2 @@
+-
+ pub mod error;
+ pub mod fernet;
+-
+-
+diff --git a/src/slapi_r_plugin/Cargo.toml b/src/slapi_r_plugin/Cargo.toml
+new file mode 100644
+index 000000000..c7958671a
+--- /dev/null
++++ b/src/slapi_r_plugin/Cargo.toml
+@@ -0,0 +1,19 @@
++[package]
++name = "slapi_r_plugin"
++version = "0.1.0"
++authors = ["William Brown <william@blackhats.net.au>"]
++edition = "2018"
++build = "build.rs"
++
++# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
++
++[lib]
++path = "src/lib.rs"
++name = "slapi_r_plugin"
++crate-type = ["staticlib", "lib"]
++
++[dependencies]
++libc = "0.2"
++paste = "0.1"
++lazy_static = "1.4"
++uuid = { version = "0.8", features = [ "v4" ] }
+diff --git a/src/slapi_r_plugin/README.md b/src/slapi_r_plugin/README.md
+new file mode 100644
+index 000000000..af9743ec9
+--- /dev/null
++++ b/src/slapi_r_plugin/README.md
+@@ -0,0 +1,216 @@
++
++# Slapi R(ust) Plugin Bindings
++
++If you are here, you are probably interested in the Rust bindings that allow plugins to be written
++in Rust for the 389 Directory Server project. If you are, you should use `cargo doc --workspace --no-deps`
++in `src`, as this contains the material you want for implementing safe plugins.
++
++This readme is intended for developers of the bindings that enable those plugins to work.
++
++As such it likely requires that you have an understanding both of C and
++the [Rust Nomicon](https://doc.rust-lang.org/nomicon/index.html)
++
++> **WARNING** This place is not a place of honor ... no highly esteemed deed is commemorated here
++> ... nothing valued is here. What is here is dangerous and repulsive to us. This message is a
++> warning about danger.
++
++This document will not detail the specifics of unsafe or the invariants you must adhere to for rust
++to work with C.
++
++If you still want to see more about the plugin bindings, go on ...
++
++## The Challenge
++
++Rust is a memory safe language - that means you may not dereference pointers or alter or interact
++with uninitialised memory. There are whole classes of problems that this resolves, but it means
++that Rust is opiniated about how it interacts with memory.
++
++C is an unsafe language - there are undefined behaviours all through out the specification, memory
++can be interacted with without bounds which leads to many kinds of issues ranging from crashes,
++silent data corruption, to code execution and explotation.
++
++While it would be nice to rewrite everything from C to Rust, this is a large task - instead we need
++a way to allow Rust and C to interact.
++
++## The Goal
++
++To be able to define, a pure Rust, 100% safe (in rust terms) plugin for 389 Directory Server that
++can perform useful tasks.
++
++## The 389 Directory Server Plugin API
++
++The 389-ds plugin system works by reading an ldap entry from cn=config, that directs to a shared
++library. That shared library path is dlopened and an init symbol read and activated. At that
++point the plugin is able to call-back into 389-ds to provide registration of function handlers for
++various tasks that the plugin may wish to perform at defined points in a operations execution.
++
++During the execution of a plugin callback, the context of the environment is passed through a
++parameter block (pblock). This pblock has a set of apis for accessing it's content, which may
++or may not be defined based on the execution state of the server.
++
++Common plugin tasks involve the transformation of entries during write operation paths to provide
++extra attributes to the entry or generation of other entries. Values in entries are represented by
++internal structures that may or may not have sorting of content.
++
++Already at this point it can be seen there is a lot of surface area to access. For clarity in
++our trivial example here we have required:
++
++* Pblock
++* Entry
++* ValueSet
++* Value
++* Sdn
++* Result Codes
++
++We need to be able to interact with all of these - and more - to make useful plugins.
++
++## Structure of the Rust Plugin bindings.
++
++As a result, there are a number of items we must be able to implement:
++
++* Creation of the plugin function callback points
++* Transformation of C pointer types into Rust structures that can be interacted with.
++* Ability to have Rust interact with structures to achieve side effects in the C server
++* Mapping of errors that C can understand
++* Make all of it safe.
++
++In order to design this, it's useful to see what a plugin from Rust should look like - by designing
++what the plugin should look like, we make the bindings that are preferable and ergonomic to rust
++rather than compromising on quality and developer experience.
++
++Here is a minimal example of a plugin - it may not compile or be complete, it serves as an
++example.
++
++```
++#[macro_use]
++extern crate slapi_r_plugin;
++use slapi_r_plugin::prelude::*;
++
++struct NewPlugin;
++
++slapi_r_plugin_hooks!(plugin_name, NewPlugin);
++
++impl SlapiPlugin3 for NewPlugin {
++    fn start(_pb: &mut PblockRef) -> Result<(), PluginError> {
++        log_error!(ErrorLevel::Trace, "plugin start");
++        Ok(())
++    }
++
++    fn close(_pb: &mut PblockRef) -> Result<(), PluginError> {
++        log_error!(ErrorLevel::Trace, "plugin close");
++        Ok(())
++    }
++
++    fn has_betxn_pre_add() -> bool {
++        true
++    }
++
++    fn betxn_pre_add(pb: &mut PblockRef) -> Result<(), PluginError> {
++        let mut e = pb.get_op_add_entryref().map_err(|_| PluginError::Pblock)?;
++        let sdn = e.get_sdnref();
++
++        log_error!(ErrorLevel::Trace, "betxn_pre_add -> {:?}", sdn);
++        Ok(())
++    }
++}
++```
++
++Important details - there is no unsafe, we use rust native error handling and functions, there
++is no indication of memory management, we are defined by a trait, error logging uses native
++formatting. There are probably other details too - I'll leave it as an exercise for the reader
++to play Where's Wally and find them all.
++
++With the end goal in mind, we can begin to look at the construction of the plugin system, and
++the design choices that were made.
++
++## The Plugin Trait
++
++A significant choice was the use of a trait to define the possible plugin function operations
++for rust implementors. This allows the compiler to guarantee that a plugin *will* have all
++associated functions.
++
++> Traits are synonomous with java interfaces, defining methods you "promise" to implement, unlike
++> object orientation with a class hierarchy.
++
++Now, you may notice that not all members of the trait are implemented. This is due to a feature
++of rust known as default trait impls. This allows the trait origin (src/plugin.rs) to provide
++template versions of these functions. If you "overwrite" them, your implementation is used. Unlike
++OO, you may not inherit or call the default function. 
++
++If a default is not provided you *must* implement that function to be considered valid. Today (20200422)
++this only applies to `start` and `close`.
++
++The default implementations all return "false" to the presence of callbacks, and if they are used,
++they will always return an error.
++
++## Interface generation
++
++While it is nice to have this Rust interface for plugins, C is unable to call it (Rust uses a different
++stack calling syntax to C, as well as symbol mangaling). To expose these, we must provide `extern C`
++functions, where any function that requires a static symbol must be marked as no_mangle.
++
++Rather than ask all plugin authors to do this, we can use the rust macro system to generate these
++interfaces at compile time. This is the reason for this line:
++
++```
++slapi_r_plugin_hooks!(plugin_name, NewPlugin);
++```
++
++This macro is defined in src/macros.rs, and is "the bridge" from C to Rust. Given a plugin name
++and a struct of the trait SlapiPlugin3, this macro is able to generate all needed C compatible
++functions. Based on the calls to `has_<op_type>`, the generated functions are registered to the pblock
++that is provided.
++
++When a call back triggers, the function landing point is called. This then wraps all the pointer
++types from C into Rust structs, and then dispatches to the struct instance.
++
++When the struct function returns, the result is unpacked and turned into C compatible result codes -
++in some cases, the result codes are sanitised due to quirks in the C ds api - `[<$mod_ident _plugin_mr_filter_ava>]`
++is an excellent example of this, where Rust returns are `true`/`false`, which would normally
++be FFI safe to convert to 1/0 respectively, but 389-ds expects the inverse in this case, where
++0 is true and all other values are false. To present a sane api to rust, the macro layer does this
++(mind bending) transformation for us.
++
++## C Ptr Wrapper types
++
++This is likely the major, and important detail of the plugin api. By wrapping these C ptrs with
++Rust types, we can create types that perform as rust expects, and adheres to the invariants required,
++while providing safe - and useful interfaces to users.
++
++It's important to understand how Rust manages memory both on the stack and the heap - Please see
++[the Rust Book](https://doc.rust-lang.org/book/ch04-00-understanding-ownership.html) for more.
++
++As a result, this means that we must express in code, assertions about the proper ownership of memory
++and who is responsible for it (unlike C, where it can be hard to determine who or what is responsible
++for freeing some value.) Failure to handle this correctly, can and will lead to crashes, leaks or
++*hand waving* magical failures that are eXtReMeLy FuN to debug.
++
++### Reference Types
++
++There are a number of types, such as `SdnRef`, which have a suffix of `*Ref`. These types represent
++values whos content is owned by the C server - that is, it is the responsibility of 389-ds to free
++the content of the Pointer once it has been used. A majority of values that are provided to the
++function callback points fall into this class.
++
++### Owned Types
++
++These types contain a pointer from the C server, but it is the responsibility of the Rust library
++to indicate when that pointer and it's content should be disposed of. This is generally handled
++by the `drop` trait, which is executed ... well, when an item is dropped.
++
++### Dispatch from the wrapper to C
++
++When a rust function against a wrapper is called, the type internally accesses it Ref type and
++uses the ptr to dispatch into the C server. Any required invariants are upheld, and results are
++mapped as required to match what rust callers expect.
++
++As a result, this involves horrendous amounts of unsafe, and a detailed analysis of both the DS C
++api, what it expects, and the Rust nomicon to ensure you maintain all the invariants.
++
++## Conclusion
++
++Providing a bridge between C and Rust is challenging - but achievable - the result is plugins that
++are clean, safe, efficent.
++
++
++
+diff --git a/src/slapi_r_plugin/build.rs b/src/slapi_r_plugin/build.rs
+new file mode 100644
+index 000000000..29bbd52d4
+--- /dev/null
++++ b/src/slapi_r_plugin/build.rs
+@@ -0,0 +1,8 @@
++use std::env;
++
++fn main() {
++    if let Ok(lib_dir) = env::var("SLAPD_DYLIB_DIR") {
++        println!("cargo:rustc-link-lib=dylib=slapd");
++        println!("cargo:rustc-link-search=native={}", lib_dir);
++    }
++}
+diff --git a/src/slapi_r_plugin/src/backend.rs b/src/slapi_r_plugin/src/backend.rs
+new file mode 100644
+index 000000000..f308295aa
+--- /dev/null
++++ b/src/slapi_r_plugin/src/backend.rs
+@@ -0,0 +1,71 @@
++use crate::dn::SdnRef;
++use crate::pblock::Pblock;
++// use std::ops::Deref;
++
++extern "C" {
++    fn slapi_back_transaction_begin(pb: *const libc::c_void) -> i32;
++    fn slapi_back_transaction_commit(pb: *const libc::c_void);
++    fn slapi_back_transaction_abort(pb: *const libc::c_void);
++    fn slapi_be_select_exact(sdn: *const libc::c_void) -> *const libc::c_void;
++}
++
++pub struct BackendRef {
++    raw_be: *const libc::c_void,
++}
++
++impl BackendRef {
++    pub fn new(dn: &SdnRef) -> Result<Self, ()> {
++        let raw_be = unsafe { slapi_be_select_exact(dn.as_ptr()) };
++        if raw_be.is_null() {
++            Err(())
++        } else {
++            Ok(BackendRef { raw_be })
++        }
++    }
++
++    pub(crate) fn as_ptr(&self) -> *const libc::c_void {
++        self.raw_be
++    }
++
++    pub fn begin_txn(self) -> Result<BackendRefTxn, ()> {
++        let mut pb = Pblock::new();
++        if pb.set_op_backend(&self) != 0 {
++            return Err(());
++        }
++        let rc = unsafe { slapi_back_transaction_begin(pb.as_ptr()) };
++        if rc != 0 {
++            Err(())
++        } else {
++            Ok(BackendRefTxn {
++                pb,
++                be: self,
++                committed: false,
++            })
++        }
++    }
++}
++
++pub struct BackendRefTxn {
++    pb: Pblock,
++    be: BackendRef,
++    committed: bool,
++}
++
++impl BackendRefTxn {
++    pub fn commit(mut self) {
++        self.committed = true;
++        unsafe {
++            slapi_back_transaction_commit(self.pb.as_ptr());
++        }
++    }
++}
++
++impl Drop for BackendRefTxn {
++    fn drop(&mut self) {
++        if self.committed == false {
++            unsafe {
++                slapi_back_transaction_abort(self.pb.as_ptr());
++            }
++        }
++    }
++}
+diff --git a/src/slapi_r_plugin/src/ber.rs b/src/slapi_r_plugin/src/ber.rs
+new file mode 100644
+index 000000000..a501fd642
+--- /dev/null
++++ b/src/slapi_r_plugin/src/ber.rs
+@@ -0,0 +1,90 @@
++use crate::log::{log_error, ErrorLevel};
++use libc;
++use std::ffi::CString;
++// use std::ptr;
++use std::slice;
++
++use std::convert::TryFrom;
++use uuid::Uuid;
++
++use crate::error::PluginError;
++
++#[repr(C)]
++pub(crate) struct ol_berval {
++    pub len: usize,
++    pub data: *const u8,
++}
++
++#[derive(Debug)]
++pub struct BerValRef {
++    pub(crate) raw_berval: *const ol_berval,
++}
++
++impl BerValRef {
++    pub fn new(raw_berval: *const libc::c_void) -> Self {
++        // so we retype this
++        let raw_berval = raw_berval as *const ol_berval;
++        BerValRef { raw_berval }
++    }
++
++    pub(crate) fn into_cstring(&self) -> Option<CString> {
++        // Cstring does not need a trailing null, so if we have one, ignore it.
++        let l: usize = unsafe { (*self.raw_berval).len };
++        let d_slice = unsafe { slice::from_raw_parts((*self.raw_berval).data, l) };
++        CString::new(d_slice)
++            .or_else(|e| {
++                // Try it again, but with one byte less to trim a potential trailing null that
++                // could have been allocated, and ensure it has at least 1 byte of good data
++                // remaining.
++                if l > 1 {
++                    let d_slice = unsafe { slice::from_raw_parts((*self.raw_berval).data, l - 1) };
++                    CString::new(d_slice)
++                } else {
++                    Err(e)
++                }
++            })
++            .map_err(|_| {
++                log_error!(
++                    ErrorLevel::Trace,
++                    "invalid ber parse attempt, may contain a null byte? -> {:?}",
++                    self
++                );
++                ()
++            })
++            .ok()
++    }
++
++    pub fn into_string(&self) -> Option<String> {
++        // Convert a Some to a rust string.
++        self.into_cstring().and_then(|v| {
++            v.into_string()
++                .map_err(|_| {
++                    log_error!(
++                        ErrorLevel::Trace,
++                        "failed to convert cstring to string -> {:?}",
++                        self
++                    );
++                    ()
++                })
++                .ok()
++        })
++    }
++}
++
++impl TryFrom<&BerValRef> for Uuid {
++    type Error = PluginError;
++
++    fn try_from(value: &BerValRef) -> Result<Self, Self::Error> {
++        let val_string = value.into_string().ok_or(PluginError::BervalString)?;
++
++        Uuid::parse_str(val_string.as_str())
++            .map(|r| {
++                log_error!(ErrorLevel::Trace, "valid uuid -> {:?}", r);
++                r
++            })
++            .map_err(|_e| {
++                log_error!(ErrorLevel::Plugin, "Invalid uuid");
++                PluginError::InvalidSyntax
++            })
++    }
++}
+diff --git a/src/slapi_r_plugin/src/constants.rs b/src/slapi_r_plugin/src/constants.rs
+new file mode 100644
+index 000000000..cf76ccbdb
+--- /dev/null
++++ b/src/slapi_r_plugin/src/constants.rs
+@@ -0,0 +1,203 @@
++use crate::error::RPluginError;
++use std::convert::TryFrom;
++use std::os::raw::c_char;
++
++pub const LDAP_SUCCESS: i32 = 0;
++pub const PLUGIN_DEFAULT_PRECEDENCE: i32 = 50;
++
++#[repr(i32)]
++/// The set of possible function handles we can register via the pblock. These
++/// values correspond to slapi-plugin.h.
++pub enum PluginFnType {
++    /// SLAPI_PLUGIN_DESTROY_FN
++    Destroy = 11,
++    /// SLAPI_PLUGIN_CLOSE_FN
++    Close = 210,
++    /// SLAPI_PLUGIN_START_FN
++    Start = 212,
++    /// SLAPI_PLUGIN_PRE_BIND_FN
++    PreBind = 401,
++    /// SLAPI_PLUGIN_PRE_UNBIND_FN
++    PreUnbind = 402,
++    /// SLAPI_PLUGIN_PRE_SEARCH_FN
++    PreSearch = 403,
++    /// SLAPI_PLUGIN_PRE_COMPARE_FN
++    PreCompare = 404,
++    /// SLAPI_PLUGIN_PRE_MODIFY_FN
++    PreModify = 405,
++    /// SLAPI_PLUGIN_PRE_MODRDN_FN
++    PreModRDN = 406,
++    /// SLAPI_PLUGIN_PRE_ADD_FN
++    PreAdd = 407,
++    /// SLAPI_PLUGIN_PRE_DELETE_FN
++    PreDelete = 408,
++    /// SLAPI_PLUGIN_PRE_ABANDON_FN
++    PreAbandon = 409,
++    /// SLAPI_PLUGIN_PRE_ENTRY_FN
++    PreEntry = 410,
++    /// SLAPI_PLUGIN_PRE_REFERRAL_FN
++    PreReferal = 411,
++    /// SLAPI_PLUGIN_PRE_RESULT_FN
++    PreResult = 412,
++    /// SLAPI_PLUGIN_PRE_EXTOP_FN
++    PreExtop = 413,
++    /// SLAPI_PLUGIN_BE_PRE_ADD_FN
++    BeTxnPreAdd = 460,
++    /// SLAPI_PLUGIN_BE_TXN_PRE_MODIFY_FN
++    BeTxnPreModify = 461,
++    /// SLAPI_PLUGIN_BE_TXN_PRE_MODRDN_FN
++    BeTxnPreModRDN = 462,
++    /// SLAPI_PLUGIN_BE_TXN_PRE_DELETE_FN
++    BeTxnPreDelete = 463,
++    /// SLAPI_PLUGIN_BE_TXN_PRE_DELETE_TOMBSTONE_FN
++    BeTxnPreDeleteTombstone = 464,
++    /// SLAPI_PLUGIN_POST_SEARCH_FN
++    PostSearch = 503,
++    /// SLAPI_PLUGIN_BE_POST_ADD_FN
++    BeTxnPostAdd = 560,
++    /// SLAPI_PLUGIN_BE_POST_MODIFY_FN
++    BeTxnPostModify = 561,
++    /// SLAPI_PLUGIN_BE_POST_MODRDN_FN
++    BeTxnPostModRDN = 562,
++    /// SLAPI_PLUGIN_BE_POST_DELETE_FN
++    BeTxnPostDelete = 563,
++
++    /// SLAPI_PLUGIN_MR_FILTER_CREATE_FN
++    MRFilterCreate = 600,
++    /// SLAPI_PLUGIN_MR_INDEXER_CREATE_FN
++    MRIndexerCreate = 601,
++    /// SLAPI_PLUGIN_MR_FILTER_AVA
++    MRFilterAva = 618,
++    /// SLAPI_PLUGIN_MR_FILTER_SUB
++    MRFilterSub = 619,
++    /// SLAPI_PLUGIN_MR_VALUES2KEYS
++    MRValuesToKeys = 620,
++    /// SLAPI_PLUGIN_MR_ASSERTION2KEYS_AVA
++    MRAssertionToKeysAva = 621,
++    /// SLAPI_PLUGIN_MR_ASSERTION2KEYS_SUB
++    MRAssertionToKeysSub = 622,
++    /// SLAPI_PLUGIN_MR_COMPARE
++    MRCompare = 625,
++    /// SLAPI_PLUGIN_MR_NORMALIZE
++    MRNormalize = 626,
++
++    /// SLAPI_PLUGIN_SYNTAX_FILTER_AVA
++    SyntaxFilterAva = 700,
++    /// SLAPI_PLUGIN_SYNTAX_FILTER_SUB
++    SyntaxFilterSub = 701,
++    /// SLAPI_PLUGIN_SYNTAX_VALUES2KEYS
++    SyntaxValuesToKeys = 702,
++    /// SLAPI_PLUGIN_SYNTAX_ASSERTION2KEYS_AVA
++    SyntaxAssertion2KeysAva = 703,
++    /// SLAPI_PLUGIN_SYNTAX_ASSERTION2KEYS_SUB
++    SyntaxAssertion2KeysSub = 704,
++    /// SLAPI_PLUGIN_SYNTAX_FLAGS
++    SyntaxFlags = 707,
++    /// SLAPI_PLUGIN_SYNTAX_COMPARE
++    SyntaxCompare = 708,
++    /// SLAPI_PLUGIN_SYNTAX_VALIDATE
++    SyntaxValidate = 710,
++    /// SLAPI_PLUGIN_SYNTAX_NORMALIZE
++    SyntaxNormalize = 711,
++}
++
++static SV01: [u8; 3] = [b'0', b'1', b'\0'];
++static SV02: [u8; 3] = [b'0', b'2', b'\0'];
++static SV03: [u8; 3] = [b'0', b'3', b'\0'];
++
++/// Corresponding plugin versions
++pub enum PluginVersion {
++    /// SLAPI_PLUGIN_VERSION_01
++    V01,
++    /// SLAPI_PLUGIN_VERSION_02
++    V02,
++    /// SLAPI_PLUGIN_VERSION_03
++    V03,
++}
++
++impl PluginVersion {
++    pub fn to_char_ptr(&self) -> *const c_char {
++        match self {
++            PluginVersion::V01 => &SV01 as *const _ as *const c_char,
++            PluginVersion::V02 => &SV02 as *const _ as *const c_char,
++            PluginVersion::V03 => &SV03 as *const _ as *const c_char,
++        }
++    }
++}
++
++static SMATCHINGRULE: [u8; 13] = [
++    b'm', b'a', b't', b'c', b'h', b'i', b'n', b'g', b'r', b'u', b'l', b'e', b'\0',
++];
++
++pub enum PluginType {
++    MatchingRule,
++}
++
++impl PluginType {
++    pub fn to_char_ptr(&self) -> *const c_char {
++        match self {
++            PluginType::MatchingRule => &SMATCHINGRULE as *const _ as *const c_char,
++        }
++    }
++}
++
++#[repr(i32)]
++/// data types that we can get or retrieve from the pblock. This is only
++/// used internally.
++pub(crate) enum PblockType {
++    /// SLAPI_PLUGIN_PRIVATE
++    _PrivateData = 4,
++    /// SLAPI_PLUGIN_VERSION
++    Version = 8,
++    /// SLAPI_PLUGIN_DESCRIPTION
++    _Description = 12,
++    /// SLAPI_PLUGIN_IDENTITY
++    Identity = 13,
++    /// SLAPI_PLUGIN_INTOP_RESULT
++    OpResult = 15,
++    /// SLAPI_ADD_ENTRY
++    AddEntry = 60,
++    /// SLAPI_BACKEND
++    Backend = 130,
++    /// SLAPI_PLUGIN_MR_NAMES
++    MRNames = 624,
++    /// SLAPI_PLUGIN_SYNTAX_NAMES
++    SyntaxNames = 705,
++    /// SLAPI_PLUGIN_SYNTAX_OID
++    SyntaxOid = 706,
++}
++
++/// See ./ldap/include/ldaprot.h
++#[derive(PartialEq)]
++pub enum FilterType {
++    And = 0xa0,
++    Or = 0xa1,
++    Not = 0xa2,
++    Equality = 0xa3,
++    Substring = 0xa4,
++    Ge = 0xa5,
++    Le = 0xa6,
++    Present = 0x87,
++    Approx = 0xa8,
++    Extended = 0xa9,
++}
++
++impl TryFrom<i32> for FilterType {
++    type Error = RPluginError;
++
++    fn try_from(value: i32) -> Result<Self, Self::Error> {
++        match value {
++            0xa0 => Ok(FilterType::And),
++            0xa1 => Ok(FilterType::Or),
++            0xa2 => Ok(FilterType::Not),
++            0xa3 => Ok(FilterType::Equality),
++            0xa4 => Ok(FilterType::Substring),
++            0xa5 => Ok(FilterType::Ge),
++            0xa6 => Ok(FilterType::Le),
++            0x87 => Ok(FilterType::Present),
++            0xa8 => Ok(FilterType::Approx),
++            0xa9 => Ok(FilterType::Extended),
++            _ => Err(RPluginError::FilterType),
++        }
++    }
++}
+diff --git a/src/slapi_r_plugin/src/dn.rs b/src/slapi_r_plugin/src/dn.rs
+new file mode 100644
+index 000000000..5f8a65743
+--- /dev/null
++++ b/src/slapi_r_plugin/src/dn.rs
+@@ -0,0 +1,108 @@
++use std::convert::TryFrom;
++use std::ffi::{CStr, CString};
++use std::ops::Deref;
++use std::os::raw::c_char;
++
++extern "C" {
++    fn slapi_sdn_get_dn(sdn: *const libc::c_void) -> *const c_char;
++    fn slapi_sdn_new_dn_byval(dn: *const c_char) -> *const libc::c_void;
++    fn slapi_sdn_issuffix(sdn: *const libc::c_void, suffix_sdn: *const libc::c_void) -> i32;
++    fn slapi_sdn_free(sdn: *const *const libc::c_void);
++    fn slapi_sdn_dup(sdn: *const libc::c_void) -> *const libc::c_void;
++}
++
++#[derive(Debug)]
++pub struct SdnRef {
++    raw_sdn: *const libc::c_void,
++}
++
++#[derive(Debug)]
++pub struct NdnRef {
++    raw_ndn: *const c_char,
++}
++
++#[derive(Debug)]
++pub struct Sdn {
++    value: SdnRef,
++}
++
++unsafe impl Send for Sdn {}
++
++impl From<&CStr> for Sdn {
++    fn from(value: &CStr) -> Self {
++        Sdn {
++            value: SdnRef {
++                raw_sdn: unsafe { slapi_sdn_new_dn_byval(value.as_ptr()) },
++            },
++        }
++    }
++}
++
++impl TryFrom<&str> for Sdn {
++    type Error = ();
++
++    fn try_from(value: &str) -> Result<Self, Self::Error> {
++        let cstr = CString::new(value).map_err(|_| ())?;
++        Ok(Self::from(cstr.as_c_str()))
++    }
++}
++
++impl Clone for Sdn {
++    fn clone(&self) -> Self {
++        let raw_sdn = unsafe { slapi_sdn_dup(self.value.raw_sdn) };
++        Sdn {
++            value: SdnRef { raw_sdn },
++        }
++    }
++}
++
++impl Drop for Sdn {
++    fn drop(&mut self) {
++        unsafe { slapi_sdn_free(&self.value.raw_sdn as *const *const libc::c_void) }
++    }
++}
++
++impl Deref for Sdn {
++    type Target = SdnRef;
++
++    fn deref(&self) -> &Self::Target {
++        &self.value
++    }
++}
++
++impl SdnRef {
++    pub fn new(raw_sdn: *const libc::c_void) -> Self {
++        SdnRef { raw_sdn }
++    }
++
++    /// This is unsafe, as you need to ensure that the SdnRef associated lives at
++    /// least as long as the NdnRef, else this may cause a use-after-free.
++    pub unsafe fn as_ndnref(&self) -> NdnRef {
++        let raw_ndn = slapi_sdn_get_dn(self.raw_sdn);
++        NdnRef { raw_ndn }
++    }
++
++    pub fn to_dn_string(&self) -> String {
++        let dn_raw = unsafe { slapi_sdn_get_dn(self.raw_sdn) };
++        let dn_cstr = unsafe { CStr::from_ptr(dn_raw) };
++        dn_cstr.to_string_lossy().to_string()
++    }
++
++    pub(crate) fn as_ptr(&self) -> *const libc::c_void {
++        self.raw_sdn
++    }
++
++    pub fn is_below_suffix(&self, other: &SdnRef) -> bool {
++        if unsafe { slapi_sdn_issuffix(self.raw_sdn, other.raw_sdn) } == 0 {
++            false
++        } else {
++            true
++        }
++    }
++}
++
++impl NdnRef {
++    pub(crate) fn as_ptr(&self) -> *const c_char {
++        self.raw_ndn
++    }
++}
+diff --git a/src/slapi_r_plugin/src/entry.rs b/src/slapi_r_plugin/src/entry.rs
+new file mode 100644
+index 000000000..034efe692
+--- /dev/null
++++ b/src/slapi_r_plugin/src/entry.rs
+@@ -0,0 +1,92 @@
++use crate::dn::SdnRef;
++use crate::value::{slapi_value, ValueArrayRef, ValueRef};
++use std::ffi::CString;
++use std::os::raw::c_char;
++
++extern "C" {
++    fn slapi_entry_get_sdn(e: *const libc::c_void) -> *const libc::c_void;
++    fn slapi_entry_add_value(
++        e: *const libc::c_void,
++        a: *const c_char,
++        v: *const slapi_value,
++    ) -> i32;
++    fn slapi_entry_attr_get_valuearray(
++        e: *const libc::c_void,
++        a: *const c_char,
++    ) -> *const *const slapi_value;
++}
++
++pub struct EntryRef {
++    raw_e: *const libc::c_void,
++}
++
++/*
++pub struct Entry {
++    value: EntryRef,
++}
++
++impl Drop for Entry {
++    fn drop(&mut self) {
++        ()
++    }
++}
++
++impl Deref for Entry {
++    type Target = EntryRef;
++
++    fn deref(&self) -> &Self::Target {
++        &self.value
++    }
++}
++
++impl Entry {
++    // Forget about this value, and get a pointer back suitable for providing to directory
++    // server to take ownership.
++    pub unsafe fn forget(self) -> *mut libc::c_void {
++        unimplemented!();
++    }
++}
++*/
++
++impl EntryRef {
++    pub fn new(raw_e: *const libc::c_void) -> Self {
++        EntryRef { raw_e }
++    }
++
++    // get the sdn
++    pub fn get_sdnref(&self) -> SdnRef {
++        let sdn_ptr = unsafe { slapi_entry_get_sdn(self.raw_e) };
++        SdnRef::new(sdn_ptr)
++    }
++
++    pub fn get_attr(&self, name: &str) -> Option<ValueArrayRef> {
++        let cname = CString::new(name).expect("invalid attr name");
++        let va = unsafe { slapi_entry_attr_get_valuearray(self.raw_e, cname.as_ptr()) };
++
++        if va.is_null() {
++            None
++        } else {
++            Some(ValueArrayRef::new(va as *const libc::c_void))
++        }
++    }
++
++    pub fn add_value(&mut self, a: &str, v: &ValueRef) {
++        // turn the attr to a c string.
++        // TODO FIX
++        let attr_name = CString::new(a).expect("Invalid attribute name");
++        // Get the raw ptr.
++        let raw_value_ref = unsafe { v.as_ptr() };
++        // We ignore the return because it always returns 0.
++        let _ = unsafe {
++            // By default, this clones.
++            slapi_entry_add_value(self.raw_e, attr_name.as_ptr(), raw_value_ref)
++        };
++    }
++
++    /*
++    pub fn replace_value(&mut self, a: &str, v: &ValueRef) {
++        // slapi_entry_attr_replace(e, SLAPI_ATTR_ENTRYUSN, new_bvals);
++        unimplemented!();
++    }
++    */
++}
+diff --git a/src/slapi_r_plugin/src/error.rs b/src/slapi_r_plugin/src/error.rs
+new file mode 100644
+index 000000000..91c81cd26
+--- /dev/null
++++ b/src/slapi_r_plugin/src/error.rs
+@@ -0,0 +1,61 @@
++// use std::convert::TryFrom;
++
++#[derive(Debug)]
++#[repr(i32)]
++pub enum RPluginError {
++    Unknown = 500,
++    Unimplemented = 501,
++    FilterType = 502,
++}
++
++#[derive(Debug)]
++#[repr(i32)]
++pub enum PluginError {
++    GenericFailure = -1,
++    Unknown = 1000,
++    Unimplemented = 1001,
++    Pblock = 1002,
++    BervalString = 1003,
++    InvalidSyntax = 1004,
++    InvalidFilter = 1005,
++    TxnFailure = 1006,
++}
++
++#[derive(Debug)]
++#[repr(i32)]
++pub enum LDAPError {
++    Success = 0,
++    Operation = 1,
++    ObjectClassViolation = 65,
++    Other = 80,
++    Unknown = 999,
++}
++
++impl From<i32> for LDAPError {
++    fn from(value: i32) -> Self {
++        match value {
++            0 => LDAPError::Success,
++            1 => LDAPError::Operation,
++            65 => LDAPError::ObjectClassViolation,
++            80 => LDAPError::Other,
++            _ => LDAPError::Unknown,
++        }
++    }
++}
++
++// if we make debug impl, we can use this.
++// errmsg = ldap_err2string(result);
++
++#[derive(Debug)]
++#[repr(i32)]
++pub enum DseCallbackStatus {
++    DoNotApply = 0,
++    Ok = 1,
++    Error = -1,
++}
++
++#[derive(Debug)]
++pub enum LoggingError {
++    Unknown,
++    CString(String),
++}
+diff --git a/src/slapi_r_plugin/src/init.c b/src/slapi_r_plugin/src/init.c
+new file mode 100644
+index 000000000..86d1235b8
+--- /dev/null
++++ b/src/slapi_r_plugin/src/init.c
+@@ -0,0 +1,8 @@
++
++#include <inttypes.h>
++
++int32_t
++do_nothing_really_well_abcdef() {
++    return 0;
++}
++
+diff --git a/src/slapi_r_plugin/src/lib.rs b/src/slapi_r_plugin/src/lib.rs
+new file mode 100644
+index 000000000..d7fc22e52
+--- /dev/null
++++ b/src/slapi_r_plugin/src/lib.rs
+@@ -0,0 +1,36 @@
++// extern crate lazy_static;
++
++#[macro_use]
++pub mod macros;
++pub mod backend;
++pub mod ber;
++mod constants;
++pub mod dn;
++pub mod entry;
++pub mod error;
++pub mod log;
++pub mod pblock;
++pub mod plugin;
++pub mod search;
++pub mod syntax_plugin;
++pub mod task;
++pub mod value;
++
++pub mod prelude {
++    pub use crate::backend::{BackendRef, BackendRefTxn};
++    pub use crate::ber::BerValRef;
++    pub use crate::constants::{FilterType, PluginFnType, PluginType, PluginVersion, LDAP_SUCCESS};
++    pub use crate::dn::{Sdn, SdnRef};
++    pub use crate::entry::EntryRef;
++    pub use crate::error::{DseCallbackStatus, LDAPError, PluginError, RPluginError};
++    pub use crate::log::{log_error, ErrorLevel};
++    pub use crate::pblock::{Pblock, PblockRef};
++    pub use crate::plugin::{register_plugin_ext, PluginIdRef, SlapiPlugin3};
++    pub use crate::search::{Search, SearchScope};
++    pub use crate::syntax_plugin::{
++        matchingrule_register, name_to_leaking_char, names_to_leaking_char_array, SlapiOrdMr,
++        SlapiSubMr, SlapiSyntaxPlugin1,
++    };
++    pub use crate::task::{task_register_handler_fn, task_unregister_handler_fn, Task, TaskRef};
++    pub use crate::value::{Value, ValueArray, ValueArrayRef, ValueRef};
++}
+diff --git a/src/slapi_r_plugin/src/log.rs b/src/slapi_r_plugin/src/log.rs
+new file mode 100644
+index 000000000..f686ecd1a
+--- /dev/null
++++ b/src/slapi_r_plugin/src/log.rs
+@@ -0,0 +1,87 @@
++use std::ffi::CString;
++use std::os::raw::c_char;
++
++use crate::constants;
++use crate::error::LoggingError;
++
++extern "C" {
++    fn slapi_log_error(level: i32, system: *const c_char, message: *const c_char) -> i32;
++}
++
++pub fn log_error(
++    level: ErrorLevel,
++    subsystem: String,
++    message: String,
++) -> Result<(), LoggingError> {
++    let c_subsystem = CString::new(subsystem)
++        .map_err(|e| LoggingError::CString(format!("failed to convert subsystem -> {:?}", e)))?;
++    let c_message = CString::new(message)
++        .map_err(|e| LoggingError::CString(format!("failed to convert message -> {:?}", e)))?;
++
++    match unsafe { slapi_log_error(level as i32, c_subsystem.as_ptr(), c_message.as_ptr()) } {
++        constants::LDAP_SUCCESS => Ok(()),
++        _ => Err(LoggingError::Unknown),
++    }
++}
++
++#[repr(i32)]
++#[derive(Debug)]
++/// This is a safe rust representation of the values from slapi-plugin.h
++/// such as SLAPI_LOG_FATAL, SLAPI_LOG_TRACE, SLAPI_LOG_ ... These vaulues
++/// must matche their counter parts in slapi-plugin.h
++pub enum ErrorLevel {
++    /// Always log messages at this level. Soon to go away, see EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, DEBUG
++    Fatal = 0,
++    /// Log detailed messages.
++    Trace = 1,
++    /// Log packet tracing.
++    Packets = 2,
++    /// Log argument tracing.
++    Args = 3,
++    /// Log connection tracking.
++    Conns = 4,
++    /// Log BER parsing.
++    Ber = 5,
++    /// Log filter processing.
++    Filter = 6,
++    /// Log configuration processing.
++    Config = 7,
++    /// Log access controls
++    Acl = 8,
++    /// Log .... ???
++    Shell = 9,
++    /// Log .... ???
++    Parse = 10,
++    /// Log .... ???
++    House = 11,
++    /// Log detailed replication information.
++    Repl = 12,
++    /// Log cache management.
++    Cache = 13,
++    /// Log detailed plugin operations.
++    Plugin = 14,
++    /// Log .... ???
++    Timing = 15,
++    /// Log backend infomation.
++    BackLDBM = 16,
++    /// Log ACL processing.
++    AclSummary = 17,
++    /// Log nuncstans processing.
++    NuncStansDONOTUSE = 18,
++    /// Emergency messages. Server is bursting into flame.
++    Emerg = 19,
++    /// Important alerts, server may explode soon.
++    Alert = 20,
++    /// Critical messages, but the server isn't going to explode. Admin should intervene.
++    Crit = 21,
++    /// Error has occured, but we can keep going. Could indicate misconfiguration.
++    Error = 22,
++    /// Warning about an issue that isn't very important. Good to resolve though.
++    Warning = 23,
++    /// Inform the admin of something that they should know about, IE server is running now.
++    Notice = 24,
++    /// Informational messages that are nice to know.
++    Info = 25,
++    /// Debugging information from the server.
++    Debug = 26,
++}
+diff --git a/src/slapi_r_plugin/src/macros.rs b/src/slapi_r_plugin/src/macros.rs
+new file mode 100644
+index 000000000..030449632
+--- /dev/null
++++ b/src/slapi_r_plugin/src/macros.rs
+@@ -0,0 +1,835 @@
++#[macro_export]
++macro_rules! log_error {
++    ($level:expr, $($arg:tt)*) => ({
++        use std::fmt;
++        match log_error(
++            $level,
++            format!("{}:{}", file!(), line!()),
++            format!("{}\n", fmt::format(format_args!($($arg)*)))
++        ) {
++            Ok(_) => {},
++            Err(e) => {
++                eprintln!("A logging error occured {}, {} -> {:?}", file!(), line!(), e);
++            }
++        };
++    })
++}
++
++#[macro_export]
++macro_rules! slapi_r_plugin_hooks {
++    ($mod_ident:ident, $hooks_ident:ident) => (
++        paste::item! {
++            use libc;
++
++            static mut PLUGINID: *const libc::c_void = std::ptr::null();
++
++            pub(crate) fn plugin_id() -> PluginIdRef {
++                PluginIdRef {
++                    raw_pid: unsafe { PLUGINID }
++                }
++            }
++
++            #[no_mangle]
++            pub extern "C" fn [<$mod_ident _plugin_init>](raw_pb: *const libc::c_void) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++                log_error!(ErrorLevel::Trace, "it's alive!\n");
++
++                match pb.set_plugin_version(PluginVersion::V03) {
++                    0 => {},
++                    e => return e,
++                };
++
++                // Setup the plugin id.
++                unsafe {
++                    PLUGINID = pb.get_plugin_identity();
++                }
++
++                if $hooks_ident::has_betxn_pre_modify() {
++                    match pb.register_betxn_pre_modify_fn([<$mod_ident _plugin_betxn_pre_modify>]) {
++                        0 => {},
++                        e => return e,
++                    };
++                }
++
++                if $hooks_ident::has_betxn_pre_add() {
++                    match pb.register_betxn_pre_add_fn([<$mod_ident _plugin_betxn_pre_add>]) {
++                        0 => {},
++                        e => return e,
++                    };
++                }
++
++                // set the start fn
++                match pb.register_start_fn([<$mod_ident _plugin_start>]) {
++                    0 => {},
++                    e => return e,
++                };
++
++                // set the close fn
++                match pb.register_close_fn([<$mod_ident _plugin_close>]) {
++                    0 => {},
++                    e => return e,
++                };
++
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_start>](raw_pb: *const libc::c_void) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++
++                if let Some(task_ident) = $hooks_ident::has_task_handler() {
++                    match task_register_handler_fn(task_ident, [<$mod_ident _plugin_task_handler>], &mut pb) {
++                        0 => {},
++                        e => return e,
++                    };
++                };
++
++                match $hooks_ident::start(&mut pb) {
++                    Ok(()) => {
++                        0
++                    }
++                    Err(e) => {
++                        log_error!(ErrorLevel::Error, "-> {:?}", e);
++                        1
++                    }
++                }
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_close>](raw_pb: *const libc::c_void) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++
++                if let Some(task_ident) = $hooks_ident::has_task_handler() {
++                    match task_unregister_handler_fn(task_ident, [<$mod_ident _plugin_task_handler>]) {
++                        0 => {},
++                        e => return e,
++                    };
++                };
++
++                match $hooks_ident::close(&mut pb) {
++                    Ok(()) => {
++                        0
++                    }
++                    Err(e) => {
++                        log_error!(ErrorLevel::Error, "-> {:?}", e);
++                        1
++                    }
++                }
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_betxn_pre_modify>](raw_pb: *const libc::c_void) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++                match $hooks_ident::betxn_pre_modify(&mut pb) {
++                    Ok(()) => {
++                        0
++                    }
++                    Err(e) => {
++                        log_error!(ErrorLevel::Error, "-> {:?}", e);
++                        1
++                    }
++                }
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_betxn_pre_add>](raw_pb: *const libc::c_void) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++                match $hooks_ident::betxn_pre_add(&mut pb) {
++                    Ok(()) => {
++                        0
++                    }
++                    Err(e) => {
++                        log_error!(ErrorLevel::Error, "-> {:?}", e);
++                        1
++                    }
++                }
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_task_handler>](
++                raw_pb: *const libc::c_void,
++                raw_e_before: *const libc::c_void,
++                _raw_e_after: *const libc::c_void,
++                raw_returncode: *mut i32,
++                _raw_returntext: *mut c_char,
++                raw_arg: *const libc::c_void,
++            ) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++
++                let e_before = EntryRef::new(raw_e_before);
++                // let e_after = EntryRef::new(raw_e_after);
++
++                let task_data = match $hooks_ident::task_validate(
++                    &e_before
++                ) {
++                    Ok(data) => data,
++                    Err(retcode) => {
++                        unsafe { *raw_returncode = retcode as i32 };
++                        return DseCallbackStatus::Error as i32
++                    }
++                };
++
++                let mut task = Task::new(&e_before, raw_arg);
++                task.register_destructor_fn([<$mod_ident _plugin_task_destructor>]);
++
++                // Setup the task thread and then run it. Remember, because Rust is
++                // smarter about memory, the move statement here moves the task wrapper and
++                // task_data to the thread, so they drop on thread close. No need for a
++                // destructor beyond blocking on the thread to complete.
++                std::thread::spawn(move || {
++                    log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_task_thread => begin"));
++                    // Indicate the task is begun
++                    task.begin();
++                    // Start a txn
++                    let be: Option<BackendRef> = match $hooks_ident::task_be_dn_hint(&task_data)
++                        .map(|be_dn| {
++                            BackendRef::new(&be_dn)
++                        })
++                        .transpose() {
++                            Ok(v) => v,
++                            Err(_) => {
++                                log_error!(ErrorLevel::Error, concat!(stringify!($mod_ident), "_plugin_task_thread => task error -> selected dn does not exist"));
++                                task.error(PluginError::TxnFailure as i32);
++                                return;
++                            }
++                        };
++                    let be_txn: Option<BackendRefTxn> = match be {
++                        Some(b) => {
++                            match b.begin_txn() {
++                                Ok(txn) => Some(txn),
++                                Err(_) => {
++                                    log_error!(ErrorLevel::Error, concat!(stringify!($mod_ident), "_plugin_task_thread => task error -> unable to begin txn"));
++                                    task.error(PluginError::TxnFailure as i32);
++                                    return;
++                                }
++                            }
++                        }
++                        None => None,
++                    };
++
++                    // Abort or commit the txn here.
++                    match $hooks_ident::task_handler(&mut task, task_data) {
++                        Ok(_data) => {
++                            match be_txn {
++                                Some(be_txn) => be_txn.commit(),
++                                None => {}
++                            };
++                            // These will set the status, and guarantee the drop
++                            task.success();
++                        }
++                        Err(e) => {
++                            log_error!(ErrorLevel::Error, "{}_plugin_task_thread => task error -> {:?}", stringify!($mod_ident), e);
++                            // These will set the status, and guarantee the drop
++                            task.error(e as i32);
++                            // On drop, be_txn implicitly aborts.
++                        }
++                    };
++
++                    log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_task_thread <= complete"));
++                });
++
++                // Indicate that the thread started just fine.
++                unsafe { *raw_returncode = LDAP_SUCCESS };
++                DseCallbackStatus::Ok as i32
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_task_destructor>](
++                raw_task: *const libc::c_void,
++            ) {
++                // Simply block until the task refcount drops to 0.
++                let task = TaskRef::new(raw_task);
++                task.block();
++            }
++
++        } // end paste
++    )
++} // end macro
++
++#[macro_export]
++macro_rules! slapi_r_syntax_plugin_hooks {
++    (
++        $mod_ident:ident,
++        $hooks_ident:ident
++    ) => (
++        paste::item! {
++            use libc;
++            use std::convert::TryFrom;
++
++            #[no_mangle]
++            pub extern "C" fn [<$mod_ident _plugin_init>](raw_pb: *const libc::c_void) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++                log_error!(ErrorLevel::Trace, "slapi_r_syntax_plugin_hooks => begin");
++                // Setup our plugin
++                match pb.set_plugin_version(PluginVersion::V01) {
++                    0 => {},
++                    e => return e,
++                };
++
++                // Setup the names/oids that this plugin provides syntaxes for.
++
++                let name_ptr = unsafe { names_to_leaking_char_array(&$hooks_ident::attr_supported_names()) };
++                match pb.register_syntax_names(name_ptr) {
++                    0 => {},
++                    e => return e,
++                };
++
++                let name_ptr = unsafe { name_to_leaking_char($hooks_ident::attr_oid()) };
++                match pb.register_syntax_oid(name_ptr) {
++                    0 => {},
++                    e => return e,
++                };
++
++                match pb.register_syntax_validate_fn([<$mod_ident _plugin_syntax_validate>]) {
++                    0 => {},
++                    e => return e,
++                };
++
++                // Now setup the MR's
++                match register_plugin_ext(
++                    PluginType::MatchingRule,
++                    $hooks_ident::eq_mr_name(),
++                    concat!(stringify!($mod_ident), "_plugin_eq_mr_init"),
++                    [<$mod_ident _plugin_eq_mr_init>]
++                ) {
++                    0 => {},
++                    e => return e,
++                };
++
++                if $hooks_ident::sub_mr_oid().is_some() {
++                    match register_plugin_ext(
++                        PluginType::MatchingRule,
++                        $hooks_ident::sub_mr_name(),
++                        concat!(stringify!($mod_ident), "_plugin_ord_mr_init"),
++                        [<$mod_ident _plugin_ord_mr_init>]
++                    ) {
++                        0 => {},
++                        e => return e,
++                    };
++                }
++
++                if $hooks_ident::ord_mr_oid().is_some() {
++                    match register_plugin_ext(
++                        PluginType::MatchingRule,
++                        $hooks_ident::ord_mr_name(),
++                        concat!(stringify!($mod_ident), "_plugin_ord_mr_init"),
++                        [<$mod_ident _plugin_ord_mr_init>]
++                    ) {
++                        0 => {},
++                        e => return e,
++                    };
++                }
++
++                log_error!(ErrorLevel::Trace, "slapi_r_syntax_plugin_hooks <= success");
++
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_syntax_validate>](
++                raw_berval: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_syntax_validate => begin"));
++
++                let bval = BerValRef::new(raw_berval);
++
++                match $hooks_ident::syntax_validate(&bval) {
++                    Ok(()) => {
++                        log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_syntax_validate <= success"));
++                        LDAP_SUCCESS
++                    }
++                    Err(e) => {
++                        log_error!(ErrorLevel::Warning,
++                            "{}_plugin_syntax_validate error -> {:?}", stringify!($mod_ident), e
++                        );
++                        e as i32
++                    }
++                }
++            }
++
++            // All the MR types share this.
++            pub extern "C" fn [<$mod_ident _plugin_mr_filter_ava>](
++                raw_pb: *const libc::c_void,
++                raw_bvfilter: *const libc::c_void,
++                raw_bvals: *const libc::c_void,
++                i_ftype: i32,
++                _retval: *mut libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_mr_filter_ava => begin"));
++                let mut pb = PblockRef::new(raw_pb);
++                let bvfilter = BerValRef::new(raw_bvfilter);
++                let bvals = ValueArrayRef::new(raw_bvals);
++                let ftype = match FilterType::try_from(i_ftype) {
++                    Ok(f) => f,
++                    Err(e) => {
++                        log_error!(ErrorLevel::Error, "{}_plugin_ord_mr_filter_ava Error -> {:?}",
++                        stringify!($mod_ident), e);
++                        return e as i32
++                    }
++                };
++
++                let r: Result<bool, PluginError> = match ftype {
++                    FilterType::And | FilterType::Or | FilterType::Not => {
++                        Err(PluginError::InvalidFilter)
++                    }
++                    FilterType::Equality => {
++                        $hooks_ident::filter_ava_eq(&mut pb, &bvfilter, &bvals)
++                    }
++                    FilterType::Substring => {
++                        Err(PluginError::Unimplemented)
++                    }
++                    FilterType::Ge => {
++                        $hooks_ident::filter_ava_ord(&mut pb, &bvfilter, &bvals)
++                            .map(|o_ord| {
++                                match o_ord {
++                                    Some(Ordering::Greater) | Some(Ordering::Equal) => true,
++                                    Some(Ordering::Less) | None => false,
++                                }
++                            })
++                    }
++                    FilterType::Le => {
++                        $hooks_ident::filter_ava_ord(&mut pb, &bvfilter, &bvals)
++                            .map(|o_ord| {
++                                match o_ord {
++                                    Some(Ordering::Less) | Some(Ordering::Equal) => true,
++                                    Some(Ordering::Greater) | None => false,
++                                }
++                            })
++                    }
++                    FilterType::Present => {
++                        Err(PluginError::Unimplemented)
++                    }
++                    FilterType::Approx => {
++                        Err(PluginError::Unimplemented)
++                    }
++                    FilterType::Extended => {
++                        Err(PluginError::Unimplemented)
++                    }
++                };
++
++                match r {
++                    Ok(b) => {
++                        log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_mr_filter_ava <= success"));
++                        // rust bool into i32 will become 0 false, 1 true. However, ds expects 0 true and 1 false for
++                        // for the filter_ava match. So we flip the bool, and send it back.
++                        (!b) as i32
++                    }
++                    Err(e) => {
++                        log_error!(ErrorLevel::Warning,
++                            "{}_plugin_mr_filter_ava error -> {:?}",
++                            stringify!($mod_ident), e
++                        );
++                        e as i32
++                    }
++                }
++            }
++
++
++            // EQ MR plugin hooks
++            #[no_mangle]
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_init>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_init => begin"));
++                match pb.set_plugin_version(PluginVersion::V01) {
++                    0 => {},
++                    e => return e,
++                };
++
++                let name_ptr = unsafe { names_to_leaking_char_array(&$hooks_ident::eq_mr_supported_names()) };
++                // SLAPI_PLUGIN_MR_NAMES
++                match pb.register_mr_names(name_ptr) {
++                    0 => {},
++                    e => return e,
++                };
++
++                // description
++                // SLAPI_PLUGIN_MR_FILTER_CREATE_FN
++                match pb.register_mr_filter_create_fn([<$mod_ident _plugin_eq_mr_filter_create>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_INDEXER_CREATE_FN
++                match pb.register_mr_indexer_create_fn([<$mod_ident _plugin_eq_mr_indexer_create>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_FILTER_AVA
++                match pb.register_mr_filter_ava_fn([<$mod_ident _plugin_mr_filter_ava>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_FILTER_SUB
++                match pb.register_mr_filter_sub_fn([<$mod_ident _plugin_eq_mr_filter_sub>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_VALUES2KEYS
++                match pb.register_mr_values2keys_fn([<$mod_ident _plugin_eq_mr_filter_values2keys>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_ASSERTION2KEYS_AVA
++                match pb.register_mr_assertion2keys_ava_fn([<$mod_ident _plugin_eq_mr_filter_assertion2keys_ava>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_ASSERTION2KEYS_SUB
++                match pb.register_mr_assertion2keys_sub_fn([<$mod_ident _plugin_eq_mr_filter_assertion2keys_sub>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_COMPARE
++                match pb.register_mr_compare_fn([<$mod_ident _plugin_eq_mr_filter_compare>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_NORMALIZE
++
++                // Finaly, register the MR
++                match unsafe { matchingrule_register($hooks_ident::eq_mr_oid(), $hooks_ident::eq_mr_name(), $hooks_ident::eq_mr_desc(), $hooks_ident::attr_oid(), &$hooks_ident::attr_compat_oids()) } {
++                    0 => {},
++                    e => return e,
++                };
++
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_init <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_filter_create>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_create => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_create <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_indexer_create>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_indexer_create => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_indexer_create <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_filter_sub>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_sub => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_sub <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_filter_values2keys>](
++                raw_pb: *const libc::c_void,
++                raw_vals: *const libc::c_void,
++                raw_ivals: *mut libc::c_void,
++                i_ftype: i32,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_values2keys => begin"));
++                let mut pb = PblockRef::new(raw_pb);
++                let vals = ValueArrayRef::new(raw_vals);
++                let ftype = match FilterType::try_from(i_ftype) {
++                    Ok(f) => f,
++                    Err(e) => {
++                        log_error!(ErrorLevel::Error,
++                        "{}_plugin_eq_mr_filter_values2keys Error -> {:?}",
++                        stringify!($mod_ident),
++                        e);
++                        return e as i32
++                    }
++                };
++
++                if (ftype != FilterType::Equality && ftype != FilterType::Approx) {
++                    log_error!(ErrorLevel::Error,
++                        "{}_plugin_eq_mr_filter_values2keys Error -> Invalid Filter type",
++                        stringify!($mod_ident),
++                        );
++                    return PluginError::InvalidFilter  as i32
++                }
++
++                let va = match $hooks_ident::eq_mr_filter_values2keys(&mut pb, &vals) {
++                    Ok(va) => va,
++                    Err(e) => {
++                        log_error!(ErrorLevel::Error,
++                        "{}_plugin_eq_mr_filter_values2keys Error -> {:?}",
++                        stringify!($mod_ident),
++                        e);
++                        return e as i32
++                    }
++                };
++
++                // Now, deconstruct the va, get the pointer, and put it into the ivals.
++                unsafe {
++                    let ivals_ptr: *mut *const libc::c_void = raw_ivals as *mut _;
++                    (*ivals_ptr) = va.take_ownership() as *const libc::c_void;
++                }
++
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_values2keys <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_filter_assertion2keys_ava>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_assertion2keys_ava => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_assertion2keys_ava <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_filter_assertion2keys_sub>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_assertion2keys_sub => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_assertion2keys_sub <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_filter_names>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                // This is probably another char pointer.
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_eq_mr_filter_compare>](
++                raw_va: *const libc::c_void,
++                raw_vb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_compare => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_eq_mr_filter_compare <= success"));
++                0
++            }
++
++            // SUB MR plugin hooks
++
++            pub extern "C" fn [<$mod_ident _plugin_sub_mr_filter_create>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_create => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_create <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_sub_mr_indexer_create>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_indexer_create => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_indexer_create <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_sub_mr_filter_sub>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_sub => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_sub <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_sub_mr_filter_values2keys>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_values2keys => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_values2keys <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_sub_mr_filter_assertion2keys_ava>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_assertion2keys_ava => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_assertion2keys_ava <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_sub_mr_filter_assertion2keys_sub>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_assertion2keys_sub => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_assertion2keys_sub <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_sub_mr_filter_names>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                // Probably a char array
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_sub_mr_filter_compare>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_compare => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_sub_mr_filter_compare <= success"));
++                0
++            }
++
++            // ORD MR plugin hooks
++            #[no_mangle]
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_init>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                let mut pb = PblockRef::new(raw_pb);
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_init => begin"));
++                match pb.set_plugin_version(PluginVersion::V01) {
++                    0 => {},
++                    e => return e,
++                };
++
++                let name_ptr = unsafe { names_to_leaking_char_array(&$hooks_ident::ord_mr_supported_names()) };
++                // SLAPI_PLUGIN_MR_NAMES
++                match pb.register_mr_names(name_ptr) {
++                    0 => {},
++                    e => return e,
++                };
++
++                // description
++                // SLAPI_PLUGIN_MR_FILTER_CREATE_FN
++                match pb.register_mr_filter_create_fn([<$mod_ident _plugin_ord_mr_filter_create>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_INDEXER_CREATE_FN
++                match pb.register_mr_indexer_create_fn([<$mod_ident _plugin_ord_mr_indexer_create>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_FILTER_AVA
++                match pb.register_mr_filter_ava_fn([<$mod_ident _plugin_mr_filter_ava>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_FILTER_SUB
++                match pb.register_mr_filter_sub_fn([<$mod_ident _plugin_ord_mr_filter_sub>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_VALUES2KEYS
++                /*
++                match pb.register_mr_values2keys_fn([<$mod_ident _plugin_ord_mr_filter_values2keys>]) {
++                    0 => {},
++                    e => return e,
++                };
++                */
++                // SLAPI_PLUGIN_MR_ASSERTION2KEYS_AVA
++                match pb.register_mr_assertion2keys_ava_fn([<$mod_ident _plugin_ord_mr_filter_assertion2keys_ava>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_ASSERTION2KEYS_SUB
++                match pb.register_mr_assertion2keys_sub_fn([<$mod_ident _plugin_ord_mr_filter_assertion2keys_sub>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_COMPARE
++                match pb.register_mr_compare_fn([<$mod_ident _plugin_ord_mr_filter_compare>]) {
++                    0 => {},
++                    e => return e,
++                };
++                // SLAPI_PLUGIN_MR_NORMALIZE
++
++                // Finaly, register the MR
++                match unsafe { matchingrule_register($hooks_ident::ord_mr_oid().unwrap(), $hooks_ident::ord_mr_name(), $hooks_ident::ord_mr_desc(), $hooks_ident::attr_oid(), &$hooks_ident::attr_compat_oids()) } {
++                    0 => {},
++                    e => return e,
++                };
++
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_init <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_filter_create>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_create => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_create <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_indexer_create>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_indexer_create => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_indexer_create <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_filter_sub>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_sub => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_sub <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_filter_values2keys>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_values2keys => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_values2keys <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_filter_assertion2keys_ava>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_assertion2keys_ava => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_assertion2keys_ava <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_filter_assertion2keys_sub>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_assertion2keys_sub => begin"));
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_assertion2keys_sub <= success"));
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_filter_names>](
++                raw_pb: *const libc::c_void,
++            ) -> i32 {
++                // probably char pointers
++                0
++            }
++
++            pub extern "C" fn [<$mod_ident _plugin_ord_mr_filter_compare>](
++                raw_va: *const libc::c_void,
++                raw_vb: *const libc::c_void,
++            ) -> i32 {
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_compare => begin"));
++                let va = BerValRef::new(raw_va);
++                let vb = BerValRef::new(raw_vb);
++                let rc = match $hooks_ident::filter_compare(&va, &vb) {
++                    Ordering::Less => -1,
++                    Ordering::Equal => 0,
++                    Ordering::Greater => 1,
++                };
++                log_error!(ErrorLevel::Trace, concat!(stringify!($mod_ident), "_plugin_ord_mr_filter_compare <= success"));
++                rc
++            }
++
++        } // end paste
++    )
++} // end macro
++
++#[macro_export]
++macro_rules! slapi_r_search_callback_mapfn {
++    (
++        $mod_ident:ident,
++        $cb_target_ident:ident,
++        $cb_mod_ident:ident
++    ) => {
++        paste::item! {
++            #[no_mangle]
++            pub extern "C" fn [<$cb_target_ident>](
++                raw_e: *const libc::c_void,
++                raw_data: *const libc::c_void,
++            ) -> i32 {
++                let e = EntryRef::new(raw_e);
++                let data_ptr = raw_data as *const _;
++                let data = unsafe { &(*data_ptr) };
++                match $cb_mod_ident(e, data) {
++                    Ok(_) => LDAPError::Success as i32,
++                    Err(e) => e as i32,
++                }
++            }
++        } // end paste
++    };
++} // end macro
+diff --git a/src/slapi_r_plugin/src/pblock.rs b/src/slapi_r_plugin/src/pblock.rs
+new file mode 100644
+index 000000000..b69ce1680
+--- /dev/null
++++ b/src/slapi_r_plugin/src/pblock.rs
+@@ -0,0 +1,275 @@
++use libc;
++use std::ops::{Deref, DerefMut};
++use std::os::raw::c_char;
++use std::ptr;
++
++use crate::backend::BackendRef;
++use crate::constants::{PblockType, PluginFnType, PluginVersion};
++use crate::entry::EntryRef;
++pub use crate::log::{log_error, ErrorLevel};
++
++extern "C" {
++    fn slapi_pblock_set(pb: *const libc::c_void, arg: i32, value: *const libc::c_void) -> i32;
++    fn slapi_pblock_get(pb: *const libc::c_void, arg: i32, value: *const libc::c_void) -> i32;
++    fn slapi_pblock_new() -> *const libc::c_void;
++}
++
++pub struct Pblock {
++    value: PblockRef,
++}
++
++impl Pblock {
++    pub fn new() -> Pblock {
++        let raw_pb = unsafe { slapi_pblock_new() };
++        Pblock {
++            value: PblockRef { raw_pb },
++        }
++    }
++}
++
++impl Deref for Pblock {
++    type Target = PblockRef;
++
++    fn deref(&self) -> &Self::Target {
++        &self.value
++    }
++}
++
++impl DerefMut for Pblock {
++    fn deref_mut(&mut self) -> &mut Self::Target {
++        &mut self.value
++    }
++}
++
++pub struct PblockRef {
++    raw_pb: *const libc::c_void,
++}
++
++impl PblockRef {
++    pub fn new(raw_pb: *const libc::c_void) -> Self {
++        PblockRef { raw_pb }
++    }
++
++    pub unsafe fn as_ptr(&self) -> *const libc::c_void {
++        self.raw_pb
++    }
++
++    fn set_pb_char_arr_ptr(&mut self, req_type: PblockType, ptr: *const *const c_char) -> i32 {
++        let value_ptr: *const libc::c_void = ptr as *const libc::c_void;
++        unsafe { slapi_pblock_set(self.raw_pb, req_type as i32, value_ptr) }
++    }
++
++    fn set_pb_char_ptr(&mut self, req_type: PblockType, ptr: *const c_char) -> i32 {
++        let value_ptr: *const libc::c_void = ptr as *const libc::c_void;
++        unsafe { slapi_pblock_set(self.raw_pb, req_type as i32, value_ptr) }
++    }
++
++    fn set_pb_fn_ptr(
++        &mut self,
++        fn_type: PluginFnType,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        let value_ptr: *const libc::c_void = ptr as *const libc::c_void;
++        unsafe { slapi_pblock_set(self.raw_pb, fn_type as i32, value_ptr) }
++    }
++
++    fn get_value_ptr(&mut self, req_type: PblockType) -> Result<*const libc::c_void, ()> {
++        let mut value: *mut libc::c_void = ptr::null::<libc::c_void>() as *mut libc::c_void;
++        let value_ptr: *const libc::c_void = &mut value as *const _ as *const libc::c_void;
++        match unsafe { slapi_pblock_get(self.raw_pb, req_type as i32, value_ptr) } {
++            0 => Ok(value),
++            e => {
++                log_error!(ErrorLevel::Error, "enable to get from pblock -> {:?}", e);
++                Err(())
++            }
++        }
++    }
++
++    fn get_value_i32(&mut self, req_type: PblockType) -> Result<i32, ()> {
++        let mut value: i32 = 0;
++        let value_ptr: *const libc::c_void = &mut value as *const _ as *const libc::c_void;
++        match unsafe { slapi_pblock_get(self.raw_pb, req_type as i32, value_ptr) } {
++            0 => Ok(value),
++            e => {
++                log_error!(ErrorLevel::Error, "enable to get from pblock -> {:?}", e);
++                Err(())
++            }
++        }
++    }
++
++    pub fn register_start_fn(&mut self, ptr: extern "C" fn(*const libc::c_void) -> i32) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::Start, ptr)
++    }
++
++    pub fn register_close_fn(&mut self, ptr: extern "C" fn(*const libc::c_void) -> i32) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::Close, ptr)
++    }
++
++    pub fn register_betxn_pre_add_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::BeTxnPreAdd, ptr)
++    }
++
++    pub fn register_betxn_pre_modify_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::BeTxnPreModify, ptr)
++    }
++
++    pub fn register_syntax_filter_ava_fn(
++        &mut self,
++        ptr: extern "C" fn(
++            *const core::ffi::c_void,
++            *const core::ffi::c_void,
++            *const core::ffi::c_void,
++            i32,
++            *mut core::ffi::c_void,
++        ) -> i32,
++    ) -> i32 {
++        // We can't use self.set_pb_fn_ptr here as the fn type sig is different.
++        let value_ptr: *const libc::c_void = ptr as *const libc::c_void;
++        unsafe { slapi_pblock_set(self.raw_pb, PluginFnType::SyntaxFilterAva as i32, value_ptr) }
++    }
++
++    pub fn register_syntax_values2keys_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::SyntaxValuesToKeys, ptr)
++    }
++
++    pub fn register_syntax_assertion2keys_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::SyntaxAssertion2KeysAva, ptr)
++    }
++
++    pub fn register_syntax_flags_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::SyntaxFlags, ptr)
++    }
++
++    pub fn register_syntax_oid(&mut self, ptr: *const c_char) -> i32 {
++        self.set_pb_char_ptr(PblockType::SyntaxOid, ptr)
++    }
++
++    pub fn register_syntax_compare_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::SyntaxCompare, ptr)
++    }
++
++    pub fn register_syntax_validate_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::SyntaxValidate, ptr)
++    }
++
++    pub fn register_syntax_names(&mut self, arr_ptr: *const *const c_char) -> i32 {
++        self.set_pb_char_arr_ptr(PblockType::SyntaxNames, arr_ptr)
++    }
++
++    pub fn register_mr_filter_create_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::MRFilterCreate, ptr)
++    }
++
++    pub fn register_mr_indexer_create_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::MRIndexerCreate, ptr)
++    }
++
++    pub fn register_mr_filter_ava_fn(
++        &mut self,
++        ptr: extern "C" fn(
++            *const core::ffi::c_void,
++            *const core::ffi::c_void,
++            *const core::ffi::c_void,
++            i32,
++            *mut core::ffi::c_void,
++        ) -> i32,
++    ) -> i32 {
++        let value_ptr: *const libc::c_void = ptr as *const libc::c_void;
++        unsafe { slapi_pblock_set(self.raw_pb, PluginFnType::MRFilterAva as i32, value_ptr) }
++    }
++
++    pub fn register_mr_filter_sub_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::MRFilterSub, ptr)
++    }
++
++    pub fn register_mr_values2keys_fn(
++        &mut self,
++        ptr: extern "C" fn(
++            *const core::ffi::c_void,
++            *const core::ffi::c_void,
++            *mut core::ffi::c_void,
++            i32,
++        ) -> i32,
++    ) -> i32 {
++        let value_ptr: *const libc::c_void = ptr as *const libc::c_void;
++        unsafe { slapi_pblock_set(self.raw_pb, PluginFnType::MRValuesToKeys as i32, value_ptr) }
++    }
++
++    pub fn register_mr_assertion2keys_ava_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::MRAssertionToKeysAva, ptr)
++    }
++
++    pub fn register_mr_assertion2keys_sub_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void) -> i32,
++    ) -> i32 {
++        self.set_pb_fn_ptr(PluginFnType::MRAssertionToKeysSub, ptr)
++    }
++
++    pub fn register_mr_compare_fn(
++        &mut self,
++        ptr: extern "C" fn(*const libc::c_void, *const libc::c_void) -> i32,
++    ) -> i32 {
++        let value_ptr: *const libc::c_void = ptr as *const libc::c_void;
++        unsafe { slapi_pblock_set(self.raw_pb, PluginFnType::MRCompare as i32, value_ptr) }
++    }
++
++    pub fn register_mr_names(&mut self, arr_ptr: *const *const c_char) -> i32 {
++        self.set_pb_char_arr_ptr(PblockType::MRNames, arr_ptr)
++    }
++
++    pub fn get_op_add_entryref(&mut self) -> Result<EntryRef, ()> {
++        self.get_value_ptr(PblockType::AddEntry)
++            .map(|ptr| EntryRef::new(ptr))
++    }
++
++    pub fn set_plugin_version(&mut self, vers: PluginVersion) -> i32 {
++        self.set_pb_char_ptr(PblockType::Version, vers.to_char_ptr())
++    }
++
++    pub fn set_op_backend(&mut self, be: &BackendRef) -> i32 {
++        unsafe { slapi_pblock_set(self.raw_pb, PblockType::Backend as i32, be.as_ptr()) }
++    }
++
++    pub fn get_plugin_identity(&mut self) -> *const libc::c_void {
++        self.get_value_ptr(PblockType::Identity)
++            .unwrap_or(std::ptr::null())
++    }
++
++    pub fn get_op_result(&mut self) -> i32 {
++        self.get_value_i32(PblockType::OpResult).unwrap_or(-1)
++    }
++}
+diff --git a/src/slapi_r_plugin/src/plugin.rs b/src/slapi_r_plugin/src/plugin.rs
+new file mode 100644
+index 000000000..bf47779bc
+--- /dev/null
++++ b/src/slapi_r_plugin/src/plugin.rs
+@@ -0,0 +1,117 @@
++use crate::constants::{PluginType, PLUGIN_DEFAULT_PRECEDENCE};
++use crate::dn::Sdn;
++use crate::entry::EntryRef;
++use crate::error::LDAPError;
++use crate::error::PluginError;
++use crate::pblock::PblockRef;
++use crate::task::Task;
++use libc;
++use std::ffi::CString;
++use std::os::raw::c_char;
++use std::ptr;
++
++extern "C" {
++    fn slapi_register_plugin_ext(
++        plugintype: *const c_char,
++        enabled: i32,
++        initsymbol: *const c_char,
++        initfunc: *const libc::c_void,
++        name: *const c_char,
++        argv: *const *const c_char,
++        group_identity: *const libc::c_void,
++        precedence: i32,
++    ) -> i32;
++}
++
++pub struct PluginIdRef {
++    pub raw_pid: *const libc::c_void,
++}
++
++pub fn register_plugin_ext(
++    ptype: PluginType,
++    plugname: &str,
++    initfnname: &str,
++    initfn: extern "C" fn(*const libc::c_void) -> i32,
++) -> i32 {
++    let c_plugname = match CString::new(plugname) {
++        Ok(c) => c,
++        Err(_) => return 1,
++    };
++    let c_initfnname = match CString::new(initfnname) {
++        Ok(c) => c,
++        Err(_) => return 1,
++    };
++    let argv = [c_plugname.as_ptr(), ptr::null()];
++    let value_ptr: *const libc::c_void = initfn as *const libc::c_void;
++
++    unsafe {
++        slapi_register_plugin_ext(
++            ptype.to_char_ptr(),
++            1,
++            c_initfnname.as_ptr(),
++            value_ptr,
++            c_plugname.as_ptr(),
++            &argv as *const *const c_char,
++            ptr::null(),
++            PLUGIN_DEFAULT_PRECEDENCE,
++        )
++    }
++}
++
++pub trait SlapiPlugin3 {
++    // We require a newer rust for default associated types.
++    // type TaskData = ();
++    type TaskData;
++
++    fn has_pre_modify() -> bool {
++        false
++    }
++
++    fn has_post_modify() -> bool {
++        false
++    }
++
++    fn has_pre_add() -> bool {
++        false
++    }
++
++    fn has_post_add() -> bool {
++        false
++    }
++
++    fn has_betxn_pre_modify() -> bool {
++        false
++    }
++
++    fn has_betxn_pre_add() -> bool {
++        false
++    }
++
++    fn has_task_handler() -> Option<&'static str> {
++        None
++    }
++
++    fn start(_pb: &mut PblockRef) -> Result<(), PluginError>;
++
++    fn close(_pb: &mut PblockRef) -> Result<(), PluginError>;
++
++    fn betxn_pre_modify(_pb: &mut PblockRef) -> Result<(), PluginError> {
++        Err(PluginError::Unimplemented)
++    }
++
++    fn betxn_pre_add(_pb: &mut PblockRef) -> Result<(), PluginError> {
++        Err(PluginError::Unimplemented)
++    }
++
++    fn task_validate(_e: &EntryRef) -> Result<Self::TaskData, LDAPError> {
++        Err(LDAPError::Other)
++    }
++
++    fn task_be_dn_hint(_data: &Self::TaskData) -> Option<Sdn> {
++        None
++    }
++
++    fn task_handler(_task: &Task, _data: Self::TaskData) -> Result<Self::TaskData, PluginError> {
++        Err(PluginError::Unimplemented)
++    }
++}
+diff --git a/src/slapi_r_plugin/src/search.rs b/src/slapi_r_plugin/src/search.rs
+new file mode 100644
+index 000000000..e0e2a1fd7
+--- /dev/null
++++ b/src/slapi_r_plugin/src/search.rs
+@@ -0,0 +1,127 @@
++use crate::dn::SdnRef;
++use crate::error::{LDAPError, PluginError};
++use crate::pblock::Pblock;
++use crate::plugin::PluginIdRef;
++use std::ffi::CString;
++use std::ops::Deref;
++use std::os::raw::c_char;
++
++extern "C" {
++    fn slapi_search_internal_set_pb_ext(
++        pb: *const libc::c_void,
++        base: *const libc::c_void,
++        scope: i32,
++        filter: *const c_char,
++        attrs: *const *const c_char,
++        attrsonly: i32,
++        controls: *const *const libc::c_void,
++        uniqueid: *const c_char,
++        plugin_ident: *const libc::c_void,
++        op_flags: i32,
++    );
++    fn slapi_search_internal_callback_pb(
++        pb: *const libc::c_void,
++        cb_data: *const libc::c_void,
++        cb_result_ptr: *const libc::c_void,
++        cb_entry_ptr: *const libc::c_void,
++        cb_referral_ptr: *const libc::c_void,
++    ) -> i32;
++}
++
++#[derive(Debug)]
++#[repr(i32)]
++pub enum SearchScope {
++    Base = 0,
++    Onelevel = 1,
++    Subtree = 2,
++}
++
++enum SearchType {
++    InternalMapEntry(
++        extern "C" fn(*const core::ffi::c_void, *const core::ffi::c_void) -> i32,
++        *const libc::c_void,
++    ),
++    // InternalMapResult
++    // InternalMapReferral
++}
++
++pub struct Search {
++    pb: Pblock,
++    // This is so that the char * to the pb lives long enough as ds won't clone it.
++    filter: Option<CString>,
++    stype: SearchType,
++}
++
++pub struct SearchResult {
++    pb: Pblock,
++}
++
++impl Search {
++    pub fn new_map_entry<T>(
++        basedn: &SdnRef,
++        scope: SearchScope,
++        filter: &str,
++        plugin_id: PluginIdRef,
++        cbdata: &T,
++        mapfn: extern "C" fn(*const libc::c_void, *const libc::c_void) -> i32,
++    ) -> Result<Self, PluginError>
++    where
++        T: Send,
++    {
++        // Configure a search based on the requested type.
++        let pb = Pblock::new();
++        let raw_filter = CString::new(filter).map_err(|_| PluginError::InvalidFilter)?;
++
++        unsafe {
++            slapi_search_internal_set_pb_ext(
++                pb.deref().as_ptr(),
++                basedn.as_ptr(),
++                scope as i32,
++                raw_filter.as_ptr(),
++                std::ptr::null(),
++                0,
++                std::ptr::null(),
++                std::ptr::null(),
++                plugin_id.raw_pid,
++                0,
++            )
++        };
++
++        Ok(Search {
++            pb,
++            filter: Some(raw_filter),
++            stype: SearchType::InternalMapEntry(mapfn, cbdata as *const _ as *const libc::c_void),
++        })
++    }
++
++    // Consume self, do the search
++    pub fn execute(self) -> Result<SearchResult, LDAPError> {
++        // Deconstruct self
++        let Search {
++            mut pb,
++            filter: _filter,
++            stype,
++        } = self;
++
++        // run the search based on the type.
++        match stype {
++            SearchType::InternalMapEntry(mapfn, cbdata) => unsafe {
++                slapi_search_internal_callback_pb(
++                    pb.deref().as_ptr(),
++                    cbdata,
++                    std::ptr::null(),
++                    mapfn as *const libc::c_void,
++                    std::ptr::null(),
++                );
++            },
++        };
++
++        // now check the result, and map to what we need.
++        let result = pb.get_op_result();
++
++        match result {
++            0 => Ok(SearchResult { pb }),
++            _e => Err(LDAPError::from(result)),
++        }
++    }
++}
+diff --git a/src/slapi_r_plugin/src/syntax_plugin.rs b/src/slapi_r_plugin/src/syntax_plugin.rs
+new file mode 100644
+index 000000000..e7d5c01bd
+--- /dev/null
++++ b/src/slapi_r_plugin/src/syntax_plugin.rs
+@@ -0,0 +1,169 @@
++use crate::ber::BerValRef;
++// use crate::constants::FilterType;
++use crate::error::PluginError;
++use crate::pblock::PblockRef;
++use crate::value::{ValueArray, ValueArrayRef};
++use std::cmp::Ordering;
++use std::ffi::CString;
++use std::iter::once;
++use std::os::raw::c_char;
++use std::ptr;
++
++// need a call to slapi_register_plugin_ext
++
++extern "C" {
++    fn slapi_matchingrule_register(mr: *const slapi_matchingRuleEntry) -> i32;
++}
++
++#[repr(C)]
++struct slapi_matchingRuleEntry {
++    mr_oid: *const c_char,
++    _mr_oidalias: *const c_char,
++    mr_name: *const c_char,
++    mr_desc: *const c_char,
++    mr_syntax: *const c_char,
++    _mr_obsolete: i32, // unused
++    mr_compat_syntax: *const *const c_char,
++}
++
++pub unsafe fn name_to_leaking_char(name: &str) -> *const c_char {
++    let n = CString::new(name)
++        .expect("An invalid string has been hardcoded!")
++        .into_boxed_c_str();
++    let n_ptr = n.as_ptr();
++    // Now we intentionally leak the name here, and the pointer will remain valid.
++    Box::leak(n);
++    n_ptr
++}
++
++pub unsafe fn names_to_leaking_char_array(names: &[&str]) -> *const *const c_char {
++    let n_arr: Vec<CString> = names
++        .iter()
++        .map(|s| CString::new(*s).expect("An invalid string has been hardcoded!"))
++        .collect();
++    let n_arr = n_arr.into_boxed_slice();
++    let n_ptr_arr: Vec<*const c_char> = n_arr
++        .iter()
++        .map(|v| v.as_ptr())
++        .chain(once(ptr::null()))
++        .collect();
++    let n_ptr_arr = n_ptr_arr.into_boxed_slice();
++
++    // Now we intentionally leak these names here,
++    let _r_n_arr = Box::leak(n_arr);
++    let r_n_ptr_arr = Box::leak(n_ptr_arr);
++
++    let name_ptr = r_n_ptr_arr as *const _ as *const *const c_char;
++    name_ptr
++}
++
++// oid - the oid of the matching rule
++// name - the name of the mr
++// desc - description
++// syntax - the syntax of the attribute we apply to
++// compat_syntax - extended syntaxes f other attributes we may apply to.
++pub unsafe fn matchingrule_register(
++    oid: &str,
++    name: &str,
++    desc: &str,
++    syntax: &str,
++    compat_syntax: &[&str],
++) -> i32 {
++    let oid_ptr = name_to_leaking_char(oid);
++    let name_ptr = name_to_leaking_char(name);
++    let desc_ptr = name_to_leaking_char(desc);
++    let syntax_ptr = name_to_leaking_char(syntax);
++    let compat_syntax_ptr = names_to_leaking_char_array(compat_syntax);
++
++    let new_mr = slapi_matchingRuleEntry {
++        mr_oid: oid_ptr,
++        _mr_oidalias: ptr::null(),
++        mr_name: name_ptr,
++        mr_desc: desc_ptr,
++        mr_syntax: syntax_ptr,
++        _mr_obsolete: 0,
++        mr_compat_syntax: compat_syntax_ptr,
++    };
++
++    let new_mr_ptr = &new_mr as *const _;
++    slapi_matchingrule_register(new_mr_ptr)
++}
++
++pub trait SlapiSyntaxPlugin1 {
++    fn attr_oid() -> &'static str;
++
++    fn attr_compat_oids() -> Vec<&'static str>;
++
++    fn attr_supported_names() -> Vec<&'static str>;
++
++    fn syntax_validate(bval: &BerValRef) -> Result<(), PluginError>;
++
++    fn eq_mr_oid() -> &'static str;
++
++    fn eq_mr_name() -> &'static str;
++
++    fn eq_mr_desc() -> &'static str;
++
++    fn eq_mr_supported_names() -> Vec<&'static str>;
++
++    fn filter_ava_eq(
++        _pb: &mut PblockRef,
++        _bval_filter: &BerValRef,
++        _vals: &ValueArrayRef,
++    ) -> Result<bool, PluginError> {
++        Ok(false)
++    }
++
++    fn eq_mr_filter_values2keys(
++        _pb: &mut PblockRef,
++        _vals: &ValueArrayRef,
++    ) -> Result<ValueArray, PluginError>;
++}
++
++pub trait SlapiOrdMr: SlapiSyntaxPlugin1 {
++    fn ord_mr_oid() -> Option<&'static str> {
++        None
++    }
++
++    fn ord_mr_name() -> &'static str {
++        panic!("Unimplemented ord_mr_name for SlapiOrdMr")
++    }
++
++    fn ord_mr_desc() -> &'static str {
++        panic!("Unimplemented ord_mr_desc for SlapiOrdMr")
++    }
++
++    fn ord_mr_supported_names() -> Vec<&'static str> {
++        panic!("Unimplemented ord_mr_supported_names for SlapiOrdMr")
++    }
++
++    fn filter_ava_ord(
++        _pb: &mut PblockRef,
++        _bval_filter: &BerValRef,
++        _vals: &ValueArrayRef,
++    ) -> Result<Option<Ordering>, PluginError> {
++        Ok(None)
++    }
++
++    fn filter_compare(_a: &BerValRef, _b: &BerValRef) -> Ordering {
++        panic!("Unimplemented filter_compare")
++    }
++}
++
++pub trait SlapiSubMr: SlapiSyntaxPlugin1 {
++    fn sub_mr_oid() -> Option<&'static str> {
++        None
++    }
++
++    fn sub_mr_name() -> &'static str {
++        panic!("Unimplemented sub_mr_name for SlapiSubMr")
++    }
++
++    fn sub_mr_desc() -> &'static str {
++        panic!("Unimplemented sub_mr_desc for SlapiSubMr")
++    }
++
++    fn sub_mr_supported_names() -> Vec<&'static str> {
++        panic!("Unimplemented sub_mr_supported_names for SlapiSubMr")
++    }
++}
+diff --git a/src/slapi_r_plugin/src/task.rs b/src/slapi_r_plugin/src/task.rs
+new file mode 100644
+index 000000000..251ae4d82
+--- /dev/null
++++ b/src/slapi_r_plugin/src/task.rs
+@@ -0,0 +1,148 @@
++use crate::constants::LDAP_SUCCESS;
++use crate::entry::EntryRef;
++use crate::pblock::PblockRef;
++use std::ffi::CString;
++use std::os::raw::c_char;
++use std::thread;
++use std::time::Duration;
++
++extern "C" {
++    fn slapi_plugin_new_task(ndn: *const c_char, arg: *const libc::c_void) -> *const libc::c_void;
++    fn slapi_task_dec_refcount(task: *const libc::c_void);
++    fn slapi_task_inc_refcount(task: *const libc::c_void);
++    fn slapi_task_get_refcount(task: *const libc::c_void) -> i32;
++    fn slapi_task_begin(task: *const libc::c_void, rc: i32);
++    fn slapi_task_finish(task: *const libc::c_void, rc: i32);
++
++    fn slapi_plugin_task_register_handler(
++        ident: *const c_char,
++        cb: extern "C" fn(
++            *const libc::c_void,
++            *const libc::c_void,
++            *const libc::c_void,
++            *mut i32,
++            *mut c_char,
++            *const libc::c_void,
++        ) -> i32,
++        pb: *const libc::c_void,
++    ) -> i32;
++    fn slapi_plugin_task_unregister_handler(
++        ident: *const c_char,
++        cb: extern "C" fn(
++            *const libc::c_void,
++            *const libc::c_void,
++            *const libc::c_void,
++            *mut i32,
++            *mut c_char,
++            *const libc::c_void,
++        ) -> i32,
++    ) -> i32;
++    fn slapi_task_set_destructor_fn(
++        task: *const libc::c_void,
++        cb: extern "C" fn(*const libc::c_void),
++    );
++}
++
++pub struct TaskRef {
++    raw_task: *const libc::c_void,
++}
++
++pub struct Task {
++    value: TaskRef,
++}
++
++// Because raw pointers are not send, but we need to send the task to a thread
++// as part of the task thread spawn, we need to convince the compiler this
++// action is okay. It's probably not because C is terrible, BUT provided the
++// server and framework only touch the ref count, we are okay.
++unsafe impl Send for Task {}
++
++pub fn task_register_handler_fn(
++    ident: &'static str,
++    cb: extern "C" fn(
++        *const libc::c_void,
++        *const libc::c_void,
++        *const libc::c_void,
++        *mut i32,
++        *mut c_char,
++        *const libc::c_void,
++    ) -> i32,
++    pb: &mut PblockRef,
++) -> i32 {
++    let cstr = CString::new(ident).expect("Invalid ident provided");
++    unsafe { slapi_plugin_task_register_handler(cstr.as_ptr(), cb, pb.as_ptr()) }
++}
++
++pub fn task_unregister_handler_fn(
++    ident: &'static str,
++    cb: extern "C" fn(
++        *const libc::c_void,
++        *const libc::c_void,
++        *const libc::c_void,
++        *mut i32,
++        *mut c_char,
++        *const libc::c_void,
++    ) -> i32,
++) -> i32 {
++    let cstr = CString::new(ident).expect("Invalid ident provided");
++    unsafe { slapi_plugin_task_unregister_handler(cstr.as_ptr(), cb) }
++}
++
++impl Task {
++    pub fn new(e: &EntryRef, arg: *const libc::c_void) -> Self {
++        let sdn = e.get_sdnref();
++        let ndn = unsafe { sdn.as_ndnref() };
++        let raw_task = unsafe { slapi_plugin_new_task(ndn.as_ptr(), arg) };
++        unsafe { slapi_task_inc_refcount(raw_task) };
++        Task {
++            value: TaskRef { raw_task },
++        }
++    }
++
++    pub fn begin(&self) {
++        // Indicate we begin
++        unsafe { slapi_task_begin(self.value.raw_task, 1) }
++    }
++
++    pub fn register_destructor_fn(&mut self, cb: extern "C" fn(*const libc::c_void)) {
++        unsafe {
++            slapi_task_set_destructor_fn(self.value.raw_task, cb);
++        }
++    }
++
++    pub fn success(self) {
++        unsafe {
++            slapi_task_finish(self.value.raw_task, LDAP_SUCCESS);
++        }
++    }
++
++    pub fn error(self, rc: i32) {
++        unsafe { slapi_task_finish(self.value.raw_task, rc) };
++    }
++}
++
++impl Drop for Task {
++    fn drop(&mut self) {
++        unsafe {
++            slapi_task_dec_refcount(self.value.raw_task);
++        }
++    }
++}
++
++impl TaskRef {
++    pub fn new(raw_task: *const libc::c_void) -> Self {
++        TaskRef { raw_task }
++    }
++
++    pub fn block(&self) {
++        // wait for the refcount to go to 0.
++        let d = Duration::from_millis(250);
++        loop {
++            if unsafe { slapi_task_get_refcount(self.raw_task) } > 0 {
++                thread::sleep(d);
++            } else {
++                return;
++            }
++        }
++    }
++}
+diff --git a/src/slapi_r_plugin/src/value.rs b/src/slapi_r_plugin/src/value.rs
+new file mode 100644
+index 000000000..5a40dd279
+--- /dev/null
++++ b/src/slapi_r_plugin/src/value.rs
+@@ -0,0 +1,235 @@
++use crate::ber::{ol_berval, BerValRef};
++use crate::dn::Sdn;
++use std::convert::{From, TryFrom};
++use std::ffi::CString;
++use std::iter::once;
++use std::iter::FromIterator;
++use std::mem;
++use std::ops::Deref;
++use std::ptr;
++use uuid::Uuid;
++
++extern "C" {
++    fn slapi_value_new() -> *mut slapi_value;
++    fn slapi_value_free(v: *mut *const libc::c_void);
++}
++
++#[repr(C)]
++/// From ./ldap/servers/slapd/slap.h
++pub struct slapi_value {
++    bv: ol_berval,
++    v_csnset: *const libc::c_void,
++    v_flags: u32,
++}
++
++pub struct ValueArrayRefIter<'a> {
++    idx: isize,
++    va_ref: &'a ValueArrayRef,
++}
++
++impl<'a> Iterator for ValueArrayRefIter<'a> {
++    type Item = ValueRef;
++
++    #[inline]
++    fn next(&mut self) -> Option<Self::Item> {
++        // So long as va_ref.raw_slapi_val + offset != NULL, continue.
++        // this is so wildly unsafe, but you know, that's just daily life of C anyway ...
++        unsafe {
++            let n_ptr: *const slapi_value = *(self.va_ref.raw_slapi_val.offset(self.idx));
++            if n_ptr.is_null() {
++                None
++            } else {
++                // Advance the iter.
++                self.idx = self.idx + 1;
++                let raw_berval: *const ol_berval = &(*n_ptr).bv as *const _;
++                Some(ValueRef {
++                    raw_slapi_val: n_ptr,
++                    bvr: BerValRef { raw_berval },
++                })
++            }
++        }
++    }
++}
++
++pub struct ValueArrayRef {
++    raw_slapi_val: *const *const slapi_value,
++}
++
++impl ValueArrayRef {
++    pub fn new(raw_slapi_val: *const libc::c_void) -> Self {
++        let raw_slapi_val = raw_slapi_val as *const _ as *const *const slapi_value;
++        ValueArrayRef { raw_slapi_val }
++    }
++
++    pub fn iter(&self) -> ValueArrayRefIter {
++        ValueArrayRefIter {
++            idx: 0,
++            va_ref: &self,
++        }
++    }
++
++    pub fn first(&self) -> Option<ValueRef> {
++        self.iter().next()
++    }
++}
++
++pub struct ValueArray {
++    data: Vec<*mut slapi_value>,
++    vrf: ValueArrayRef,
++}
++
++impl Deref for ValueArray {
++    type Target = ValueArrayRef;
++
++    fn deref(&self) -> &Self::Target {
++        &self.vrf
++    }
++}
++
++impl ValueArray {
++    /// Take ownership of this value array, returning the pointer to the inner memory
++    /// and forgetting about it for ourself. This prevents the drop handler from freeing
++    /// the slapi_value, ie we are giving this to the 389-ds framework to manage from now.
++    pub unsafe fn take_ownership(mut self) -> *const *const slapi_value {
++        let mut vs = Vec::new();
++        mem::swap(&mut self.data, &mut vs);
++        let bs = vs.into_boxed_slice();
++        Box::leak(bs) as *const _ as *const *const slapi_value
++    }
++}
++
++impl FromIterator<Value> for ValueArray {
++    fn from_iter<I: IntoIterator<Item = Value>>(iter: I) -> Self {
++        let data: Vec<*mut slapi_value> = iter
++            .into_iter()
++            .map(|v| unsafe { v.take_ownership() })
++            .chain(once(ptr::null_mut() as *mut slapi_value))
++            .collect();
++        let vrf = ValueArrayRef {
++            raw_slapi_val: data.as_ptr() as *const *const slapi_value,
++        };
++        ValueArray { data, vrf }
++    }
++}
++
++impl Drop for ValueArray {
++    fn drop(&mut self) {
++        self.data.drain(0..).for_each(|mut v| unsafe {
++            slapi_value_free(&mut v as *mut _ as *mut *const libc::c_void);
++        })
++    }
++}
++
++#[derive(Debug)]
++pub struct ValueRef {
++    raw_slapi_val: *const slapi_value,
++    bvr: BerValRef,
++}
++
++impl ValueRef {
++    pub(crate) unsafe fn as_ptr(&self) -> *const slapi_value {
++        // This is unsafe as the *const may outlive the value ref.
++        self.raw_slapi_val
++    }
++}
++
++pub struct Value {
++    value: ValueRef,
++}
++
++impl Value {
++    pub unsafe fn take_ownership(mut self) -> *mut slapi_value {
++        let mut n_ptr = ptr::null();
++        mem::swap(&mut self.value.raw_slapi_val, &mut n_ptr);
++        n_ptr as *mut slapi_value
++        // Now drop will run and not care.
++    }
++}
++
++impl Drop for Value {
++    fn drop(&mut self) {
++        if self.value.raw_slapi_val != ptr::null() {
++            // free it
++            unsafe {
++                slapi_value_free(
++                    &mut self.value.raw_slapi_val as *mut _ as *mut *const libc::c_void,
++                );
++            }
++        }
++    }
++}
++
++impl Deref for Value {
++    type Target = ValueRef;
++
++    fn deref(&self) -> &Self::Target {
++        &self.value
++    }
++}
++
++impl From<&Uuid> for Value {
++    fn from(u: &Uuid) -> Self {
++        // turn the uuid to a str
++        let u_str = u.to_hyphenated().to_string();
++        let len = u_str.len();
++        let cstr = CString::new(u_str)
++            .expect("Invalid uuid, should never occur!")
++            .into_boxed_c_str();
++        let s_ptr = cstr.as_ptr();
++        Box::leak(cstr);
++
++        let mut v = unsafe { slapi_value_new() };
++        unsafe {
++            (*v).bv.len = len;
++            (*v).bv.data = s_ptr as *const u8;
++        }
++
++        Value {
++            value: ValueRef::new(v as *const libc::c_void),
++        }
++    }
++}
++
++impl ValueRef {
++    pub fn new(raw_slapi_val: *const libc::c_void) -> Self {
++        let raw_slapi_val = raw_slapi_val as *const _ as *const slapi_value;
++        let raw_berval: *const ol_berval = unsafe { &(*raw_slapi_val).bv as *const _ };
++        ValueRef {
++            raw_slapi_val,
++            bvr: BerValRef { raw_berval },
++        }
++    }
++}
++
++impl TryFrom<&ValueRef> for String {
++    type Error = ();
++
++    fn try_from(value: &ValueRef) -> Result<Self, Self::Error> {
++        value.bvr.into_string().ok_or(())
++    }
++}
++
++impl TryFrom<&ValueRef> for Sdn {
++    type Error = ();
++
++    fn try_from(value: &ValueRef) -> Result<Self, Self::Error> {
++        // We need to do a middle step of moving through a cstring as
++        // bervals may not always have a trailing NULL, and sdn expects one.
++        let cdn = value.bvr.into_cstring().ok_or(())?;
++        Ok(cdn.as_c_str().into())
++    }
++}
++
++impl AsRef<ValueRef> for ValueRef {
++    fn as_ref(&self) -> &ValueRef {
++        &self
++    }
++}
++
++impl Deref for ValueRef {
++    type Target = BerValRef;
++
++    fn deref(&self) -> &Self::Target {
++        &self.bvr
++    }
++}
+-- 
+2.26.3
+
