@@ -1,0 +1,31 @@
+From 1f227fdc2b00f344c9e6897c66d5a8f4d404cdda Mon Sep 17 00:00:00 2001
+From: progier389 <progier@redhat.com>
+Date: Wed, 26 May 2021 16:07:43 +0200
+Subject: [PATCH] Issue 4764 - replicated operation sometime checks ACI (#4783)
+
+---
+ ldap/servers/slapd/connection.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/ldap/servers/slapd/connection.c b/ldap/servers/slapd/connection.c
+index b9b280e6d..d6377cb78 100644
+--- a/ldap/servers/slapd/connection.c
++++ b/ldap/servers/slapd/connection.c
+@@ -1787,6 +1787,14 @@ connection_threadmain()
+             }
+         }
+ 
++        /*
++         * Fix bz 1931820 issue (the check to set OP_FLAG_REPLICATED may be done
++         * before replication session is properly set).
++         */
++        if (replication_connection) {
++            operation_set_flag(op, OP_FLAG_REPLICATED);
++        }
++
+         /*
+          * Call the do_<operation> function to process this request.
+          */
+-- 
+2.31.1
+

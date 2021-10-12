@@ -1,0 +1,52 @@
+From c78a8d4159ff2620f5eeaed219287851d056d329 Mon Sep 17 00:00:00 2001
+From: tbordaz <tbordaz@redhat.com>
+Date: Thu, 10 Jun 2021 15:03:27 +0200
+Subject: [PATCH] Issue 4797 - ACL IP ADDRESS evaluation may corrupt
+ c_isreplication_session connection flags (#4799)
+
+Bug description:
+	The fix for ticket #3764 was broken with a missing break in a
+	switch. The consequence is that while setting the client IP
+	address in the pblock (SLAPI_CONN_CLIENTNETADDR_ACLIP), the
+	connection is erroneously set as replication connection.
+        This can lead to crash or failure of testcase
+        test_access_from_certain_network_only_ip.
+        This bug was quite hidden until the fix for #4764 is
+        showing it more frequently
+
+Fix description:
+	Add the missing break
+
+relates: https://github.com/389ds/389-ds-base/issues/4797
+
+Reviewed by: Mark Reynolds
+
+Platforms tested: F33
+---
+ ldap/servers/slapd/pblock.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/pblock.c b/ldap/servers/slapd/pblock.c
+index d21cf7e76..47d802219 100644
+--- a/ldap/servers/slapd/pblock.c
++++ b/ldap/servers/slapd/pblock.c
+@@ -2579,7 +2579,7 @@ slapi_pblock_set(Slapi_PBlock *pblock, int arg, void *value)
+         pblock->pb_conn->c_authtype = slapi_ch_strdup((char *)value);
+         PR_ExitMonitor(pblock->pb_conn->c_mutex);
+         break;
+-	case SLAPI_CONN_CLIENTNETADDR_ACLIP:
++    case SLAPI_CONN_CLIENTNETADDR_ACLIP:
+         if (pblock->pb_conn == NULL) {
+             break;
+         }
+@@ -2587,6 +2587,7 @@ slapi_pblock_set(Slapi_PBlock *pblock, int arg, void *value)
+         slapi_ch_free((void **)&pblock->pb_conn->cin_addr_aclip);
+         pblock->pb_conn->cin_addr_aclip = (PRNetAddr *)value;
+         PR_ExitMonitor(pblock->pb_conn->c_mutex);
++        break;
+     case SLAPI_CONN_IS_REPLICATION_SESSION:
+         if (pblock->pb_conn == NULL) {
+             slapi_log_err(SLAPI_LOG_ERR,
+-- 
+2.31.1
+

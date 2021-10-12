@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}12%{?prerel}%{?dist}
+Release:          %{?relprefix}13%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -171,6 +171,10 @@ Patch22:          0022-Issue-51165-Set-the-operation-start-time-for-extende.patc
 Patch23:          0023-Issue-4706-negative-wtime-in-access-log-for-CMP-oper.patch
 Patch24:          0024-Issue-4609-CVE-info-disclosure-when-authenticating.patch
 Patch25:          0025-Issue-4759-Fix-coverity-issue-4760.patch
+Patch26:          0026-Issue-4443-Internal-unindexed-searches-in-syncrepl-r.patch
+Patch27:          0027-Issue-4817-BUG-locked-crypt-accounts-on-import-may-a.patch
+Patch28:          0028-Issue-4764-replicated-operation-sometime-checks-ACI-.patch
+Patch29:          0029-Issue-4797-ACL-IP-ADDRESS-evaluation-may-corrupt-c_i.patch
 
 
 %description
@@ -525,6 +529,13 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Sep 20 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-13
+- Bump version to 1.3.10.2-13
+- Resolves: Bug 2005399 - Internal unindexed searches in syncrepl
+- Resolves: Bug 2005432 - CVE-2021-3652 389-ds:1.4/389-ds-base: CRYPT password hash with asterisk allows any bind attempt to succeed
+- Resolves: Bug 2005434 - ACIs are being evaluated against the Replication Manager account in a replication context.
+- Resolves: Bug 2005435 - A connection can be erroneously flagged as replication conn during evaluation of an aci with ip bind rule
+
 * Fri May 7 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-12
 - Bump version to 1.3.10.2-12
 

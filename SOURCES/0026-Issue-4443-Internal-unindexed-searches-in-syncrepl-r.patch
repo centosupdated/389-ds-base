@@ -1,0 +1,228 @@
+From c8413c93adb59db89fde84f4e8a7942246732aa5 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Tue, 13 Jul 2021 14:18:03 -0400
+Subject: [PATCH 1/4] Issue 4443 - Internal unindexed searches in
+ syncrepl/retro changelog
+
+Bug Description:
+
+When a non-system index is added to a backend it is
+disabled until the database is initialized or reindexed.
+So in the case of the retro changelog the changenumber index
+is alway disabled by default since it is never initialized.
+This leads to unexpected unindexed searches of the retro
+changelog.
+
+Fix Description:
+
+If an index has "nsSystemIndex" set to "true" then enable it
+immediately.
+
+relates:  https://github.com/389ds/389-ds-base/issues/4443
+
+Reviewed by: spichugi & tbordaz(Thanks!!)
+---
+ .../suites/retrocl/retrocl_indexing_test.py   | 68 +++++++++++++++++++
+ ldap/servers/plugins/retrocl/retrocl_create.c |  2 +-
+ .../slapd/back-ldbm/ldbm_index_config.c       | 27 ++++++--
+ src/lib389/lib389/_mapped_object.py           | 13 ++++
+ 4 files changed, 103 insertions(+), 7 deletions(-)
+ create mode 100644 dirsrvtests/tests/suites/retrocl/retrocl_indexing_test.py
+
+diff --git a/dirsrvtests/tests/suites/retrocl/retrocl_indexing_test.py b/dirsrvtests/tests/suites/retrocl/retrocl_indexing_test.py
+new file mode 100644
+index 000000000..9782368b4
+--- /dev/null
++++ b/dirsrvtests/tests/suites/retrocl/retrocl_indexing_test.py
+@@ -0,0 +1,68 @@
++import logging
++import pytest
++import os
++from lib389._constants import RETROCL_SUFFIX, DEFAULT_SUFFIX
++from lib389.topologies import topology_st as topo
++from lib389.plugins import RetroChangelogPlugin
++from lib389.idm.user import UserAccounts
++from lib389._mapped_object import DSLdapObjects
++log = logging.getLogger(__name__)
++
++
++def test_indexing_is_online(topo):
++    """Test that the changenmumber index is online right after enabling the plugin
++
++    :id: 16f4c001-9e0c-4448-a2b3-08ac1e85d40f
++    :setup: Standalone Instance
++    :steps:
++        1. Enable retro cl
++        2. Perform some updates
++        3. Search for "(changenumber>=-1)", and it is not partially unindexed
++        4. Search for "(&(changenumber>=-1)(targetuniqueid=*))", and it is not partially unindexed
++    :expectedresults:
++        1. Success
++        2. Success
++        3. Success
++        4. Success
++    """
++
++    # Enable plugin
++    topo.standalone.config.set('nsslapd-accesslog-logbuffering',  'off')
++    plugin = RetroChangelogPlugin(topo.standalone)
++    plugin.enable()
++    topo.standalone.restart()
++
++    # Do a bunch of updates
++    users = UserAccounts(topo.standalone, DEFAULT_SUFFIX)
++    user_entry = users.create(properties={
++        'sn': '1',
++        'cn': 'user 1',
++        'uid': 'user1',
++        'uidNumber': '11',
++        'gidNumber': '111',
++        'givenname': 'user1',
++        'homePhone': '0861234567',
++        'carLicense': '131D16674',
++        'mail': 'user1@whereever.com',
++        'homeDirectory': '/home'
++    })
++    for count in range(0, 10):
++        user_entry.replace('mail', 'test%d@test.com' % count)
++
++    # Search the retro cl, and check for error messages
++    filter_simple = '(changenumber>=-1)'
++    filter_compound = '(&(changenumber>=-1)(targetuniqueid=*))'
++    retro_changelog_suffix = DSLdapObjects(topo.standalone, basedn=RETROCL_SUFFIX)
++    retro_changelog_suffix.filter(filter_simple)
++    assert not topo.standalone.searchAccessLog('Partially Unindexed Filter')
++
++    # Search the retro cl again with compound filter
++    retro_changelog_suffix.filter(filter_compound)
++    assert not topo.standalone.searchAccessLog('Partially Unindexed Filter')
++
++
++if __name__ == '__main__':
++    # Run isolated
++    # -s for DEBUG mode
++    CURRENT_FILE = os.path.realpath(__file__)
++    pytest.main(["-s", CURRENT_FILE])
+diff --git a/ldap/servers/plugins/retrocl/retrocl_create.c b/ldap/servers/plugins/retrocl/retrocl_create.c
+index fb1503520..09f0a4f90 100644
+--- a/ldap/servers/plugins/retrocl/retrocl_create.c
++++ b/ldap/servers/plugins/retrocl/retrocl_create.c
+@@ -133,7 +133,7 @@ retrocl_create_be(const char *bedir)
+     val.bv_len = strlen(val.bv_val);
+     slapi_entry_add_values(e, "cn", vals);
+ 
+-    val.bv_val = "false";
++    val.bv_val = "true"; /* enables the index */
+     val.bv_len = strlen(val.bv_val);
+     slapi_entry_add_values(e, "nssystemindex", vals);
+ 
+diff --git a/ldap/servers/slapd/back-ldbm/ldbm_index_config.c b/ldap/servers/slapd/back-ldbm/ldbm_index_config.c
+index 95e76c8dc..59bbbcd45 100644
+--- a/ldap/servers/slapd/back-ldbm/ldbm_index_config.c
++++ b/ldap/servers/slapd/back-ldbm/ldbm_index_config.c
+@@ -25,7 +25,7 @@ int ldbm_instance_index_config_delete_callback(Slapi_PBlock *pb, Slapi_Entry *en
+ #define INDEXTYPE_NONE 1
+ 
+ static int
+-ldbm_index_parse_entry(ldbm_instance *inst, Slapi_Entry *e, const char *trace_string, char **index_name)
++ldbm_index_parse_entry(ldbm_instance *inst, Slapi_Entry *e, const char *trace_string, char **index_name, PRBool *is_system_index)
+ {
+     Slapi_Attr *attr;
+     const struct berval *attrValue;
+@@ -66,6 +66,15 @@ ldbm_index_parse_entry(ldbm_instance *inst, Slapi_Entry *e, const char *trace_st
+         }
+     }
+ 
++    *is_system_index = PR_FALSE;
++    if (0 == slapi_entry_attr_find(e, "nsSystemIndex", &attr)) {
++        slapi_attr_first_value(attr, &sval);
++        attrValue = slapi_value_get_berval(sval);
++        if (strcasecmp(attrValue->bv_val, "true") == 0) {
++            *is_system_index = PR_TRUE;
++        }
++    }
++
+     /* ok the entry is good to process, pass it to attr_index_config */
+     if (attr_index_config(inst->inst_be, (char *)trace_string, 0, e, 0, 0)) {
+         slapi_ch_free_string(index_name);
+@@ -89,9 +98,10 @@ ldbm_index_init_entry_callback(Slapi_PBlock *pb __attribute__((unused)),
+                                void *arg)
+ {
+     ldbm_instance *inst = (ldbm_instance *)arg;
++    PRBool is_system_index = PR_FALSE;
+ 
+     returntext[0] = '\0';
+-    *returncode = ldbm_index_parse_entry(inst, e, "from ldbm instance init", NULL);
++    *returncode = ldbm_index_parse_entry(inst, e, "from ldbm instance init", NULL, &is_system_index /* not used */);
+     if (*returncode == LDAP_SUCCESS) {
+         return SLAPI_DSE_CALLBACK_OK;
+     } else {
+@@ -113,18 +123,22 @@ ldbm_instance_index_config_add_callback(Slapi_PBlock *pb __attribute__((unused))
+                                         void *arg)
+ {
+     ldbm_instance *inst = (ldbm_instance *)arg;
+-    char *index_name;
++    char *index_name = NULL;
++    PRBool is_system_index = PR_FALSE;
+ 
+     returntext[0] = '\0';
+-    *returncode = ldbm_index_parse_entry(inst, e, "from DSE add", &index_name);
++    *returncode = ldbm_index_parse_entry(inst, e, "from DSE add", &index_name, &is_system_index);
+     if (*returncode == LDAP_SUCCESS) {
+         struct attrinfo *ai = NULL;
+         /* if the index is a "system" index, we assume it's being added by
+          * by the server, and it's okay for the index to go online immediately.
+          * if not, we set the index "offline" so it won't actually be used
+          * until someone runs db2index on it.
++         * If caller wants to add an index that they want to be online
++         * immediately they can also set "nsSystemIndex" to "true" in the
++         * index config entry (e.g. is_system_index).
+          */
+-        if (!ldbm_attribute_always_indexed(index_name)) {
++        if (!is_system_index && !ldbm_attribute_always_indexed(index_name)) {
+             ainfo_get(inst->inst_be, index_name, &ai);
+             PR_ASSERT(ai != NULL);
+             ai->ai_indexmask |= INDEX_OFFLINE;
+@@ -357,13 +371,14 @@ ldbm_instance_index_config_enable_index(ldbm_instance *inst, Slapi_Entry *e)
+     char *index_name = NULL;
+     int rc = LDAP_SUCCESS;
+     struct attrinfo *ai = NULL;
++    PRBool is_system_index = PR_FALSE;
+ 
+     index_name = slapi_entry_attr_get_charptr(e, "cn");
+     if (index_name) {
+         ainfo_get(inst->inst_be, index_name, &ai);
+     }
+     if (!ai) {
+-        rc = ldbm_index_parse_entry(inst, e, "from DSE add", &index_name);
++        rc = ldbm_index_parse_entry(inst, e, "from DSE add", &index_name, &is_system_index /* not used */);
+     }
+     if (rc == LDAP_SUCCESS) {
+         /* Assume the caller knows if it is OK to go online immediately */
+diff --git a/src/lib389/lib389/_mapped_object.py b/src/lib389/lib389/_mapped_object.py
+index ada3f4976..903045c5c 100644
+--- a/src/lib389/lib389/_mapped_object.py
++++ b/src/lib389/lib389/_mapped_object.py
+@@ -142,6 +142,19 @@ class DSLdapObject(DSLogging):
+ 
+         return True
+ 
++    def search(self, scope="subtree", filter='objectclass=*'):
++        search_scope = ldap.SCOPE_SUBTREE
++        if scope == 'base':
++            search_scope = ldap.SCOPE_BASE
++        elif scope == 'one':
++            search_scope = ldap.SCOPE_ONE
++        elif scope == 'subtree':
++            search_scope = ldap.SCOPE_SUBTREE
++        return self._instance.search_ext_s(self._dn, search_scope, filter,
++                                           serverctrls=self._server_controls,
++                                           clientctrls=self._client_controls,
++                                           escapehatch='i am sure')
++
+     def display(self):
+         """Get an entry but represent it as a string LDIF
+ 
+-- 
+2.31.1
+
