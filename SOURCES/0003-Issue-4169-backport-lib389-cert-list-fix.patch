@@ -1,0 +1,40 @@
+From 91b90f583bf4046325438954523c78ea4f33d607 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 10 Sep 2021 09:39:57 -0400
+Subject: [PATCH] Issue 4169 - backport lib389 cert list fix
+
+Description:  We didn't call ensure_str() on the output from certutil
+commands
+
+relates:  https://github.com/389ds/389-ds-base/issues/4169
+
+Reviewed by: mreynolds(one line commit rule)
+---
+ src/lib389/lib389/nss_ssl.py | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/lib389/lib389/nss_ssl.py b/src/lib389/lib389/nss_ssl.py
+index 1cd2768f1..6dc0c26d3 100644
+--- a/src/lib389/lib389/nss_ssl.py
++++ b/src/lib389/lib389/nss_ssl.py
+@@ -325,7 +325,7 @@ only.
+         ]
+         self.log.debug("nss cmd: %s", format_cmd_list(cmd))
+         try:
+-            certdetails = check_output(cmd, stderr=subprocess.STDOUT, encoding='utf-8')
++            certdetails = ensure_str(check_output(cmd, stderr=subprocess.STDOUT, encoding='utf-8'))
+         except subprocess.CalledProcessError as e:
+             raise ValueError(e.output.decode('utf-8').rstrip())
+         end_date_str = certdetails.split("Not After : ")[1].split("\n")[0]
+@@ -905,7 +905,7 @@ only.
+         except subprocess.CalledProcessError as e:
+             raise ValueError(e.output.decode('utf-8').rstrip())
+ 
+-        return result
++        return ensure_str(result)
+ 
+ 
+     def get_cert_details(self, nickname):
+-- 
+2.31.1
+
