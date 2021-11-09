@@ -1,0 +1,192 @@
+From b2e0a1d405d15383064e547fd15008bc136d3efe Mon Sep 17 00:00:00 2001
+From: Firstyear <william@blackhats.net.au>
+Date: Thu, 17 Dec 2020 08:22:23 +1000
+Subject: [PATCH 05/12] Issue 4498 - BUG - entryuuid replication may not work
+ (#4503)
+
+Bug Description: EntryUUID can be duplicated in replication,
+due to a missing check in assign_uuid
+
+Fix Description: Add a test case to determine how this occurs,
+and add the correct check for existing entryUUID.
+
+fixes: https://github.com/389ds/389-ds-base/issues/4498
+
+Author: William Brown <william@blackhats.net.au>
+
+Review by: @mreynolds389
+---
+ .../tests/suites/entryuuid/replicated_test.py | 77 +++++++++++++++++++
+ rpm.mk                                        |  2 +-
+ src/plugins/entryuuid/src/lib.rs              | 20 ++++-
+ src/slapi_r_plugin/src/constants.rs           |  2 +
+ src/slapi_r_plugin/src/pblock.rs              |  7 ++
+ 5 files changed, 106 insertions(+), 2 deletions(-)
+ create mode 100644 dirsrvtests/tests/suites/entryuuid/replicated_test.py
+
+diff --git a/dirsrvtests/tests/suites/entryuuid/replicated_test.py b/dirsrvtests/tests/suites/entryuuid/replicated_test.py
+new file mode 100644
+index 000000000..a2ebc8ff7
+--- /dev/null
++++ b/dirsrvtests/tests/suites/entryuuid/replicated_test.py
+@@ -0,0 +1,77 @@
++# --- BEGIN COPYRIGHT BLOCK ---
++# Copyright (C) 2020 William Brown <william@blackhats.net.au>
++# All rights reserved.
++#
++# License: GPL (version 3 or any later version).
++# See LICENSE for details.
++# --- END COPYRIGHT BLOCK ---
++
++import ldap
++import pytest
++import logging
++from lib389.topologies import topology_m2 as topo_m2
++from lib389.idm.user import nsUserAccounts
++from lib389.paths import Paths
++from lib389.utils import ds_is_older
++from lib389._constants import *
++from lib389.replica import ReplicationManager
++
++default_paths = Paths()
++
++pytestmark = pytest.mark.tier1
++
++@pytest.mark.skipif(not default_paths.rust_enabled or ds_is_older('1.4.2.0'), reason="Entryuuid is not available in older versions")
++
++def test_entryuuid_with_replication(topo_m2):
++    """ Check that entryuuid works with replication
++
++    :id: a5f15bf9-7f63-473a-840c-b9037b787024
++
++    :setup: two node mmr
++
++    :steps:
++        1. Create an entry on one server
++        2. Wait for replication
++        3. Assert it is on the second
++
++    :expectedresults:
++        1. Success
++        1. Success
++        1. Success
++    """
++
++    server_a = topo_m2.ms["supplier1"]
++    server_b = topo_m2.ms["supplier2"]
++    server_a.config.loglevel(vals=(ErrorLog.DEFAULT,ErrorLog.TRACE))
++    server_b.config.loglevel(vals=(ErrorLog.DEFAULT,ErrorLog.TRACE))
++
++    repl = ReplicationManager(DEFAULT_SUFFIX)
++
++    account_a = nsUserAccounts(server_a, DEFAULT_SUFFIX).create_test_user(uid=2000)
++    euuid_a = account_a.get_attr_vals_utf8('entryUUID')
++    print("🧩 %s" % euuid_a)
++    assert(euuid_a is not None)
++    assert(len(euuid_a) == 1)
++
++    repl.wait_for_replication(server_a, server_b)
++
++    account_b = nsUserAccounts(server_b, DEFAULT_SUFFIX).get("test_user_2000")
++    euuid_b = account_b.get_attr_vals_utf8('entryUUID')
++    print("🧩 %s" % euuid_b)
++
++    server_a.config.loglevel(vals=(ErrorLog.DEFAULT,))
++    server_b.config.loglevel(vals=(ErrorLog.DEFAULT,))
++
++    assert(euuid_b is not None)
++    assert(len(euuid_b) == 1)
++    assert(euuid_b == euuid_a)
++
++    account_b.set("description", "update")
++    repl.wait_for_replication(server_b, server_a)
++
++    euuid_c = account_a.get_attr_vals_utf8('entryUUID')
++    print("🧩 %s" % euuid_c)
++    assert(euuid_c is not None)
++    assert(len(euuid_c) == 1)
++    assert(euuid_c == euuid_a)
++
+diff --git a/rpm.mk b/rpm.mk
+index 02f5bba37..d1cdff7df 100644
+--- a/rpm.mk
++++ b/rpm.mk
+@@ -25,7 +25,7 @@ TSAN_ON = 0
+ # Undefined Behaviour Sanitizer
+ UBSAN_ON = 0
+ 
+-RUST_ON = 0
++RUST_ON = 1
+ 
+ # PERL_ON is deprecated and turns on the LEGACY_ON, this for not breaking people's workflows.
+ PERL_ON = 1
+diff --git a/src/plugins/entryuuid/src/lib.rs b/src/plugins/entryuuid/src/lib.rs
+index 92977db05..0197c5e83 100644
+--- a/src/plugins/entryuuid/src/lib.rs
++++ b/src/plugins/entryuuid/src/lib.rs
+@@ -30,6 +30,16 @@ slapi_r_search_callback_mapfn!(entryuuid, entryuuid_fixup_cb, entryuuid_fixup_ma
+ fn assign_uuid(e: &mut EntryRef) {
+     let sdn = e.get_sdnref();
+ 
++    // 🚧 safety barrier 🚧
++    if e.contains_attr("entryUUID") {
++        log_error!(
++            ErrorLevel::Trace,
++            "assign_uuid -> entryUUID exists, skipping dn {}",
++            sdn.to_dn_string()
++        );
++        return;
++    }
++
+     // We could consider making these lazy static.
+     let config_sdn = Sdn::try_from("cn=config").expect("Invalid static dn");
+     let schema_sdn = Sdn::try_from("cn=schema").expect("Invalid static dn");
+@@ -66,7 +76,15 @@ impl SlapiPlugin3 for EntryUuid {
+     }
+ 
+     fn betxn_pre_add(pb: &mut PblockRef) -> Result<(), PluginError> {
+-        log_error!(ErrorLevel::Trace, "betxn_pre_add");
++        if pb.get_is_replicated_operation() {
++            log_error!(
++                ErrorLevel::Trace,
++                "betxn_pre_add -> replicated operation, will not change"
++            );
++            return Ok(());
++        }
++
++        log_error!(ErrorLevel::Trace, "betxn_pre_add -> start");
+ 
+         let mut e = pb.get_op_add_entryref().map_err(|_| PluginError::Pblock)?;
+         assign_uuid(&mut e);
+diff --git a/src/slapi_r_plugin/src/constants.rs b/src/slapi_r_plugin/src/constants.rs
+index 34845c2f4..aa0691acc 100644
+--- a/src/slapi_r_plugin/src/constants.rs
++++ b/src/slapi_r_plugin/src/constants.rs
+@@ -164,6 +164,8 @@ pub(crate) enum PblockType {
+     AddEntry = 60,
+     /// SLAPI_BACKEND
+     Backend = 130,
++    /// SLAPI_IS_REPLICATED_OPERATION
++    IsReplicationOperation = 142,
+     /// SLAPI_PLUGIN_MR_NAMES
+     MRNames = 624,
+     /// SLAPI_PLUGIN_SYNTAX_NAMES
+diff --git a/src/slapi_r_plugin/src/pblock.rs b/src/slapi_r_plugin/src/pblock.rs
+index 0f83914f3..718ff2ca7 100644
+--- a/src/slapi_r_plugin/src/pblock.rs
++++ b/src/slapi_r_plugin/src/pblock.rs
+@@ -279,4 +279,11 @@ impl PblockRef {
+     pub fn get_op_result(&mut self) -> i32 {
+         self.get_value_i32(PblockType::OpResult).unwrap_or(-1)
+     }
++
++    pub fn get_is_replicated_operation(&mut self) -> bool {
++        let i = self.get_value_i32(PblockType::IsReplicationOperation).unwrap_or(0);
++        // Because rust returns the result of the last evaluation, we can
++        // just return if not equal 0.
++        i != 0
++    }
+ }
+-- 
+2.26.3
+
