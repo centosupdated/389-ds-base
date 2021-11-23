@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}13%{?prerel}%{?dist}
+Release:          %{?relprefix}14%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -175,6 +175,8 @@ Patch26:          0026-Issue-4443-Internal-unindexed-searches-in-syncrepl-r.patc
 Patch27:          0027-Issue-4817-BUG-locked-crypt-accounts-on-import-may-a.patch
 Patch28:          0028-Issue-4764-replicated-operation-sometime-checks-ACI-.patch
 Patch29:          0029-Issue-4797-ACL-IP-ADDRESS-evaluation-may-corrupt-c_i.patch
+Patch30:          0030-Issue-4925-Performance-ACI-targetfilter-evaluation-r.patch
+Patch31:          0031-Issue-4667-incorrect-accounting-of-readers-in-vattr-.patch
 
 
 %description
@@ -529,6 +531,11 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Fri Oct 29 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-14
+- Bump version to 1.3.10.2-14
+- Resolves: Bug 2018257 - hang because of incorrect accounting of readers in vattr rwlock
+- Resolves: Bug 2010976 - IPA server (389ds) is very slow in execution of some searches (`&(memberOf=...)(objectClass=ipaHost)` in particular)
+
 * Mon Sep 20 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-13
 - Bump version to 1.3.10.2-13
 - Resolves: Bug 2005399 - Internal unindexed searches in syncrepl
@@ -539,7 +546,7 @@ fi
 * Fri May 7 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-12
 - Bump version to 1.3.10.2-12
 
-* Mon May 5 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-11
+* Wed May 5 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-11
 - Bump version to 1.3.10.2-11
 - Resolves: Bug 1953673 - Add new access log keywords for time spent in work queue and actual operation time
 - Resolves: Bug 1931182 - information disclosure during the binding of a DN

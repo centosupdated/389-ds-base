@@ -1,0 +1,415 @@
+From 4503d03aa3aa5b5f35f3db4cf1de838273e051a7 Mon Sep 17 00:00:00 2001
+From: tbordaz <tbordaz@redhat.com>
+Date: Thu, 23 Sep 2021 10:48:50 +0200
+Subject: [PATCH 1/2] Issue 4925 - Performance ACI: targetfilter evaluation
+ result can be reused (#4926)
+
+Bug description:
+	An ACI may contain targetfilter. For a given returned entry, of a
+        SRCH request, the same targetfilter is evaluated for each of the
+        returned attributes.
+        Once the filter has been evaluated, it is useless to reevaluate
+        it for a next attribute.
+
+Fix description:
+	The fix implements a very simple cache (linked list) that keeps
+        the results of the previously evaluated 'targetfilter'.
+        This cache is per-entry. For an operation, a aclpb is allocated
+        that is used to evaluate ACIs against each successive entry.
+        Each time a candidate entry is added in the aclpb
+        (acl_access_allowed), the cache (aclpb_curr_entry_targetfilters)
+        is freed. Then for each 'targetfilter', the original targetfilter
+        is lookup from the cache. If this is the first evaluation of it
+        then the result of the evaluation is stored into the cache using
+        the original targetfilter as the key in the cache
+
+	The key to lookup/store the cache is the string representation
+        of the targetfilter. The string contains a redzone to detect
+        that the filter exceeds the maximum size (2K). If it exceeds
+        then the key is invalid and the lookup/store is noop.
+
+relates: #4925
+
+Reviewed by: Mark Reynolds, William Brown (Thanks)
+
+Platforms tested: F34
+---
+ ldap/servers/plugins/acl/acl.c     | 138 +++++++++++++++++++++++++++--
+ ldap/servers/plugins/acl/acl.h     |  14 +++
+ ldap/servers/plugins/acl/acl_ext.c |  12 +++
+ ldap/servers/slapd/libglobs.c      |  29 ++++++
+ ldap/servers/slapd/proto-slap.h    |   2 +
+ ldap/servers/slapd/slap.h          |   2 +
+ 6 files changed, 191 insertions(+), 6 deletions(-)
+
+diff --git a/ldap/servers/plugins/acl/acl.c b/ldap/servers/plugins/acl/acl.c
+index ecd23aa88..646a369db 100644
+--- a/ldap/servers/plugins/acl/acl.c
++++ b/ldap/servers/plugins/acl/acl.c
+@@ -66,6 +66,9 @@ static void print_access_control_summary(char *source,
+                                          const char *edn,
+                                          aclResultReason_t *acl_reason);
+ static int check_rdn_access(Slapi_PBlock *pb, Slapi_Entry *e, const char *newrdn, int access);
++static struct targetfilter_cached_result *targetfilter_cache_lookup(struct acl_pblock *aclpb, char *filter, PRBool filter_valid);
++static void targetfilter_cache_add(struct acl_pblock *aclpb, char *filter, int result, PRBool filter_valid);
++
+ 
+ 
+ /*
+@@ -175,6 +178,70 @@ check_rdn_access(Slapi_PBlock *pb, Slapi_Entry *e, const char *dn, int access)
+     return (retCode);
+ }
+ 
++/* Retrieves, in the targetfilter cache (list), this
++ * filter in case it was already evaluated
++ *
++ * filter: key to retrieve the evaluation in the cache
++ * filter_valid: PR_FALSE means that the filter key is truncated, PR_TRUE else
++ */
++static struct targetfilter_cached_result *
++targetfilter_cache_lookup(struct acl_pblock *aclpb, char *filter, PRBool filter_valid)
++{
++    struct targetfilter_cached_result *results;
++    if (! aclpb->targetfilter_cache_enabled) {
++        /* targetfilter cache is disabled */
++        return NULL;
++    }
++    if (filter == NULL) {
++        return NULL;
++    }
++    for(results = aclpb->aclpb_curr_entry_targetfilters; results; results = results->next) {
++        if (strcmp(results->filter, filter) == 0) {
++            return results;
++        }
++    }
++
++    return NULL;
++}
++
++/* Free all evaluations cached for this current entry */
++void
++targetfilter_cache_free(struct acl_pblock *aclpb)
++{
++    struct targetfilter_cached_result *results, *next;
++    if (aclpb == NULL) {
++        return;
++    }
++    for(results = aclpb->aclpb_curr_entry_targetfilters; results;) {
++        next = results->next;
++        slapi_ch_free_string(&results->filter);
++        slapi_ch_free((void **) &results);
++        results = next;
++    }
++    aclpb->aclpb_curr_entry_targetfilters = NULL;
++}
++
++/* add a new targetfilter evaluation into the cache (per entry)
++ * ATM just use a linked list of evaluation
++ *
++ * filter: key to retrieve the evaluation in the cache
++ * result: result of the evaluation
++ * filter_valid: PR_FALSE means that the filter key is truncated, PR_TRUE else
++ */
++static void
++targetfilter_cache_add(struct acl_pblock *aclpb, char *filter, int result, PRBool filter_valid)
++{
++    struct targetfilter_cached_result *results;
++    if (! filter_valid || ! aclpb->targetfilter_cache_enabled) {
++        /* targetfilter cache is disabled or filter is truncated */
++        return;
++    }
++    results = (struct targetfilter_cached_result *) slapi_ch_calloc(1, (sizeof(struct targetfilter_cached_result)));
++    results->filter = slapi_ch_strdup(filter);
++    results->next = aclpb->aclpb_curr_entry_targetfilters;
++    results->matching_result = result;
++    aclpb->aclpb_curr_entry_targetfilters = results;
++}
+ /***************************************************************************
+ *
+ * acl_access_allowed
+@@ -495,6 +562,7 @@ acl_access_allowed(
+ 
+         /* Keep the ptr to the current entry */
+         aclpb->aclpb_curr_entry = (Slapi_Entry *)e;
++        targetfilter_cache_free(aclpb);
+ 
+         /* Get the attr info */
+         deallocate_attrEval = acl__get_attrEval(aclpb, attr);
+@@ -1922,7 +1990,7 @@ acl_modified(Slapi_PBlock *pb, int optype, Slapi_DN *e_sdn, void *change)
+ *    None.
+ *
+ **************************************************************************/
+-static int
++int
+ acl__scan_for_acis(Acl_PBlock *aclpb, int *err)
+ {
+     aci_t *aci;
+@@ -2403,10 +2471,68 @@ acl__resource_match_aci(Acl_PBlock *aclpb, aci_t *aci, int skip_attrEval, int *a
+                                                     ACL_EVAL_TARGET_FILTER);
+             slapi_ch_free((void **)&lasinfo);
+         } else {
+-            if (slapi_vattr_filter_test(NULL, aclpb->aclpb_curr_entry,
+-                                        aci->targetFilter,
+-                                        0 /*don't do access check*/) != 0) {
+-                filter_matched = ACL_FALSE;
++            Slapi_DN *sdn;
++            char* attr_evaluated = "None";
++            char logbuf[2048] = {0};
++            char *redzone = "the redzone";
++            int32_t redzone_idx;
++            char *filterstr; /* key to retrieve/add targetfilter value in the cache */
++            PRBool valid_filter;
++            struct targetfilter_cached_result *previous_filter_test;
++
++            /* only usefull for debug purpose */
++            if (aclpb->aclpb_curr_attrEval && aclpb->aclpb_curr_attrEval->attrEval_name) {
++                attr_evaluated = aclpb->aclpb_curr_attrEval->attrEval_name;
++            }
++            sdn = slapi_entry_get_sdn(aclpb->aclpb_curr_entry);
++
++            /* The key for the cache is the string representation of the original filter
++             * If the string can not fit into the provided buffer (overwrite redzone)
++             * then the filter is said invalid (for the cache) and it will be evaluated
++             */
++            redzone_idx = sizeof(logbuf) - 1 - strlen(redzone);
++            strcpy(&logbuf[redzone_idx], redzone);
++            filterstr = slapi_filter_to_string(aci->targetFilter, logbuf, sizeof(logbuf));
++
++            /* if the redzone was overwritten that means filterstr is truncated and not valid */
++            valid_filter = (strcmp(&logbuf[redzone_idx], redzone) == 0);
++            if (!valid_filter) {
++                strcpy(&logbuf[50], "...");
++                slapi_log_err(SLAPI_LOG_ACL, "acl__ressource_match_aci", "targetfilter too large (can not be cache) %s\n", logbuf);
++            }
++
++            previous_filter_test = targetfilter_cache_lookup(aclpb, filterstr, valid_filter);
++            if (previous_filter_test) {
++                /* The filter was already evaluated against that same entry */
++                if (previous_filter_test->matching_result == 0) {
++                    slapi_log_err(SLAPI_LOG_ACL, "acl__ressource_match_aci", "cached result for entry %s did NOT match %s (%s)\n",
++                            slapi_sdn_get_ndn(sdn),
++                            filterstr,
++                            attr_evaluated);
++                    filter_matched = ACL_FALSE;
++                } else {
++                    slapi_log_err(SLAPI_LOG_ACL, "acl__ressource_match_aci", "cached result for entry %s did match %s (%s)\n",
++                            slapi_sdn_get_ndn(sdn),
++                            filterstr,
++                            attr_evaluated);
++                }
++            } else {
++                /* The filter has not already been evaluated against that entry
++                 * evaluate it and cache the result
++                 */
++                if (slapi_vattr_filter_test(NULL, aclpb->aclpb_curr_entry,
++                        aci->targetFilter,
++                        0 /*don't do access check*/) != 0) {
++                    filter_matched = ACL_FALSE;
++                    targetfilter_cache_add(aclpb, filterstr, 0, valid_filter); /* does not match */
++                } else {
++                    targetfilter_cache_add(aclpb, filterstr, 1, valid_filter); /* does match */
++                }
++                slapi_log_err(SLAPI_LOG_ACL, "acl__ressource_match_aci", "entry %s %s match %s (%s)\n",
++                        slapi_sdn_get_ndn(sdn),
++                        filter_matched == ACL_FALSE ? "does not" : "does",
++                        filterstr,
++                        attr_evaluated);
+             }
+         }
+ 
+@@ -2862,7 +2988,7 @@ acl__resource_match_aci_EXIT:
+ *    None.
+ *
+ **************************************************************************/
+-static int
++int
+ acl__TestRights(Acl_PBlock *aclpb, int access, const char **right, const char **map_generic, aclResultReason_t *result_reason)
+ {
+     ACLEvalHandle_t *acleval;
+diff --git a/ldap/servers/plugins/acl/acl.h b/ldap/servers/plugins/acl/acl.h
+index 5d453d825..cf74510e7 100644
+--- a/ldap/servers/plugins/acl/acl.h
++++ b/ldap/servers/plugins/acl/acl.h
+@@ -407,6 +407,17 @@ struct aci_container
+ };
+ typedef struct aci_container AciContainer;
+ 
++/* This structure is stored in the aclpb.
++ * It is a linked list containing the result of
++ * the filter matching against a specific entry.
++ *
++ * This list is free for each new entry in the aclpb*/
++struct targetfilter_cached_result {
++    char *filter;                            /* strdup of string representation of aci->targetFilter */
++    int matching_result;                     /* 0 does not match / 1 does match */
++    struct targetfilter_cached_result *next; /* next targetfilter already evaluated */
++};
++
+ struct acl_pblock
+ {
+     int aclpb_state;
+@@ -476,6 +487,8 @@ struct acl_pblock
+ 
+     /* Current entry/dn/attr evaluation info */
+     Slapi_Entry *aclpb_curr_entry; /* current Entry being processed */
++    int32_t targetfilter_cache_enabled;
++    struct targetfilter_cached_result *aclpb_curr_entry_targetfilters;
+     int aclpb_num_entries;
+     Slapi_DN *aclpb_curr_entry_sdn;    /* Entry's SDN */
+     Slapi_DN *aclpb_authorization_sdn; /* dn used for authorization */
+@@ -723,6 +736,7 @@ void acl_modified(Slapi_PBlock *pb, int optype, Slapi_DN *e_sdn, void *change);
+ 
+ int acl_access_allowed_disjoint_resource(Slapi_PBlock *pb, Slapi_Entry *e, char *attr, struct berval *val, int access);
+ int acl_access_allowed_main(Slapi_PBlock *pb, Slapi_Entry *e, char **attrs, struct berval *val, int access, int flags, char **errbuf);
++void targetfilter_cache_free(struct acl_pblock *aclpb);
+ int acl_access_allowed(Slapi_PBlock *pb, Slapi_Entry *e, char *attr, struct berval *val, int access);
+ aclUserGroup *acl_get_usersGroup(struct acl_pblock *aclpb, char *n_dn);
+ void acl_print_acllib_err(NSErr_t *errp, char *str);
+diff --git a/ldap/servers/plugins/acl/acl_ext.c b/ldap/servers/plugins/acl/acl_ext.c
+index 31c61c2f4..73dd6c39d 100644
+--- a/ldap/servers/plugins/acl/acl_ext.c
++++ b/ldap/servers/plugins/acl/acl_ext.c
+@@ -187,6 +187,11 @@ acl_operation_ext_constructor(void *object __attribute__((unused)), void *parent
+         slapi_log_err(SLAPI_LOG_ERR, plugin_name,
+                       "acl_operation_ext_constructor - Operation extension allocation Failed\n");
+     }
++    /* targetfilter_cache toggle set during aclpb allocation
++     * to avoid accessing configuration during the evaluation
++     * of each aci
++     */
++    aclpb->targetfilter_cache_enabled = config_get_targetfilter_cache();
+ 
+     TNF_PROBE_0_DEBUG(acl_operation_ext_constructor_end, "ACL", "");
+ 
+@@ -711,6 +716,7 @@ acl__free_aclpb(Acl_PBlock **aclpb_ptr)
+     slapi_ch_free((void **)&(aclpb->aclpb_curr_entryEval_context.acle_handles_matched_target));
+     slapi_ch_free((void **)&(aclpb->aclpb_prev_entryEval_context.acle_handles_matched_target));
+     slapi_ch_free((void **)&(aclpb->aclpb_prev_opEval_context.acle_handles_matched_target));
++    targetfilter_cache_free(aclpb);
+     slapi_sdn_free(&aclpb->aclpb_authorization_sdn);
+     slapi_sdn_free(&aclpb->aclpb_curr_entry_sdn);
+     if (aclpb->aclpb_macro_ht) {
+@@ -919,6 +925,12 @@ acl__done_aclpb(struct acl_pblock *aclpb)
+                       aclpb->aclpb_acleval ? (char *)aclpb->aclpb_acleval : "NULL");
+     }
+ 
++    /* This aclpb return to the aclpb pool, make sure
++     * the cached evaluations are freed and that
++     * aclpb_curr_entry_targetfilters is NULL
++     */
++    targetfilter_cache_free(aclpb);
++
+     /* Now Free the contents or clean it */
+     slapi_sdn_done(aclpb->aclpb_curr_entry_sdn);
+     if (aclpb->aclpb_Evalattr)
+diff --git a/ldap/servers/slapd/libglobs.c b/ldap/servers/slapd/libglobs.c
+index 91c3a4a89..89f7e5344 100644
+--- a/ldap/servers/slapd/libglobs.c
++++ b/ldap/servers/slapd/libglobs.c
+@@ -211,6 +211,7 @@ slapi_onoff_t init_return_exact_case;
+ slapi_onoff_t init_result_tweak;
+ slapi_onoff_t init_plugin_track;
+ slapi_onoff_t init_moddn_aci;
++slapi_onoff_t init_targetfilter_cache;
+ slapi_onoff_t init_lastmod;
+ slapi_onoff_t init_readonly;
+ slapi_onoff_t init_accesscontrol;
+@@ -822,6 +823,11 @@ static struct config_get_and_set
+      (void **)&global_slapdFrontendConfig.moddn_aci,
+      CONFIG_ON_OFF, (ConfigGetFunc)config_get_moddn_aci,
+      &init_moddn_aci},
++    {CONFIG_TARGETFILTER_CACHE_ATTRIBUTE, config_set_targetfilter_cache,
++     NULL, 0,
++     (void **)&global_slapdFrontendConfig.targetfilter_cache,
++     CONFIG_ON_OFF, (ConfigGetFunc)config_get_targetfilter_cache,
++     &init_targetfilter_cache},
+     {CONFIG_ATTRIBUTE_NAME_EXCEPTION_ATTRIBUTE, config_set_attrname_exceptions,
+      NULL, 0,
+      (void **)&global_slapdFrontendConfig.attrname_exceptions,
+@@ -1567,6 +1573,7 @@ FrontendConfig_init(void)
+     init_syntaxcheck = cfg->syntaxcheck = LDAP_ON;
+     init_plugin_track = cfg->plugin_track = LDAP_OFF;
+     init_moddn_aci = cfg->moddn_aci = LDAP_ON;
++    init_targetfilter_cache = cfg->targetfilter_cache = LDAP_ON;
+     init_syntaxlogging = cfg->syntaxlogging = LDAP_OFF;
+     init_dn_validate_strict = cfg->dn_validate_strict = LDAP_OFF;
+     init_ds4_compatible_schema = cfg->ds4_compatible_schema = LDAP_OFF;
+@@ -3525,6 +3532,21 @@ config_set_moddn_aci(const char *attrname, char *value, char *errorbuf, int appl
+     return retVal;
+ }
+ 
++int32_t
++config_set_targetfilter_cache(const char *attrname, char *value, char *errorbuf, int apply)
++{
++    int32_t retVal = LDAP_SUCCESS;
++    slapdFrontendConfig_t *slapdFrontendConfig = getFrontendConfig();
++
++    retVal = config_set_onoff(attrname,
++                              value,
++                              &(slapdFrontendConfig->targetfilter_cache),
++                              errorbuf,
++                              apply);
++
++    return retVal;
++}
++
+ int32_t
+ config_set_dynamic_plugins(const char *attrname, char *value, char *errorbuf, int apply)
+ {
+@@ -5334,6 +5356,13 @@ config_get_moddn_aci(void)
+     return slapi_atomic_load_32(&(slapdFrontendConfig->moddn_aci), __ATOMIC_ACQUIRE);
+ }
+ 
++int32_t
++config_get_targetfilter_cache(void)
++{
++    slapdFrontendConfig_t *slapdFrontendConfig = getFrontendConfig();
++    return slapi_atomic_load_32(&(slapdFrontendConfig->targetfilter_cache), __ATOMIC_ACQUIRE);
++}
++
+ int32_t
+ config_get_security(void)
+ {
+diff --git a/ldap/servers/slapd/proto-slap.h b/ldap/servers/slapd/proto-slap.h
+index d9fb8fd08..13b41ffa4 100644
+--- a/ldap/servers/slapd/proto-slap.h
++++ b/ldap/servers/slapd/proto-slap.h
+@@ -262,6 +262,7 @@ int config_set_lastmod(const char *attrname, char *value, char *errorbuf, int ap
+ int config_set_nagle(const char *attrname, char *value, char *errorbuf, int apply);
+ int config_set_accesscontrol(const char *attrname, char *value, char *errorbuf, int apply);
+ int config_set_moddn_aci(const char *attrname, char *value, char *errorbuf, int apply);
++int32_t config_set_targetfilter_cache(const char *attrname, char *value, char *errorbuf, int apply);
+ int config_set_security(const char *attrname, char *value, char *errorbuf, int apply);
+ int config_set_readonly(const char *attrname, char *value, char *errorbuf, int apply);
+ int config_set_schemacheck(const char *attrname, char *value, char *errorbuf, int apply);
+@@ -450,6 +451,7 @@ int config_get_accesscontrol(void);
+ int config_get_return_exact_case(void);
+ int config_get_result_tweak(void);
+ int config_get_moddn_aci(void);
++int32_t config_get_targetfilter_cache(void);
+ int config_get_security(void);
+ int config_get_schemacheck(void);
+ int config_get_syntaxcheck(void);
+diff --git a/ldap/servers/slapd/slap.h b/ldap/servers/slapd/slap.h
+index 007c50b86..b2de66754 100644
+--- a/ldap/servers/slapd/slap.h
++++ b/ldap/servers/slapd/slap.h
+@@ -2157,6 +2157,7 @@ typedef struct _slapdEntryPoints
+ #define CONFIG_REWRITE_RFC1274_ATTRIBUTE "nsslapd-rewrite-rfc1274"
+ #define CONFIG_PLUGIN_BINDDN_TRACKING_ATTRIBUTE "nsslapd-plugin-binddn-tracking"
+ #define CONFIG_MODDN_ACI_ATTRIBUTE "nsslapd-moddn-aci"
++#define CONFIG_TARGETFILTER_CACHE_ATTRIBUTE "nsslapd-targetfilter-cache"
+ #define CONFIG_GLOBAL_BACKEND_LOCK "nsslapd-global-backend-lock"
+ #define CONFIG_ENABLE_NUNC_STANS "nsslapd-enable-nunc-stans"
+ #define CONFIG_CONFIG_ATTRIBUTE "nsslapd-config"
+@@ -2315,6 +2316,7 @@ typedef struct _slapdFrontendConfig
+     char **plugin;
+     slapi_onoff_t plugin_track;
+     slapi_onoff_t moddn_aci;
++    slapi_onoff_t targetfilter_cache;
+     struct pw_scheme *pw_storagescheme;
+     slapi_onoff_t pwpolicy_local;
+     slapi_onoff_t pw_is_global_policy;
+-- 
+2.31.1
+
