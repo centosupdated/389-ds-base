@@ -46,8 +46,8 @@ ExcludeArch: i686
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          2.0.8
-Release:          6%{?dist}
+Version:          2.0.11
+Release:          3%{?dist}
 License:          GPLv3+ and ASL 2.0 and MPLv2.0 and Boost
 URL:              https://www.port389.org
 Conflicts:        selinux-policy-base < 3.9.8
@@ -58,86 +58,91 @@ Obsoletes:        %{name}-legacy-tools-debuginfo < 1.4.4.6
 Provides:         ldif2ldbm >= 0
 
 ##### Bundled cargo crates list - START #####
-Provides:  bundled(crate(ahash)) = 0.7.2
+Provides:  bundled(crate(ahash)) = 0.7.6
 Provides:  bundled(crate(ansi_term)) = 0.11.0
 Provides:  bundled(crate(atty)) = 0.2.14
 Provides:  bundled(crate(autocfg)) = 1.0.1
 Provides:  bundled(crate(base64)) = 0.13.0
-Provides:  bundled(crate(bitflags)) = 1.2.1
+Provides:  bundled(crate(bitflags)) = 1.3.2
 Provides:  bundled(crate(byteorder)) = 1.4.3
 Provides:  bundled(crate(cbindgen)) = 0.9.1
-Provides:  bundled(crate(cc)) = 1.0.67
+Provides:  bundled(crate(cc)) = 1.0.72
 Provides:  bundled(crate(cfg-if)) = 1.0.0
 Provides:  bundled(crate(clap)) = 2.33.3
-Provides:  bundled(crate(concread)) = 0.2.9
-Provides:  bundled(crate(crossbeam)) = 0.8.0
+Provides:  bundled(crate(concread)) = 0.2.19
+Provides:  bundled(crate(crossbeam)) = 0.8.1
 Provides:  bundled(crate(crossbeam-channel)) = 0.5.1
-Provides:  bundled(crate(crossbeam-deque)) = 0.8.0
-Provides:  bundled(crate(crossbeam-epoch)) = 0.9.3
-Provides:  bundled(crate(crossbeam-queue)) = 0.3.1
-Provides:  bundled(crate(crossbeam-utils)) = 0.8.3
+Provides:  bundled(crate(crossbeam-deque)) = 0.8.1
+Provides:  bundled(crate(crossbeam-epoch)) = 0.9.5
+Provides:  bundled(crate(crossbeam-queue)) = 0.3.2
+Provides:  bundled(crate(crossbeam-utils)) = 0.8.5
 Provides:  bundled(crate(entryuuid)) = 0.1.0
 Provides:  bundled(crate(entryuuid_syntax)) = 0.1.0
 Provides:  bundled(crate(fernet)) = 0.1.4
 Provides:  bundled(crate(foreign-types)) = 0.3.2
 Provides:  bundled(crate(foreign-types-shared)) = 0.1.1
-Provides:  bundled(crate(getrandom)) = 0.2.2
-Provides:  bundled(crate(hermit-abi)) = 0.1.18
-Provides:  bundled(crate(instant)) = 0.1.9
-Provides:  bundled(crate(itoa)) = 0.4.7
-Provides:  bundled(crate(jobserver)) = 0.1.21
+Provides:  bundled(crate(getrandom)) = 0.2.3
+Provides:  bundled(crate(hashbrown)) = 0.11.2
+Provides:  bundled(crate(hermit-abi)) = 0.1.19
+Provides:  bundled(crate(instant)) = 0.1.12
+Provides:  bundled(crate(itoa)) = 0.4.8
+Provides:  bundled(crate(jobserver)) = 0.1.24
 Provides:  bundled(crate(lazy_static)) = 1.4.0
-Provides:  bundled(crate(libc)) = 0.2.93
+Provides:  bundled(crate(libc)) = 0.2.107
 Provides:  bundled(crate(librnsslapd)) = 0.1.0
 Provides:  bundled(crate(librslapd)) = 0.1.0
-Provides:  bundled(crate(lock_api)) = 0.4.3
+Provides:  bundled(crate(lock_api)) = 0.4.5
 Provides:  bundled(crate(log)) = 0.4.14
-Provides:  bundled(crate(memoffset)) = 0.6.3
-Provides:  bundled(crate(once_cell)) = 1.7.2
-Provides:  bundled(crate(openssl)) = 0.10.35
-Provides:  bundled(crate(openssl-sys)) = 0.9.65
-Provides:  bundled(crate(parking_lot)) = 0.11.1
-Provides:  bundled(crate(parking_lot_core)) = 0.8.3
+Provides:  bundled(crate(lru)) = 0.6.6
+Provides:  bundled(crate(memoffset)) = 0.6.4
+Provides:  bundled(crate(once_cell)) = 1.8.0
+Provides:  bundled(crate(openssl)) = 0.10.38
+Provides:  bundled(crate(openssl-sys)) = 0.9.71
+Provides:  bundled(crate(parking_lot)) = 0.11.2
+Provides:  bundled(crate(parking_lot_core)) = 0.8.5
 Provides:  bundled(crate(paste)) = 0.1.18
 Provides:  bundled(crate(paste-impl)) = 0.1.18
-Provides:  bundled(crate(pkg-config)) = 0.3.19
-Provides:  bundled(crate(ppv-lite86)) = 0.2.10
+Provides:  bundled(crate(pin-project-lite)) = 0.2.7
+Provides:  bundled(crate(pkg-config)) = 0.3.22
+Provides:  bundled(crate(ppv-lite86)) = 0.2.15
 Provides:  bundled(crate(proc-macro-hack)) = 0.5.19
-Provides:  bundled(crate(proc-macro2)) = 1.0.26
+Provides:  bundled(crate(proc-macro2)) = 1.0.32
 Provides:  bundled(crate(pwdchan)) = 0.1.0
-Provides:  bundled(crate(quote)) = 1.0.9
-Provides:  bundled(crate(rand)) = 0.8.3
-Provides:  bundled(crate(rand_chacha)) = 0.3.0
-Provides:  bundled(crate(rand_core)) = 0.6.2
-Provides:  bundled(crate(rand_hc)) = 0.3.0
-Provides:  bundled(crate(redox_syscall)) = 0.2.6
+Provides:  bundled(crate(quote)) = 1.0.10
+Provides:  bundled(crate(rand)) = 0.8.4
+Provides:  bundled(crate(rand_chacha)) = 0.3.1
+Provides:  bundled(crate(rand_core)) = 0.6.3
+Provides:  bundled(crate(rand_hc)) = 0.3.1
+Provides:  bundled(crate(redox_syscall)) = 0.2.10
 Provides:  bundled(crate(remove_dir_all)) = 0.5.3
 Provides:  bundled(crate(ryu)) = 1.0.5
 Provides:  bundled(crate(scopeguard)) = 1.1.0
-Provides:  bundled(crate(serde)) = 1.0.125
-Provides:  bundled(crate(serde_derive)) = 1.0.125
-Provides:  bundled(crate(serde_json)) = 1.0.64
+Provides:  bundled(crate(serde)) = 1.0.130
+Provides:  bundled(crate(serde_derive)) = 1.0.130
+Provides:  bundled(crate(serde_json)) = 1.0.71
 Provides:  bundled(crate(slapd)) = 0.1.0
 Provides:  bundled(crate(slapi_r_plugin)) = 0.1.0
-Provides:  bundled(crate(smallvec)) = 1.6.1
+Provides:  bundled(crate(smallvec)) = 1.7.0
 Provides:  bundled(crate(strsim)) = 0.8.0
-Provides:  bundled(crate(syn)) = 1.0.69
-Provides:  bundled(crate(synstructure)) = 0.12.4
+Provides:  bundled(crate(syn)) = 1.0.81
+Provides:  bundled(crate(synstructure)) = 0.12.6
 Provides:  bundled(crate(tempfile)) = 3.2.0
 Provides:  bundled(crate(textwrap)) = 0.11.0
+Provides:  bundled(crate(tokio)) = 1.14.0
+Provides:  bundled(crate(tokio-macros)) = 1.6.0
 Provides:  bundled(crate(toml)) = 0.5.8
-Provides:  bundled(crate(unicode-width)) = 0.1.8
-Provides:  bundled(crate(unicode-xid)) = 0.2.1
+Provides:  bundled(crate(unicode-width)) = 0.1.9
+Provides:  bundled(crate(unicode-xid)) = 0.2.2
 Provides:  bundled(crate(uuid)) = 0.8.2
-Provides:  bundled(crate(vcpkg)) = 0.2.11
+Provides:  bundled(crate(vcpkg)) = 0.2.15
 Provides:  bundled(crate(vec_map)) = 0.8.2
 Provides:  bundled(crate(version_check)) = 0.9.3
 Provides:  bundled(crate(wasi)) = 0.10.2+wasi_snapshot_preview1
 Provides:  bundled(crate(winapi)) = 0.3.9
 Provides:  bundled(crate(winapi-i686-pc-windows-gnu)) = 0.4.0
 Provides:  bundled(crate(winapi-x86_64-pc-windows-gnu)) = 0.4.0
-Provides:  bundled(crate(zeroize)) = 1.2.0
-Provides:  bundled(crate(zeroize_derive)) = 1.0.1
+Provides:  bundled(crate(zeroize)) = 1.4.3
+Provides:  bundled(crate(zeroize_derive)) = 1.2.2
 ##### Bundled cargo crates list - END #####
 
 BuildRequires:    nspr-devel
@@ -256,9 +261,9 @@ Source2:          %{name}-devel.README
 %if %{bundle_jemalloc}
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
-Patch01:          0001-Issue-4884-server-crashes-when-dnaInterval-attribute.patch
-Patch02:          0002-Issue-4894-IPA-failure-in-ipa-user-del-preserve-4907.patch
-Patch03:          0003-Issue-4169-backport-lib389-cert-list-fix.patch
+
+# The patch should be removed after selinux-policy bz2015928 is fixed
+Patch0: 389-ds-base-revert-db-home-fix.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -437,8 +442,7 @@ autoreconf -fiv
            --with-systemdgroupname=%{groupname}  \
            --libexecdir=%{_libexecdir}/%{pkgname} \
            $NSSARGS $ASAN_FLAGS $RUST_FLAGS $CLANG_FLAGS $COCKPIT_FLAGS \
-           --enable-cmocka \
-           --enable-perl
+           --enable-cmocka --enable-new-dtags
 
 
 # lib389
@@ -708,6 +712,21 @@ exit 0
 %endif
 
 %changelog
+* Thu Nov 25 2021 Viktor Ashirov <vashirov@redhat.com> - 2.0.11-3
+- Bump version to 2.0.11-3
+- rebuilt
+
+* Thu Nov 25 2021 Thierry Bordaz <tbordaz@redhat.com> - 2.0.11-2
+- Bump version to 2.0.11-2
+- Revert commit "Set db home directory by default"
+
+* Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.11-1
+- Bump version to 2.0.11-1
+- Resolves: Bug 2024693 - Rebase RHEL 9.0 with 389-ds-base
+- Resolves: Bug 2015996 - Log the Auto Member invalid regex rules in the LDAP errors log
+- Resolves: Bug 2020554 - ipa user-add fails with "gecos: value invalid per syntax: Invalid syntax"
+- Resolves: Bug 1779685 - PBKDF2 hashing does not work in FIPS mode
+
 * Fri Sep 17 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.8-6
 - Bump version to 2.0.8-6
 - Resolves: Bug 2000420 - Not able to preserve users using "ipa user-del --preserve"
