@@ -1,0 +1,120 @@
+From 096c95690a27c942d47b20a85fa3d7fe15ffe624 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 8 Sep 2021 10:31:19 -0400
+Subject: [PATCH] Issue 4910 - db reindex corrupts RUV tombstone nsuiqueid
+ index
+
+Bug Description:  During a reindex task we skip the RUV tombstone entry,
+                  which corrupts the nsuniqueid index.
+
+Fix Description:  Make sure we still index nsuniqueid index for
+                  the RUV tombstone entry.
+
+relates: https://github.com/389ds/389-ds-base/issues/4910
+
+Reviewed by: firstyear & progier389 (Thanks!!)
+---
+ .../tests/suites/replication/ruvstore_test.py | 35 +++++++++++++++++++
+ .../slapd/back-ldbm/db-bdb/bdb_ldif2db.c      | 12 +++++--
+ 2 files changed, 44 insertions(+), 3 deletions(-)
+
+diff --git a/dirsrvtests/tests/suites/replication/ruvstore_test.py b/dirsrvtests/tests/suites/replication/ruvstore_test.py
+index c04fd079e..4e5326227 100644
+--- a/dirsrvtests/tests/suites/replication/ruvstore_test.py
++++ b/dirsrvtests/tests/suites/replication/ruvstore_test.py
+@@ -12,6 +12,8 @@ import ldap
+ import pytest
+ from ldif import LDIFParser
+ from lib389.replica import Replicas
++from lib389.backend import Backends
++from lib389.idm.domain import Domain
+ from lib389.idm.user import UserAccounts
+ from lib389.topologies import topology_m2 as topo
+ from lib389._constants import *
+@@ -156,6 +158,39 @@ def test_memoryruv_sync_with_databaseruv(topo):
+     _compare_memoryruv_and_databaseruv(topo, 'delete')
+ 
+ 
++def test_ruv_after_reindex(topo):
++    """Test that the tombstone RUV entry is not corrupted after a reindex task
++
++    :id: 988c0fab-1905-4dc5-a45d-fbf195843a33
++    :setup: 2 suppliers
++    :steps:
++        1. Reindex database
++        2. Perform some updates
++        3. Check error log does not have "_entryrdn_insert_key" errors
++    :expectedresults:
++        1. Success
++        2. Success
++        3. Success
++    """
++
++    inst = topo.ms['supplier1']
++    suffix = Domain(inst, "ou=people," + DEFAULT_SUFFIX)
++    backends = Backends(inst)
++    backend = backends.get(DEFAULT_BENAME)
++
++    # Reindex nsuniqueid
++    backend.reindex(attrs=['nsuniqueid'], wait=True)
++
++    # Do some updates
++    for idx in range(0, 5):
++        suffix.replace('description', str(idx))
++
++    # Check error log for RUV entryrdn errors.  Stopping instance forces RUV
++    # to be written and quickly exposes the error
++    inst.stop()
++    assert not inst.searchErrorsLog("entryrdn_insert_key")
++
++
+ if __name__ == '__main__':
+     # Run isolated
+     # -s for DEBUG mode
+diff --git a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c
+index 506c285a3..6100dbf77 100644
+--- a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c
++++ b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_ldif2db.c
+@@ -25,6 +25,7 @@
+ #define DB2INDEX_ENTRYRDN 0x2     /* index entryrdn */
+ #define DB2LDIF_ENTRYRDN 0x4      /* export entryrdn */
+ #define DB2INDEX_OBJECTCLASS 0x10 /* for reindexing "objectclass: nstombstone" */
++#define DB2INDEX_NSUNIQUEID 0x20  /* for reindexing RUV tombstone */
+ 
+ #define LDIF2LDBM_EXTBITS(x) ((x)&0xf)
+ 
+@@ -1543,6 +1544,9 @@ bdb_db2index(Slapi_PBlock *pb)
+                     if (strcasecmp(attrs[i] + 1, SLAPI_ATTR_OBJECTCLASS) == 0) {
+                         index_ext |= DB2INDEX_OBJECTCLASS;
+                     }
++                    if (strcasecmp(attrs[i] + 1, SLAPI_ATTR_UNIQUEID) == 0) {
++                        index_ext |= DB2INDEX_NSUNIQUEID;
++                    }
+                     charray_add(&indexAttrs, attrs[i] + 1);
+                     ai->ai_indexmask |= INDEX_OFFLINE;
+                     slapi_task_log_notice(task, "%s: Indexing attribute: %s",
+@@ -1895,7 +1899,7 @@ bdb_db2index(Slapi_PBlock *pb)
+          * Update the attribute indexes
+          */
+         if (indexAttrs) {
+-            if (istombstone && !(index_ext & (DB2INDEX_ENTRYRDN | DB2INDEX_OBJECTCLASS))) {
++            if (istombstone && !(index_ext & (DB2INDEX_ENTRYRDN | DB2INDEX_OBJECTCLASS | DB2INDEX_NSUNIQUEID))) {
+                 /* if it is a tombstone entry, just entryrdn or "objectclass: nstombstone"
+                  * need to be reindexed.  the to-be-indexed list does not contain them. */
+                 backentry_free(&ep);
+@@ -1915,8 +1919,10 @@ bdb_db2index(Slapi_PBlock *pb)
+                         if (istombstone) {
+                             if (!slapi_attr_type_cmp(indexAttrs[j], SLAPI_ATTR_OBJECTCLASS, SLAPI_TYPE_CMP_SUBTYPE)) {
+                                 is_tombstone_obj = 1; /* is tombstone && is objectclass. need to index "nstombstone"*/
+-                            } else if (slapi_attr_type_cmp(indexAttrs[j], LDBM_ENTRYRDN_STR, SLAPI_TYPE_CMP_SUBTYPE)) {
+-                                /* Entry is a tombstone && this index is not an entryrdn. */
++                            } else if (slapi_attr_type_cmp(indexAttrs[j], LDBM_ENTRYRDN_STR, SLAPI_TYPE_CMP_SUBTYPE) &&
++                                       slapi_attr_type_cmp(indexAttrs[j], SLAPI_ATTR_UNIQUEID, SLAPI_TYPE_CMP_SUBTYPE))
++                            {
++                                /* Entry is a tombstone && this index is not entryrdn or nsuniqueid */
+                                 continue;
+                             }
+                         }
+-- 
+2.31.1
+

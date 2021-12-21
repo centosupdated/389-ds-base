@@ -48,7 +48,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.23
-Release:          %{?relprefix}10%{?prerel}%{?dist}
+Release:          %{?relprefix}12%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -267,7 +267,9 @@ Patch27:          0027-Issue-4734-import-of-entry-with-no-parent-warning-47.patc
 Patch28:          0028-Issue-4872-BUG-entryuuid-enabled-by-default-causes-r.patch
 Patch29:          0029-Remove-GOST-YESCRYPT-password-sotrage-scheme.patch
 Patch30:          0030-Issue-4884-server-crashes-when-dnaInterval-attribute.patch
-
+Patch31:          0031-Issue-4925-Performance-ACI-targetfilter-evaluation-r.patch
+Patch32:          0032-Issue-4972-gecos-with-IA5-introduces-a-compatibility.patch
+Patch33:          0033-Issue-4910-db-reindex-corrupts-RUV-tombstone-nsuique.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -886,6 +888,15 @@ exit 0
 %doc README.md
 
 %changelog
+* Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-12
+- Bump version to 1.4.3.23-12
+- Resolves: Bug 2024697 - DB corruption "_entryrdn_insert_key - Same DN (dn: nsuniqueid=ffffffff-ffffffff-ffffffff-ffffffff,<SUFFIX>) is already in the entryrdn file"
+
+* Wed Nov 10 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-11
+- Bump version to 1.4.3.23-11
+- Resolves: Bug 2022005 - ipa user-add fails with "gecos: invalid per syntax: Invalid syntax"
+- Resolves: Bug 2021998 - IPA server is very slow in execution of some searches
+
 * Thu Aug 26 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-10
 - Bump version to 1.4.3.23-10
 - Resolves: Bug 1997138 - LDAP server crashes when dnaInterval attribute is set to 0
