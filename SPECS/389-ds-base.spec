@@ -47,7 +47,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          2.0.11
-Release:          3%{?dist}
+Release:          1%{?dist}
 License:          GPLv3+ and ASL 2.0 and MPLv2.0 and Boost
 URL:              https://www.port389.org
 Conflicts:        selinux-policy-base < 3.9.8
@@ -261,9 +261,6 @@ Source2:          %{name}-devel.README
 %if %{bundle_jemalloc}
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
-
-# The patch should be removed after selinux-policy bz2015928 is fixed
-Patch0: 389-ds-base-revert-db-home-fix.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -712,14 +709,6 @@ exit 0
 %endif
 
 %changelog
-* Thu Nov 25 2021 Viktor Ashirov <vashirov@redhat.com> - 2.0.11-3
-- Bump version to 2.0.11-3
-- rebuilt
-
-* Thu Nov 25 2021 Thierry Bordaz <tbordaz@redhat.com> - 2.0.11-2
-- Bump version to 2.0.11-2
-- Revert commit "Set db home directory by default"
-
 * Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.11-1
 - Bump version to 2.0.11-1
 - Resolves: Bug 2024693 - Rebase RHEL 9.0 with 389-ds-base
