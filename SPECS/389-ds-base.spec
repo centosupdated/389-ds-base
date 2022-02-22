@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}14%{?prerel}%{?dist}
+Release:          %{?relprefix}15%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -177,6 +177,9 @@ Patch28:          0028-Issue-4764-replicated-operation-sometime-checks-ACI-.patc
 Patch29:          0029-Issue-4797-ACL-IP-ADDRESS-evaluation-may-corrupt-c_i.patch
 Patch30:          0030-Issue-4925-Performance-ACI-targetfilter-evaluation-r.patch
 Patch31:          0031-Issue-4667-incorrect-accounting-of-readers-in-vattr-.patch
+Patch32:          0032-Issue-4943-Fix-csn-generator-to-limit-time-skew-drif.patch
+Patch33:          0033-Issue-4943-followup-Fix-csn-generator-to-limit-time-.patch
+Patch34:          0034-CVE-2021-4091-BZ-2030367-double-free-of-the-virtual-.patch
 
 
 %description
@@ -531,6 +534,11 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Thu Feb 03 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-15
+- Bump version to 1.3.10.2-15
+- Resolves: Bug 2049812 - Fix csn generator to limit time skew drift
+- Resolves: Bug 2048530 - CVE-2021-4091 389-ds-base: double-free of the virtual attribute context in persistent search
+
 * Fri Oct 29 2021 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-14
 - Bump version to 1.3.10.2-14
 - Resolves: Bug 2018257 - hang because of incorrect accounting of readers in vattr rwlock

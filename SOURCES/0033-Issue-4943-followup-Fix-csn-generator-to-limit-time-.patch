@@ -1,0 +1,26 @@
+From 5d5f5d37c72f16675f137a6400dc41ee1b6b7843 Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Thu, 3 Feb 2022 11:26:22 +0100
+Subject: [PATCH] Issue 4943 - (followup) Fix csn generator to limit time skew
+ drift
+
+---
+ ldap/servers/slapd/slapi-private.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/slapd/slapi-private.h b/ldap/servers/slapd/slapi-private.h
+index f37cfcd41..61975604d 100644
+--- a/ldap/servers/slapd/slapi-private.h
++++ b/ldap/servers/slapd/slapi-private.h
+@@ -267,7 +267,7 @@ void *csngen_register_callbacks(CSNGen *gen, GenCSNFn genFn, void *genArg, Abort
+ void csngen_unregister_callbacks(CSNGen *gen, void *cookie);
+ 
+ /* debugging function */
+-void csngen_dump_state(const CSNGen *gen);
++void csngen_dump_state(const CSNGen *gen, int severity);
+ 
+ /* this function tests csn generator */
+ void csngen_test(void);
+-- 
+2.31.1
+
