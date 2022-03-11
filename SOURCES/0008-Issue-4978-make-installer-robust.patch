@@ -1,0 +1,70 @@
+From 88d6ceb18e17c5a18bafb5092ae0c22241b212df Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 1 Nov 2021 14:01:11 -0400
+Subject: [PATCH 08/12] Issue 4978 - make installer robust
+
+Description:  When run in a container the server can fail to start
+              because the installer sets the db_home_dir to /dev/shm,
+              but in containers the default size of /dev/shm is too
+              small for libdb. We should detect if we are in a
+              container and not set db_home_dir to /dev/shm.
+
+              During instance removal, if an instance was not properly
+              created then it can not be removed either. Make the
+              uninstall more robust to accept some errors and continue
+              removing the instance.
+
+relates: https://github.com/389ds/389-ds-base/issues/4978
+
+Reviewed by: firstyear & tbordaz(Thanks!)
+---
+ src/lib389/lib389/instance/setup.py | 9 +++++++++
+ src/lib389/lib389/utils.py          | 5 ++++-
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/lib389/lib389/instance/setup.py b/src/lib389/lib389/instance/setup.py
+index be6854af8..7b0147cf9 100644
+--- a/src/lib389/lib389/instance/setup.py
++++ b/src/lib389/lib389/instance/setup.py
+@@ -731,6 +731,15 @@ class SetupDs(object):
+             for line in template_dse.readlines():
+                 dse += line.replace('%', '{', 1).replace('%', '}', 1)
+ 
++        # Check if we are in a container, if so don't use /dev/shm for the db home dir
++        # as containers typically don't allocate enough space for dev/shm and we don't
++        # want to unexpectedly break the server after an upgrade
++        container_result = subprocess.run(["systemd-detect-virt", "-c"], capture_output=True)
++        if container_result.returncode == 0:
++            # In a container, set the db_home_dir to the db path
++            self.log.debug("Container detected setting db home directory to db directory.")
++            slapd['db_home_dir'] = slapd['db_dir']
++
+         with open(os.path.join(slapd['config_dir'], 'dse.ldif'), 'w') as file_dse:
+             dse_fmt = dse.format(
+                 schema_dir=slapd['schema_dir'],
+diff --git a/src/lib389/lib389/utils.py b/src/lib389/lib389/utils.py
+index 5ba0c6676..c63b4d0ee 100644
+--- a/src/lib389/lib389/utils.py
++++ b/src/lib389/lib389/utils.py
+@@ -266,6 +266,8 @@ def selinux_label_port(port, remove_label=False):
+     :type remove_label: boolean
+     :raises: ValueError: Error message
+     """
++    if port is None:
++        return
+     try:
+         import selinux
+     except ImportError:
+@@ -662,7 +664,8 @@ def isLocalHost(host_name):
+         Uses gethostbyname()
+     """
+     # first see if this is a "well known" local hostname
+-    if host_name == 'localhost' or \
++    if host_name is None or \
++       host_name == 'localhost' or \
+        host_name == 'localhost.localdomain' or \
+        host_name == socket.gethostname():
+         return True
+-- 
+2.31.1
+
