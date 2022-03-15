@@ -48,7 +48,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.23
-Release:          %{?relprefix}12%{?prerel}%{?dist}
+Release:          %{?relprefix}14%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -270,6 +270,10 @@ Patch30:          0030-Issue-4884-server-crashes-when-dnaInterval-attribute.patc
 Patch31:          0031-Issue-4925-Performance-ACI-targetfilter-evaluation-r.patch
 Patch32:          0032-Issue-4972-gecos-with-IA5-introduces-a-compatibility.patch
 Patch33:          0033-Issue-4910-db-reindex-corrupts-RUV-tombstone-nsuique.patch
+Patch34:          0034-CVE-2021-4091-BZ-2030367-double-free-of-the-virtual-.patch
+Patch35:          0035-Issue-4775-Add-entryuuid-CLI-and-Fixup-4776.patch
+Patch36:          0036-Issue-4877-RFE-EntryUUID-to-validate-UUIDs-on-fixup-.patch
+Patch37:          0037-Issue-4595-Paged-search-lookthroughlimit-bug-4602.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -888,6 +892,18 @@ exit 0
 %doc README.md
 
 %changelog
+* Wed Mar 2 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.23-14
+- Bump version to 1.4.3.23-14
+- Resolves: Bug 2059893 - Paged search lookthroughlimit counter doesnt take read ahead into account
+- Resolves: Bug 2060106 - Based on 1944494 (RFC 4530 entryUUID attribute) - plugin entryuuid failing
+- Resolves: Bug 2060110 - double-free of the virtual attribute context in persistent search
+
+* Mon Feb 21 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.23-13
+- Bump version to 1.4.3.23-13
+- Resolves: Bug 2056488 - Paged search lookthroughlimit counter doesnt take read ahead into account
+- Resolves: Bug 2047166 - Based on 1944494 (RFC 4530 entryUUID attribute) - plugin entryuuid failing
+- Resolves: Bug 2056481 - double-free of the virtual attribute context in persistent search
+
 * Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-12
 - Bump version to 1.4.3.23-12
 - Resolves: Bug 2024697 - DB corruption "_entryrdn_insert_key - Same DN (dn: nsuniqueid=ffffffff-ffffffff-ffffffff-ffffffff,<SUFFIX>) is already in the entryrdn file"
