@@ -1,0 +1,31 @@
+From 2c6653edef793d46815e6df607e55d68e14fe232 Mon Sep 17 00:00:00 2001
+From: spike <spike@fedoraproject.org>
+Date: Fri, 5 Nov 2021 13:56:41 +0100
+Subject: [PATCH 12/12] Issue 4959 - Invalid /etc/hosts setup can cause
+ isLocalHost to fail.
+
+Description: Use local_simple_allocate in dsctl so that isLocal is always set properly
+
+Relates: https://github.com/389ds/389-ds-base/issues/4959
+
+Reviewed by: @droideck (Thanks!)
+---
+ src/lib389/cli/dsctl | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/lib389/cli/dsctl b/src/lib389/cli/dsctl
+index b6c42b5cc..d2ea6cd29 100755
+--- a/src/lib389/cli/dsctl
++++ b/src/lib389/cli/dsctl
+@@ -135,7 +135,7 @@ if __name__ == '__main__':
+         log.error("Unable to access instance information. Are you running as the correct user? (usually dirsrv or root)")
+         sys.exit(1)
+ 
+-    inst.allocate(insts[0])
++    inst.local_simple_allocate(insts[0]['server-id'])
+     log.debug('Instance allocated')
+ 
+     try:
+-- 
+2.31.1
+

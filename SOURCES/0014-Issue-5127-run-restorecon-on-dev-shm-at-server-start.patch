@@ -1,0 +1,102 @@
+From 03ca5111a8de602ecef9ad33206ba593b242d0df Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Fri, 21 Jan 2022 10:15:35 -0500
+Subject: [PATCH 1/2] Issue 5127 - run restorecon on /dev/shm at server startup
+
+Description:
+
+Update the systemd service file to execute a script that runs
+restorecon on the DB home directory.  This addresses issues with
+backup/restore, reboot, and FS restore issues that can happen when
+/dev/shm is missing or created outside of dscreate.
+
+relates: https://github.com/389ds/389-ds-base/issues/5127
+
+Reviewed by: progier & viktor (Thanks!!)
+---
+ Makefile.am                          |  2 +-
+ rpm/389-ds-base.spec.in              |  1 +
+ wrappers/ds_selinux_restorecon.sh.in | 33 ++++++++++++++++++++++++++++
+ wrappers/systemd.template.service.in |  1 +
+ 4 files changed, 36 insertions(+), 1 deletion(-)
+ create mode 100644 wrappers/ds_selinux_restorecon.sh.in
+
+diff --git a/Makefile.am b/Makefile.am
+index fc5a6a7d1..d6ad273c3 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -775,7 +775,7 @@ libexec_SCRIPTS += ldap/admin/src/scripts/ds_selinux_enabled \
+ 	ldap/admin/src/scripts/ds_selinux_port_query
+ endif
+ if SYSTEMD
+-libexec_SCRIPTS += wrappers/ds_systemd_ask_password_acl
++libexec_SCRIPTS += wrappers/ds_systemd_ask_password_acl wrappers/ds_selinux_restorecon.sh
+ endif
+ 
+ install-data-hook:
+diff --git a/rpm/389-ds-base.spec.in b/rpm/389-ds-base.spec.in
+index d80de8422..6c0d95abd 100644
+--- a/rpm/389-ds-base.spec.in
++++ b/rpm/389-ds-base.spec.in
+@@ -623,6 +623,7 @@ exit 0
+ %{_sbindir}/ns-slapd
+ %{_mandir}/man8/ns-slapd.8.gz
+ %{_libexecdir}/%{pkgname}/ds_systemd_ask_password_acl
++%{_libexecdir}/%{pkgname}/ds_selinux_restorecon.sh
+ %{_mandir}/man5/99user.ldif.5.gz
+ %{_mandir}/man5/certmap.conf.5.gz
+ %{_mandir}/man5/slapd-collations.conf.5.gz
+diff --git a/wrappers/ds_selinux_restorecon.sh.in b/wrappers/ds_selinux_restorecon.sh.in
+new file mode 100644
+index 000000000..063347de3
+--- /dev/null
++++ b/wrappers/ds_selinux_restorecon.sh.in
+@@ -0,0 +1,33 @@
++#!/bin/sh
++# BEGIN COPYRIGHT BLOCK
++# Copyright (C) 2022 Red Hat, Inc.
++#
++# All rights reserved.
++#
++# License: GPL (version 3 or any later version).
++# See LICENSE for details.
++# END COPYRIGHT BLOCK
++
++# Make sure we have the path to the dse.ldif
++if [ -z $1 ]
++then
++    echo "usage: ${0} /etc/dirsrv/slapd-<instance>/dse.ldif"
++    exit 0
++fi
++
++if ! command -v restorecon &> /dev/null
++then
++    # restorecon is not available
++    exit 0
++fi
++
++# Grep the db_home_dir out of the config file
++DS_HOME_DIR=`grep 'nsslapd-db-home-directory: ' $1 | awk '{print $2}'`
++if [ -z "$DS_HOME_DIR" ]
++then
++    # No DB home set, that's ok
++    exit 0
++fi
++
++# Now run restorecon
++restorecon ${DS_HOME_DIR}
+diff --git a/wrappers/systemd.template.service.in b/wrappers/systemd.template.service.in
+index a8c21a9be..4485e0ec0 100644
+--- a/wrappers/systemd.template.service.in
++++ b/wrappers/systemd.template.service.in
+@@ -14,6 +14,7 @@ EnvironmentFile=-@initconfigdir@/@package_name@
+ EnvironmentFile=-@initconfigdir@/@package_name@-%i
+ PIDFile=/run/@package_name@/slapd-%i.pid
+ ExecStartPre=@libexecdir@/ds_systemd_ask_password_acl @instconfigdir@/slapd-%i/dse.ldif
++ExecStartPre=@libexecdir@/ds_selinux_restorecon.sh @instconfigdir@/slapd-%i/dse.ldif
+ ExecStart=@sbindir@/ns-slapd -D @instconfigdir@/slapd-%i -i /run/@package_name@/slapd-%i.pid
+ PrivateTmp=on
+ 
+-- 
+2.31.1
+
