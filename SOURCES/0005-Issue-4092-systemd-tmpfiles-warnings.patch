@@ -1,0 +1,245 @@
+From 9c08a053938eb28821fad7d0850c046ef2ed44c4 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 9 Dec 2020 16:16:30 -0500
+Subject: [PATCH 05/12] Issue 4092 - systemd-tmpfiles warnings
+
+Bug Description:
+
+systemd-tmpfiles warns about legacy paths in our tmpfiles configs.
+Using /var/run also introduces a race condition, see the following
+issue https://pagure.io/389-ds-base/issue/47429
+
+Fix Description:
+
+Instead of using @localstatedir@/run use @localrundir@ which was
+introduced in #850.
+
+Relates: https://github.com/389ds/389-ds-base/issues/766
+Fixes: https://github.com/389ds/389-ds-base/issues/4092
+
+Reviewed by: vashirov & firstyear(Thanks!)
+---
+ Makefile.am                                  |  4 ++--
+ configure.ac                                 | 10 ++++++++--
+ dirsrvtests/tests/suites/basic/basic_test.py |  3 ++-
+ ldap/admin/src/defaults.inf.in               |  8 ++++----
+ ldap/servers/snmp/main.c                     |  8 ++++----
+ src/lib389/lib389/__init__.py                |  3 +++
+ src/lib389/lib389/instance/options.py        |  7 ++++++-
+ src/lib389/lib389/instance/remove.py         | 13 ++++++++-----
+ src/lib389/lib389/instance/setup.py          | 10 ++++++++--
+ 9 files changed, 45 insertions(+), 21 deletions(-)
+
+diff --git a/Makefile.am b/Makefile.am
+index 36434cf17..fc5a6a7d1 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -141,8 +141,8 @@ PATH_DEFINES = -DLOCALSTATEDIR="\"$(localstatedir)\"" -DSYSCONFDIR="\"$(sysconfd
+ 	-DLIBDIR="\"$(libdir)\"" -DBINDIR="\"$(bindir)\"" \
+ 	-DDATADIR="\"$(datadir)\"" -DDOCDIR="\"$(docdir)\"" \
+ 	-DSBINDIR="\"$(sbindir)\"" -DPLUGINDIR="\"$(serverplugindir)\"" \
+-	-DTEMPLATEDIR="\"$(sampledatadir)\"" -DSYSTEMSCHEMADIR="\"$(systemschemadir)\""
+-
++	-DTEMPLATEDIR="\"$(sampledatadir)\"" -DSYSTEMSCHEMADIR="\"$(systemschemadir)\"" \
++	-DLOCALRUNDIR="\"$(localrundir)\""
+ # Now that we have all our defines in place, setup the CPPFLAGS
+ 
+ # These flags are the "must have" for all components
+diff --git a/configure.ac b/configure.ac
+index 61bf35e4a..9845beb7d 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -418,7 +418,14 @@ fi
+ 
+ m4_include(m4/fhs.m4)
+ 
+-localrundir='/run'
++# /run directory path
++AC_ARG_WITH([localrundir],
++            AS_HELP_STRING([--with-localrundir=DIR],
++                           [Runtime data directory]),
++            [localrundir=$with_localrundir],
++            [localrundir="/run"])
++AC_SUBST([localrundir])
++
+ cockpitdir=/389-console
+ 
+ # installation paths - by default, we store everything
+@@ -899,7 +906,6 @@ AC_SUBST(ldaplib_defs)
+ AC_SUBST(ldaptool_bindir)
+ AC_SUBST(ldaptool_opts)
+ AC_SUBST(plainldif_opts)
+-AC_SUBST(localrundir)
+ 
+ AC_SUBST(brand)
+ AC_SUBST(capbrand)
+diff --git a/dirsrvtests/tests/suites/basic/basic_test.py b/dirsrvtests/tests/suites/basic/basic_test.py
+index 41726f073..7e80c443b 100644
+--- a/dirsrvtests/tests/suites/basic/basic_test.py
++++ b/dirsrvtests/tests/suites/basic/basic_test.py
+@@ -901,7 +901,8 @@ def test_basic_ldapagent(topology_st, import_example_ldif):
+     # Remember, this is *forking*
+     check_output([os.path.join(topology_st.standalone.get_sbin_dir(), 'ldap-agent'), config_file])
+     # First kill any previous agents ....
+-    pidpath = os.path.join(var_dir, 'run/ldap-agent.pid')
++    run_dir = topology_st.standalone.get_run_dir()
++    pidpath = os.path.join(run_dir, 'ldap-agent.pid')
+     pid = None
+     with open(pidpath, 'r') as pf:
+         pid = pf.readlines()[0].strip()
+diff --git a/ldap/admin/src/defaults.inf.in b/ldap/admin/src/defaults.inf.in
+index d5f504591..e02248b89 100644
+--- a/ldap/admin/src/defaults.inf.in
++++ b/ldap/admin/src/defaults.inf.in
+@@ -35,12 +35,12 @@ sysconf_dir = @sysconfdir@
+ initconfig_dir = @initconfigdir@
+ config_dir = @instconfigdir@/slapd-{instance_name}
+ local_state_dir = @localstatedir@
+-run_dir = @localstatedir@/run/dirsrv
++run_dir = @localrundir@
+ # This is the expected location of ldapi.
+-ldapi = @localstatedir@/run/slapd-{instance_name}.socket
++ldapi = @localrundir@/slapd-{instance_name}.socket
++pid_file = @localrundir@/slapd-{instance_name}.pid
+ ldapi_listen = on
+ ldapi_autobind = on
+-pid_file = @localstatedir@/run/dirsrv/slapd-{instance_name}.pid
+ inst_dir = @serverdir@/slapd-{instance_name}
+ plugin_dir = @serverplugindir@
+ system_schema_dir = @systemschemadir@
+@@ -54,7 +54,7 @@ root_dn = cn=Directory Manager
+ schema_dir = @instconfigdir@/slapd-{instance_name}/schema
+ cert_dir = @instconfigdir@/slapd-{instance_name}
+ 
+-lock_dir = @localstatedir@/lock/dirsrv/slapd-{instance_name}
++lock_dir = @localrundir@/lock/dirsrv/slapd-{instance_name}
+ log_dir = @localstatedir@/log/dirsrv/slapd-{instance_name}
+ access_log = @localstatedir@/log/dirsrv/slapd-{instance_name}/access
+ audit_log = @localstatedir@/log/dirsrv/slapd-{instance_name}/audit
+diff --git a/ldap/servers/snmp/main.c b/ldap/servers/snmp/main.c
+index 88a4d532a..e6271a8a9 100644
+--- a/ldap/servers/snmp/main.c
++++ b/ldap/servers/snmp/main.c
+@@ -287,14 +287,14 @@ load_config(char *conf_path)
+     }
+ 
+     /* set pidfile path */
+-    if ((pidfile = malloc(strlen(LOCALSTATEDIR) + strlen("/run/") +
++    if ((pidfile = malloc(strlen(LOCALRUNDIR) + strlen("/") +
+                           strlen(LDAP_AGENT_PIDFILE) + 1)) != NULL) {
+-        strncpy(pidfile, LOCALSTATEDIR, strlen(LOCALSTATEDIR) + 1);
++        strncpy(pidfile, LOCALRUNDIR, strlen(LOCALRUNDIR) + 1);
+         /* The above will likely not be NULL terminated, but we need to
+          * be sure that we're properly NULL terminated for the below
+          * strcat() to work properly. */
+-        pidfile[strlen(LOCALSTATEDIR)] = (char)0;
+-        strcat(pidfile, "/run/");
++        pidfile[strlen(LOCALRUNDIR)] = (char)0;
++        strcat(pidfile, "/");
+         strcat(pidfile, LDAP_AGENT_PIDFILE);
+     } else {
+         printf("ldap-agent: malloc error processing config file\n");
+diff --git a/src/lib389/lib389/__init__.py b/src/lib389/lib389/__init__.py
+index e0299c5b4..2a0b83913 100644
+--- a/src/lib389/lib389/__init__.py
++++ b/src/lib389/lib389/__init__.py
+@@ -1709,6 +1709,9 @@ class DirSrv(SimpleLDAPObject, object):
+     def get_bin_dir(self):
+         return self.ds_paths.bin_dir
+ 
++    def get_run_dir(self):
++        return self.ds_paths.run_dir
++
+     def get_plugin_dir(self):
+         return self.ds_paths.plugin_dir
+ 
+diff --git a/src/lib389/lib389/instance/options.py b/src/lib389/lib389/instance/options.py
+index 4e083618c..d5b95e6df 100644
+--- a/src/lib389/lib389/instance/options.py
++++ b/src/lib389/lib389/instance/options.py
+@@ -1,5 +1,5 @@
+ # --- BEGIN COPYRIGHT BLOCK ---
+-# Copyright (C) 2019 Red Hat, Inc.
++# Copyright (C) 2021 Red Hat, Inc.
+ # All rights reserved.
+ #
+ # License: GPL (version 3 or any later version).
+@@ -32,6 +32,7 @@ format_keys = [
+     'backup_dir',
+     'db_dir',
+     'db_home_dir',
++    'ldapi',
+     'ldif_dir',
+     'lock_dir',
+     'log_dir',
+@@ -233,6 +234,10 @@ class Slapd2Base(Options2):
+         self._helptext['local_state_dir'] = "Sets the location of Directory Server variable data. Only set this parameter in a development environment."
+         self._advanced['local_state_dir'] = True
+ 
++        self._options['ldapi'] = ds_paths.ldapi
++        self._type['ldapi'] = str
++        self._helptext['ldapi'] = "Sets the location of socket interface of the Directory Server."
++
+         self._options['lib_dir'] = ds_paths.lib_dir
+         self._type['lib_dir'] = str
+         self._helptext['lib_dir'] = "Sets the location of Directory Server shared libraries. Only set this parameter in a development environment."
+diff --git a/src/lib389/lib389/instance/remove.py b/src/lib389/lib389/instance/remove.py
+index d7bb48ce0..1a35ddc07 100644
+--- a/src/lib389/lib389/instance/remove.py
++++ b/src/lib389/lib389/instance/remove.py
+@@ -78,13 +78,16 @@ def remove_ds_instance(dirsrv, force=False):
+ 
+     _log.debug("Found instance marker at %s! Proceeding to remove ..." % dse_ldif_path)
+ 
+-    # Stop the instance (if running) and now we know it really does exist
+-    # and hopefully have permission to access it ...
+-    _log.debug("Stopping instance %s" % dirsrv.serverid)
+-    dirsrv.stop()
+-
+     ### ANY NEW REMOVAL ACTION MUST BE BELOW THIS LINE!!!
+ 
++    # Remove LDAPI socket file
++    ldapi_path = os.path.join(dirsrv.ds_paths.run_dir, "slapd-%s.socket" % dirsrv.serverid)
++    if os.path.exists(ldapi_path):
++        try:
++            os.remove(ldapi_path)
++        except OSError as e:
++            _log.debug(f"Failed to remove LDAPI socket ({ldapi_path})  Error: {str(e)}")
++
+     # Remove these paths:
+     # for path in ('backup_dir', 'cert_dir', 'config_dir', 'db_dir',
+     #             'ldif_dir', 'lock_dir', 'log_dir', 'run_dir'):
+diff --git a/src/lib389/lib389/instance/setup.py b/src/lib389/lib389/instance/setup.py
+index ab7a2da85..57e7a9fd4 100644
+--- a/src/lib389/lib389/instance/setup.py
++++ b/src/lib389/lib389/instance/setup.py
+@@ -732,7 +732,10 @@ class SetupDs(object):
+                 dse += line.replace('%', '{', 1).replace('%', '}', 1)
+ 
+         with open(os.path.join(slapd['config_dir'], 'dse.ldif'), 'w') as file_dse:
+-            ldapi_path = os.path.join(slapd['local_state_dir'], "run/slapd-%s.socket" % slapd['instance_name'])
++            if os.path.exists(os.path.dirname(slapd['ldapi'])):
++                ldapi_path = slapd['ldapi']
++            else:
++                ldapi_path = os.path.join(slapd['run_dir'], "slapd-%s.socket" % slapd['instance_name'])
+             dse_fmt = dse.format(
+                 schema_dir=slapd['schema_dir'],
+                 lock_dir=slapd['lock_dir'],
+@@ -902,10 +905,13 @@ class SetupDs(object):
+             self.log.info("Perform SELinux labeling ...")
+             selinux_paths = ('backup_dir', 'cert_dir', 'config_dir', 'db_dir',
+                              'ldif_dir', 'lock_dir', 'log_dir', 'db_home_dir',
+-                             'run_dir', 'schema_dir', 'tmp_dir')
++                             'schema_dir', 'tmp_dir')
+             for path in selinux_paths:
+                 selinux_restorecon(slapd[path])
+ 
++            # Don't run restorecon on the entire /run directory
++            selinux_restorecon(slapd['run_dir'] + '/dirsrv')
++
+             selinux_label_port(slapd['port'])
+ 
+         # Start the server
+-- 
+2.31.1
+

@@ -1,7 +1,7 @@
-From cf620c104ac50af48e48e8c0040820b6c073f7d7 Mon Sep 17 00:00:00 2001
+From 93588ea455aff691bdfbf59cdef4df8fcedb69f2 Mon Sep 17 00:00:00 2001
 From: Firstyear <william@blackhats.net.au>
 Date: Thu, 19 Aug 2021 10:46:00 +1000
-Subject: [PATCH 2/4] Issue 4775 - Add entryuuid CLI and Fixup (#4776)
+Subject: [PATCH 1/2] Issue 4775 - Add entryuuid CLI and Fixup (#4776)
 
 Bug Description: EntryUUID when added was missing it's CLI
 and helpers for fixups.
@@ -14,28 +14,37 @@ Author: William Brown <william@blackhats.net.au>
 
 Review by: @mreynolds389 (thanks!)
 ---
- src/lib389/lib389/cli_conf/plugin.py          |  2 +
- .../lib389/cli_conf/plugins/entryuuid.py      | 39 +++++++++++++++++++
- src/plugins/entryuuid/src/lib.rs              | 34 +++++++++-------
- 3 files changed, 60 insertions(+), 15 deletions(-)
+ src/lib389/lib389/cli_conf/plugin.py          |  6 ++-
+ .../lib389/cli_conf/plugins/entryuuid.py      | 39 ++++++++++++++
+ src/plugins/entryuuid/src/lib.rs              | 54 ++++++++-----------
+ 3 files changed, 65 insertions(+), 34 deletions(-)
  create mode 100644 src/lib389/lib389/cli_conf/plugins/entryuuid.py
 
 diff --git a/src/lib389/lib389/cli_conf/plugin.py b/src/lib389/lib389/cli_conf/plugin.py
-index b50837cb8..1bd0c70db 100644
+index 560c57f9b..7c0cf2c80 100644
 --- a/src/lib389/lib389/cli_conf/plugin.py
 +++ b/src/lib389/lib389/cli_conf/plugin.py
-@@ -27,6 +27,7 @@ from lib389.cli_conf.plugins import passthroughauth as cli_passthroughauth
+@@ -1,5 +1,5 @@
+ # --- BEGIN COPYRIGHT BLOCK ---
+-# Copyright (C) 2018 Red Hat, Inc.
++# Copyright (C) 2022 Red Hat, Inc.
+ # All rights reserved.
+ #
+ # License: GPL (version 3 or any later version).
+@@ -27,6 +27,8 @@ from lib389.cli_conf.plugins import passthroughauth as cli_passthroughauth
  from lib389.cli_conf.plugins import retrochangelog as cli_retrochangelog
  from lib389.cli_conf.plugins import automember as cli_automember
  from lib389.cli_conf.plugins import posix_winsync as cli_posix_winsync
++from lib389.cli_conf.plugins import contentsync as cli_contentsync
 +from lib389.cli_conf.plugins import entryuuid as cli_entryuuid
  
  SINGULAR = Plugin
  MANY = Plugins
-@@ -113,6 +114,7 @@ def create_parser(subparsers):
+@@ -113,6 +115,8 @@ def create_parser(subparsers):
      cli_passthroughauth.create_parser(subcommands)
      cli_retrochangelog.create_parser(subcommands)
      cli_posix_winsync.create_parser(subcommands)
++    cli_contentsync.create_parser(subcommands)
 +    cli_entryuuid.create_parser(subcommands)
  
      list_parser = subcommands.add_parser('list', help="List current configured (enabled and disabled) plugins")
@@ -86,7 +95,7 @@ index 000000000..6c86bff4b
 +                            'will have their EntryUUID attribute regenerated if not present.')
 +
 diff --git a/src/plugins/entryuuid/src/lib.rs b/src/plugins/entryuuid/src/lib.rs
-index 0197c5e83..29a9f1258 100644
+index da9f0c239..29a9f1258 100644
 --- a/src/plugins/entryuuid/src/lib.rs
 +++ b/src/plugins/entryuuid/src/lib.rs
 @@ -33,7 +33,7 @@ fn assign_uuid(e: &mut EntryRef) {
@@ -168,20 +177,25 @@ index 0197c5e83..29a9f1258 100644
                      LDAPError::Operation
                  })?,
              None => {
-@@ -144,7 +144,11 @@ impl SlapiPlugin3 for EntryUuid {
+@@ -144,17 +144,11 @@ impl SlapiPlugin3 for EntryUuid {
          // Error if the first filter is empty?
  
          // Now, to make things faster, we wrap the filter in a exclude term.
--        let raw_filter = format!("(&{}(!(entryuuid=*)))", raw_filter);
-+        let raw_filter = if !raw_filter.starts_with('(') && !raw_filter.ends_with('(') {
-+            format!("(&({})(!(entryuuid=*)))", raw_filter)
-+        } else {
-+            format!("(&{}(!(entryuuid=*)))", raw_filter)
-+        };
+-
+-        // 2021 - #4877 because we allow entryuuid to be strings, on import these may
+-        // be invalid. As a result, we DO need to allow the fixup to check the entryuuid
+-        // value is correct, so we can not exclude these during the search.
+-        /*
+         let raw_filter = if !raw_filter.starts_with('(') && !raw_filter.ends_with('(') {
+             format!("(&({})(!(entryuuid=*)))", raw_filter)
+         } else {
+             format!("(&{}(!(entryuuid=*)))", raw_filter)
+         };
+-        */
  
          Ok(FixupData { basedn, raw_filter })
      }
-@@ -155,7 +159,7 @@ impl SlapiPlugin3 for EntryUuid {
+@@ -165,7 +159,7 @@ impl SlapiPlugin3 for EntryUuid {
  
      fn task_handler(_task: &Task, data: Self::TaskData) -> Result<Self::TaskData, PluginError> {
          log_error!(
@@ -190,7 +204,7 @@ index 0197c5e83..29a9f1258 100644
              "task_handler -> start thread with -> {:?}",
              data
          );
-@@ -195,12 +199,12 @@ impl SlapiPlugin3 for EntryUuid {
+@@ -205,12 +199,12 @@ impl SlapiPlugin3 for EntryUuid {
      }
  
      fn start(_pb: &mut PblockRef) -> Result<(), PluginError> {
@@ -205,16 +219,36 @@ index 0197c5e83..29a9f1258 100644
          Ok(())
      }
  }
-@@ -212,7 +216,7 @@ pub fn entryuuid_fixup_mapfn(e: &EntryRef, _data: &()) -> Result<(), PluginError
-     /* Sanity check that entryuuid doesn't already exist */
-     if e.contains_attr("entryUUID") {
-         log_error!(
--            ErrorLevel::Trace,
+@@ -219,20 +213,14 @@ pub fn entryuuid_fixup_mapfn(e: &EntryRef, _data: &()) -> Result<(), PluginError
+     /* Supply a modification to the entry. */
+     let sdn = e.get_sdnref();
+ 
+-    /* Check that entryuuid doesn't already exist, and is valid */
+-    if let Some(valueset) = e.get_attr("entryUUID") {
+-        if valueset.iter().all(|v| {
+-            let u: Result<Uuid, _> = (&v).try_into();
+-            u.is_ok()
+-        }) {
+-            // All values were valid uuid, move on!
+-            log_error!(
+-                ErrorLevel::Plugin,
+-                "skipping fixup for -> {}",
+-                sdn.to_dn_string()
+-            );
+-            return Ok(());
+-        }
++    /* Sanity check that entryuuid doesn't already exist */
++    if e.contains_attr("entryUUID") {
++        log_error!(
 +            ErrorLevel::Plugin,
-             "skipping fixup for -> {}",
-             sdn.to_dn_string()
-         );
-@@ -232,7 +236,7 @@ pub fn entryuuid_fixup_mapfn(e: &EntryRef, _data: &()) -> Result<(), PluginError
++            "skipping fixup for -> {}",
++            sdn.to_dn_string()
++        );
++        return Ok(());
+     }
+ 
+     // Setup the modifications
+@@ -248,7 +236,7 @@ pub fn entryuuid_fixup_mapfn(e: &EntryRef, _data: &()) -> Result<(), PluginError
  
      match lmod.execute() {
          Ok(_) => {
@@ -224,5 +258,5 @@ index 0197c5e83..29a9f1258 100644
          }
          Err(e) => {
 -- 
-2.31.1
+2.34.1
 

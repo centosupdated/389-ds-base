@@ -1,7 +1,7 @@
-From 375c1aad59989fb418ab1ead6050f919cfa1ceea Mon Sep 17 00:00:00 2001
+From 2ae2f53756b6f13e2816bb30812740cb7ad97403 Mon Sep 17 00:00:00 2001
 From: tbordaz <tbordaz@redhat.com>
 Date: Fri, 5 Nov 2021 09:56:43 +0100
-Subject: [PATCH 2/3] Issue 4972 - gecos with IA5 introduces a compatibility
+Subject: [PATCH 09/12] Issue 4972 - gecos with IA5 introduces a compatibility
  issue with previous (#4981)
 
 releases where it was DirectoryString

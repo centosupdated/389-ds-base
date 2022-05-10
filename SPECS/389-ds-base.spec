@@ -47,8 +47,8 @@ ExcludeArch: i686
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          1.4.3.23
-Release:          %{?relprefix}14%{?prerel}%{?dist}
+Version:          1.4.3.28
+Release:          %{?relprefix}6%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -61,56 +61,67 @@ Provides:         ldif2ldbm >= 0
 Provides:  bundled(crate(ansi_term)) = 0.11.0
 Provides:  bundled(crate(atty)) = 0.2.14
 Provides:  bundled(crate(autocfg)) = 1.0.1
-Provides:  bundled(crate(base64)) = 0.10.1
-Provides:  bundled(crate(bitflags)) = 1.2.1
-Provides:  bundled(crate(byteorder)) = 1.4.2
+Provides:  bundled(crate(base64)) = 0.13.0
+Provides:  bundled(crate(bitflags)) = 1.3.2
+Provides:  bundled(crate(byteorder)) = 1.4.3
 Provides:  bundled(crate(cbindgen)) = 0.9.1
-Provides:  bundled(crate(cc)) = 1.0.66
-Provides:  bundled(crate(cfg-if)) = 0.1.10
+Provides:  bundled(crate(cc)) = 1.0.71
 Provides:  bundled(crate(cfg-if)) = 1.0.0
 Provides:  bundled(crate(clap)) = 2.33.3
-Provides:  bundled(crate(fernet)) = 0.1.3
+Provides:  bundled(crate(entryuuid)) = 0.1.0
+Provides:  bundled(crate(entryuuid_syntax)) = 0.1.0
+Provides:  bundled(crate(fernet)) = 0.1.4
 Provides:  bundled(crate(foreign-types)) = 0.3.2
 Provides:  bundled(crate(foreign-types-shared)) = 0.1.1
-Provides:  bundled(crate(getrandom)) = 0.1.16
-Provides:  bundled(crate(hermit-abi)) = 0.1.17
-Provides:  bundled(crate(itoa)) = 0.4.7
+Provides:  bundled(crate(getrandom)) = 0.2.3
+Provides:  bundled(crate(hermit-abi)) = 0.1.19
+Provides:  bundled(crate(itoa)) = 0.4.8
+Provides:  bundled(crate(jobserver)) = 0.1.24
 Provides:  bundled(crate(lazy_static)) = 1.4.0
-Provides:  bundled(crate(libc)) = 0.2.82
+Provides:  bundled(crate(libc)) = 0.2.104
 Provides:  bundled(crate(librnsslapd)) = 0.1.0
 Provides:  bundled(crate(librslapd)) = 0.1.0
-Provides:  bundled(crate(log)) = 0.4.11
-Provides:  bundled(crate(openssl)) = 0.10.32
-Provides:  bundled(crate(openssl-sys)) = 0.9.60
-Provides:  bundled(crate(pkg-config)) = 0.3.19
-Provides:  bundled(crate(ppv-lite86)) = 0.2.10
-Provides:  bundled(crate(proc-macro2)) = 1.0.24
-Provides:  bundled(crate(quote)) = 1.0.8
-Provides:  bundled(crate(rand)) = 0.7.3
-Provides:  bundled(crate(rand_chacha)) = 0.2.2
-Provides:  bundled(crate(rand_core)) = 0.5.1
-Provides:  bundled(crate(rand_hc)) = 0.2.0
-Provides:  bundled(crate(redox_syscall)) = 0.1.57
+Provides:  bundled(crate(log)) = 0.4.14
+Provides:  bundled(crate(once_cell)) = 1.8.0
+Provides:  bundled(crate(openssl)) = 0.10.36
+Provides:  bundled(crate(openssl-sys)) = 0.9.67
+Provides:  bundled(crate(paste)) = 0.1.18
+Provides:  bundled(crate(paste-impl)) = 0.1.18
+Provides:  bundled(crate(pkg-config)) = 0.3.20
+Provides:  bundled(crate(ppv-lite86)) = 0.2.14
+Provides:  bundled(crate(proc-macro-hack)) = 0.5.19
+Provides:  bundled(crate(proc-macro2)) = 1.0.30
+Provides:  bundled(crate(quote)) = 1.0.10
+Provides:  bundled(crate(rand)) = 0.8.4
+Provides:  bundled(crate(rand_chacha)) = 0.3.1
+Provides:  bundled(crate(rand_core)) = 0.6.3
+Provides:  bundled(crate(rand_hc)) = 0.3.1
+Provides:  bundled(crate(redox_syscall)) = 0.2.10
 Provides:  bundled(crate(remove_dir_all)) = 0.5.3
 Provides:  bundled(crate(rsds)) = 0.1.0
 Provides:  bundled(crate(ryu)) = 1.0.5
-Provides:  bundled(crate(serde)) = 1.0.118
-Provides:  bundled(crate(serde_derive)) = 1.0.118
-Provides:  bundled(crate(serde_json)) = 1.0.61
+Provides:  bundled(crate(serde)) = 1.0.130
+Provides:  bundled(crate(serde_derive)) = 1.0.130
+Provides:  bundled(crate(serde_json)) = 1.0.68
 Provides:  bundled(crate(slapd)) = 0.1.0
+Provides:  bundled(crate(slapi_r_plugin)) = 0.1.0
 Provides:  bundled(crate(strsim)) = 0.8.0
-Provides:  bundled(crate(syn)) = 1.0.58
-Provides:  bundled(crate(tempfile)) = 3.1.0
+Provides:  bundled(crate(syn)) = 1.0.80
+Provides:  bundled(crate(synstructure)) = 0.12.6
+Provides:  bundled(crate(tempfile)) = 3.2.0
 Provides:  bundled(crate(textwrap)) = 0.11.0
 Provides:  bundled(crate(toml)) = 0.5.8
-Provides:  bundled(crate(unicode-width)) = 0.1.8
-Provides:  bundled(crate(unicode-xid)) = 0.2.1
-Provides:  bundled(crate(vcpkg)) = 0.2.11
+Provides:  bundled(crate(unicode-width)) = 0.1.9
+Provides:  bundled(crate(unicode-xid)) = 0.2.2
+Provides:  bundled(crate(uuid)) = 0.8.2
+Provides:  bundled(crate(vcpkg)) = 0.2.15
 Provides:  bundled(crate(vec_map)) = 0.8.2
-Provides:  bundled(crate(wasi)) = 0.9.0+wasi_snapshot_preview1
+Provides:  bundled(crate(wasi)) = 0.10.2+wasi_snapshot_preview1
 Provides:  bundled(crate(winapi)) = 0.3.9
 Provides:  bundled(crate(winapi-i686-pc-windows-gnu)) = 0.4.0
 Provides:  bundled(crate(winapi-x86_64-pc-windows-gnu)) = 0.4.0
+Provides:  bundled(crate(zeroize)) = 1.4.2
+Provides:  bundled(crate(zeroize_derive)) = 1.2.0
 ##### Bundled cargo crates list - END #####
 
 BuildRequires:    nspr-devel
@@ -234,46 +245,27 @@ Source2:          %{name}-devel.README
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
 %if %{use_rust}
-Source4:          vendor-%{version}-2.tar.gz
+Source4:          vendor-%{version}-1.tar.gz
 Source5:          Cargo.lock
 %endif
-Patch01:          0001-Issue-4747-Remove-unstable-unstatus-tests-from-PRCI-.patch
-Patch02:          0002-Issue-4701-RFE-Exclude-attributes-from-retro-changel.patch
-Patch03:          0003-Ticket-137-Implement-EntryUUID-plugin.patch
-Patch04:          0004-Ticket-4326-entryuuid-fixup-did-not-work-correctly-4.patch
-Patch05:          0005-Issue-4498-BUG-entryuuid-replication-may-not-work-45.patch
-Patch06:          0006-Issue-4421-Unable-to-build-with-Rust-enabled-in-clos.patch
-Patch07:          0007-Ticket-51175-resolve-plugin-name-leaking.patch
-Patch08:          0008-Issue-4773-Enable-interval-feature-of-DNA-plugin.patch
-Patch09:          0009-Issue-4623-RFE-Monitor-the-current-DB-locks-4762.patch
-Patch10:          0010-Issue-4764-replicated-operation-sometime-checks-ACI-.patch
-Patch11:          0011-Issue-4778-RFE-Allow-setting-TOD-for-db-compaction-a.patch
-Patch12:          0012-Issue-4778-RFE-Add-changelog-compaction-task-in-1.4..patch
-Patch13:          0013-Issue-4797-ACL-IP-ADDRESS-evaluation-may-corrupt-c_i.patch
-Patch14:          0014-Issue-4396-Minor-memory-leak-in-backend-4558-4572.patch
-Patch15:          0015-Issue-4700-Regression-in-winsync-replication-agreeme.patch
-Patch16:          0016-Issue-4725-Fix-compiler-warnings.patch
-Patch17:          0017-Issue-4814-_cl5_get_tod_expiration-may-crash-at-star.patch
-Patch18:          0018-Issue-4789-Temporary-password-rules-are-not-enforce-.patch
-Patch19:          0019-Issue-4788-CLI-should-support-Temporary-Password-Rul.patch
-Patch20:          0020-Issue-4447-Crash-when-the-Referential-Integrity-log-.patch
-Patch21:          0021-Issue-4791-Missing-dependency-for-RetroCL-RFE.patch
-Patch22:          0022-Issue-4656-remove-problematic-language-from-ds-replc.patch
-Patch23:          0023-Issue-4443-Internal-unindexed-searches-in-syncrepl-r.patch
-Patch24:          0024-Issue-4817-BUG-locked-crypt-accounts-on-import-may-a.patch
-Patch25:          0025-Issue-4837-persistent-search-returns-entries-even-wh.patch
-Patch26:          0026-Hardcode-gost-crypt-passsword-storage-scheme.patch
-Patch27:          0027-Issue-4734-import-of-entry-with-no-parent-warning-47.patch
-Patch28:          0028-Issue-4872-BUG-entryuuid-enabled-by-default-causes-r.patch
-Patch29:          0029-Remove-GOST-YESCRYPT-password-sotrage-scheme.patch
-Patch30:          0030-Issue-4884-server-crashes-when-dnaInterval-attribute.patch
-Patch31:          0031-Issue-4925-Performance-ACI-targetfilter-evaluation-r.patch
-Patch32:          0032-Issue-4972-gecos-with-IA5-introduces-a-compatibility.patch
-Patch33:          0033-Issue-4910-db-reindex-corrupts-RUV-tombstone-nsuique.patch
-Patch34:          0034-CVE-2021-4091-BZ-2030367-double-free-of-the-virtual-.patch
-Patch35:          0035-Issue-4775-Add-entryuuid-CLI-and-Fixup-4776.patch
-Patch36:          0036-Issue-4877-RFE-EntryUUID-to-validate-UUIDs-on-fixup-.patch
-Patch37:          0037-Issue-4595-Paged-search-lookthroughlimit-bug-4602.patch
+
+Patch01:          0001-Issue-4678-RFE-automatique-disable-of-virtual-attrib.patch
+Patch02:          0002-Issue-4943-Fix-csn-generator-to-limit-time-skew-drif.patch
+Patch03:          0003-Issue-3584-Fix-PBKDF2_SHA256-hashing-in-FIPS-mode-49.patch
+Patch04:          0004-Issue-4956-Automember-allows-invalid-regex-and-does-.patch
+Patch05:          0005-Issue-4092-systemd-tmpfiles-warnings.patch
+Patch06:          0006-Issue-4973-installer-changes-permissions-on-run.patch
+Patch07:          0007-Issue-4973-update-snmp-to-use-run-dirsrv-for-PID-fil.patch
+Patch08:          0008-Issue-4978-make-installer-robust.patch
+Patch09:          0009-Issue-4972-gecos-with-IA5-introduces-a-compatibility.patch
+Patch10:          0010-Issue-4997-Function-declaration-compiler-error-on-1..patch
+Patch11:          0011-Issue-4978-use-more-portable-python-command-for-chec.patch
+Patch12:          0012-Issue-4959-Invalid-etc-hosts-setup-can-cause-isLocal.patch
+Patch13:          0013-CVE-2021-4091-BZ-2030367-double-free-of-the-virtual-.patch
+Patch14:          0014-Issue-5127-run-restorecon-on-dev-shm-at-server-start.patch
+Patch15:          0015-Issue-5127-ds_selinux_restorecon.sh-always-exit-0.patch
+Patch16:          0016-Issue-4775-Add-entryuuid-CLI-and-Fixup-4776.patch
+Patch17:          0017-Issue-4775-Fix-cherry-pick-error.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -701,6 +693,7 @@ exit 0
 %{_sbindir}/ns-slapd
 %{_mandir}/man8/ns-slapd.8.gz
 %{_libexecdir}/%{pkgname}/ds_systemd_ask_password_acl
+%{_libexecdir}/%{pkgname}/ds_selinux_restorecon.sh
 %{_mandir}/man5/99user.ldif.5.gz
 %{_mandir}/man5/certmap.conf.5.gz
 %{_mandir}/man5/slapd-collations.conf.5.gz
@@ -892,84 +885,42 @@ exit 0
 %doc README.md
 
 %changelog
-* Wed Mar 2 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.23-14
-- Bump version to 1.4.3.23-14
-- Resolves: Bug 2059893 - Paged search lookthroughlimit counter doesnt take read ahead into account
-- Resolves: Bug 2060106 - Based on 1944494 (RFC 4530 entryUUID attribute) - plugin entryuuid failing
-- Resolves: Bug 2060110 - double-free of the virtual attribute context in persistent search
+* Thu Feb 3 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-6
+- Bump version to 1.4.3.28-6
+- Resolves: Bug 2047171 - Based on 1944494 (RFC 4530 entryUUID attribute) - plugin entryuuid failing
 
-* Mon Feb 21 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.23-13
-- Bump version to 1.4.3.23-13
-- Resolves: Bug 2056488 - Paged search lookthroughlimit counter doesnt take read ahead into account
-- Resolves: Bug 2047166 - Based on 1944494 (RFC 4530 entryUUID attribute) - plugin entryuuid failing
-- Resolves: Bug 2056481 - double-free of the virtual attribute context in persistent search
+* Fri Jan 28 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-5
+- Bump version to 1.4.3.28-5
+- Resolves: Bug 2045223 - ipa-restore command is failing when restore after uninstalling the server (aprt 2)
 
-* Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-12
-- Bump version to 1.4.3.23-12
-- Resolves: Bug 2024697 - DB corruption "_entryrdn_insert_key - Same DN (dn: nsuniqueid=ffffffff-ffffffff-ffffffff-ffffffff,<SUFFIX>) is already in the entryrdn file"
+* Tue Jan 25 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-4
+- Bump version to 1.4.3.28-4
+- Resolves: Bug 2045223 - ipa-restore command is failing when restore after uninstalling the server
 
-* Wed Nov 10 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-11
-- Bump version to 1.4.3.23-11
-- Resolves: Bug 2022005 - ipa user-add fails with "gecos: invalid per syntax: Invalid syntax"
-- Resolves: Bug 2021998 - IPA server is very slow in execution of some searches
+* Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-3
+- Bump version to 1.4.3.28-3
+- Resolves: Bug 2030367 - EMBARGOED CVE-2021-4091 389-ds:1.4/389-ds-base: double-free of the virtual attribute context in persistent search
+- Resolves: Bug 2033398 - PBKDF2 hashing does not work in FIPS mode
 
-* Thu Aug 26 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-10
-- Bump version to 1.4.3.23-10
-- Resolves: Bug 1997138 - LDAP server crashes when dnaInterval attribute is set to 0
+* Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-2
+- Bump version to 1.4.3.28-2
+- Resolves: Bug 2024695 - DB corruption "_entryrdn_insert_key - Same DN (dn: nsuniqueid=ffffffff-ffffffff-ffffffff-ffffffff,<SUFFIX>) is already in the entryrdn file"
+- Resolves: Bug 1859210 - systemd-tmpfiles warnings
+- Resolves: Bug 1913199 - IPA server (389ds) is very slow in execution of some searches (`&(memberOf=...)(objectClass=ipaHost)` in particular)
+- Resolves: Bug 1974236 - automatique disable of virtual attribute checking
+- Resolves: Bug 1976882 - logconv.pl -j: Use of uninitialized value $first in numeric gt (>)
+- Resolves: Bug 1981281 - ipa user-add fails with "gecos: value invalid per syntax: Invalid syntax"
+- Resolves: Bug 2015998 - Log the Auto Member invalid regex rules in the LDAP errors log
 
-* Wed Aug 25 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-9
-- Bump version to 1.4.3.23-9
-- Resolves: Bug 1947044 - remove unsupported GOST password storage scheme
+* Thu Oct 21 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-1
+- Bump version to 1.4.3.28-1
+- Resolves: Bug 2016014 - rebase RHEL 8.6 with 389-ds-base-1.4.3
+- Resolves: Bug 1990002 - monitor displays wrong date for connection
+- Resolves: Bug 1950335 - upgrade password hash on bind also causes passwordExpirationtime to be updated
+- Resolves: Bug 1916292 - Indexing a single backend actually processes all configured backends
+- Resolves: Bug 1780842 - [RFE] set db home directory to /dev/shm by default
+- Resolves: Bug 2000975 - Retro Changelog does not trim changes
 
-* Thu Aug 19 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-8
-- Bump version to 1.4.3.23-8
-- Resolves: Bug 1947044 - add missing patch for import result code
-- Resolves: Bug 1944494 - support for RFC 4530 entryUUID attribute
 
-* Mon Jul 26 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-7
-- Bump version to 1.4.3.23-7
-- Resolves: Bug 1983921 - persistent search returns entries even when an error is returned by content-sync-plugin
 
-* Fri Jul 16 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-6
-- Bump version to 1.4.3.23-6
-- Resolves: Bug 1982787 - CRYPT password hash with asterisk allows any bind attempt to succeed
-
-* Thu Jul 15 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-5
-- Bump version to 1.4.3.23-5
-- Resolves: Bug 1951020 - Internal unindexed searches in syncrepl
-- Resolves: Bug 1978279 - ds-replcheck state output message has 'Master' instead of 'Supplier'
-
-* Tue Jun 29 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-4
-- Bump version to 1.4.3.23-4
-- Resolves: Bug 1976906 - Instance crash at restart after changelog configuration
-- Resolves: Bug 1480323 - ns-slapd crash at startup - Segmentation fault in strcmpi_fast() when the Referential Integrity log is manually edited
-- Resolves: Bug 1967596 - Temporary password - add CLI and fix compiler errors
-
-* Thu Jun 17 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-3
-- Bump version to 1.4.3.23-3
-- Resolves: Bug 1944494 - support for RFC 4530 entryUUID attribute
-- Resolves: Bug 1967839 - ACIs are being evaluated against the Replication Manager account in a replication context
-- Resolves: Bug 1970259 - A connection can be erroneously flagged as replication conn during evaluation of an aci with ip bind rule
-- Resolves: Bug 1972590 - Large updates can reset the CLcache to the beginning of the changelog
-- Resolves: Bug 1903221 - Memory leak in 389ds backend (Minor)
-
-* Sun May 30 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-2
-- Bump version to 1.4.3.23-2
-- Resolves: Bug 1812286 - RFE - Monitor the current DB locks ( nsslapd-db-current-locks )
-- Resolves: Bug 1748441 - RFE - Schedule execution of "compactdb" at specific date/time
-- Resolves: Bug 1938239 - RFE - Extend DNA plugin to support intervals sizes for subuids
-
-* Fri May 14 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.23-1
-- Bump version to 1.4.3.23-1
-- Resolves: Bug 1947044 - Rebase 389 DS with 389-ds-base-1.4.3.23 for RHEL 8.5
-- Resolves: Bug 1850664 - RFE - Add an option for the Retro Changelog to ignore some attributes
-- Resolves: Bug 1903221 - Memory leak in 389ds backend (Minor)
-- Resolves: Bug 1898541 - Changelog cache can upload updates from a wrong starting point (CSN)
-- Resolves: Bug 1889562 - client psearch with multiple threads hangs if nsslapd-maxthreadsperconn is under sized
-- Resolves: Bug 1924848 - Negative wtime on ldapcompare
-- Resolves: Bug 1895460 - RFE - Log an additional message if the server certificate nickname doesn't match nsSSLPersonalitySSL value
-- Resolves: Bug 1897614 - Performance search rate: change entry cache monitor to recursive pthread mutex
-- Resolves: Bug 1939607 - hang because of incorrect accounting of readers in vattr rwlock
-- Resolves: Bug 1626633 - [RFE] DS - Update the password policy to support a Temporary Password with expiration
-- Resolves: Bug 1952804 - CVE-2021-3514 389-ds:1.4/389-ds-base: sync_repl NULL pointer dereference in sync_create_state_control()
 
