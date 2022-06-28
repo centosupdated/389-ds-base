@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}15%{?prerel}%{?dist}
+Release:          %{?relprefix}16%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -180,7 +180,10 @@ Patch31:          0031-Issue-4667-incorrect-accounting-of-readers-in-vattr-.patc
 Patch32:          0032-Issue-4943-Fix-csn-generator-to-limit-time-skew-drif.patch
 Patch33:          0033-Issue-4943-followup-Fix-csn-generator-to-limit-time-.patch
 Patch34:          0034-CVE-2021-4091-BZ-2030367-double-free-of-the-virtual-.patch
-
+Patch35:          0035-Issue-5242-Craft-message-may-crash-the-server-5243.patch
+Patch36:          0036-Issue-4956-Automember-allows-invalid-regex-and-does-.patch
+Patch37:          0037-Issue-5155-RFE-Provide-an-option-to-abort-an-Auto-Me.patch
+Patch38:          0038-Issue-5221-User-with-expired-password-can-still-logi.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -534,6 +537,13 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Tue Jun 07 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-16
+- Bump version to 1.3.10.2-16
+- Resolves: Bug 2077395 - CVE-2022-0918 389-ds:1.4/389-ds-base: sending crafted message could result in DoS
+- Resolves: Bug 2014768 - Log the Auto Member invalid regex rules in the LDAP errors log
+- Resolves: Bug 2018153 - RFE - Provide an option to abort an Auto Member rebuild task
+- Resolves: Bug 2093294 - CVE-2022-0996 389-ds:1.4/389-ds-base: expired password was still allowed to access the database
+
 * Thu Feb 03 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-15
 - Bump version to 1.3.10.2-15
 - Resolves: Bug 2049812 - Fix csn generator to limit time skew drift

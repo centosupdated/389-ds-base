@@ -1,0 +1,106 @@
+From 6458f3cb9a959dd6ad9f8cadc236289715a99979 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 20 Oct 2021 10:04:06 -0400
+Subject: [PATCH 2/4] Issue 4956 - Automember allows invalid regex, and does
+ not log proper error
+
+Bug Description:  The server was detecting an invalid automember
+                  regex, but it did not reject it, and it did not
+                  log which regex rule was invalid.
+
+Fix Description:  By properly rejecting the invalid regex will also
+                  trigger the proper error logging to occur.
+
+relates: https://github.com/389ds/389-ds-base/issues/4956
+
+Reviewed by: tbordaz & spichugi(Thanks!!)
+---
+ .../automember_plugin/configuration_test.py   | 63 +++++++++++++++++++
+ ldap/servers/plugins/automember/automember.c  |  1 +
+ 2 files changed, 64 insertions(+)
+ create mode 100644 dirsrvtests/tests/suites/automember_plugin/configuration_test.py
+
+diff --git a/dirsrvtests/tests/suites/automember_plugin/configuration_test.py b/dirsrvtests/tests/suites/automember_plugin/configuration_test.py
+new file mode 100644
+index 000000000..fc7c15c45
+--- /dev/null
++++ b/dirsrvtests/tests/suites/automember_plugin/configuration_test.py
+@@ -0,0 +1,63 @@
++# --- BEGIN COPYRIGHT BLOCK ---
++# Copyright (C) 2021 Red Hat, Inc.
++# All rights reserved.
++#
++# License: GPL (version 3 or any later version).
++# See LICENSE for details.
++# --- END COPYRIGHT BLOCK ---
++
++import ldap
++import os
++import pytest
++from lib389.topologies import topology_st as topo
++from lib389.plugins import AutoMembershipPlugin, AutoMembershipDefinitions, MemberOfPlugin
++from lib389._constants import DEFAULT_SUFFIX
++
++pytestmark = pytest.mark.tier1
++
++def test_invalid_regex(topo):
++    """Test invalid regex is properly reportedin the error log
++
++    :id: a6d89f84-ec76-4871-be96-411d051800b1
++    :setup: Standalone Instance
++    :steps:
++        1. Setup automember
++        2. Add invalid regex
++        3. Error log reports useful message
++    :expectedresults:
++        1. Success
++        2. Success
++        3. Success
++    """
++    REGEX_DN = "cn=regex1,cn=testregex,cn=auto membership plugin,cn=plugins,cn=config"
++    REGEX_VALUE = "cn=*invalid*"
++    REGEX_ESC_VALUE = "cn=\\*invalid\\*"
++    GROUP_DN = "cn=demo_group,ou=groups,"  + DEFAULT_SUFFIX
++
++    AutoMembershipPlugin(topo.standalone).remove_all("nsslapd-pluginConfigArea")
++    automemberplugin = AutoMembershipPlugin(topo.standalone)
++
++    automember_prop = {
++        'cn': 'testRegex',
++        'autoMemberScope': 'ou=People,' + DEFAULT_SUFFIX,
++        'autoMemberFilter': 'objectclass=*',
++        'autoMemberDefaultGroup': GROUP_DN,
++        'autoMemberGroupingAttr': 'member:dn',
++    }
++    automember_defs = AutoMembershipDefinitions(topo.standalone, "cn=Auto Membership Plugin,cn=plugins,cn=config")
++    automember_def = automember_defs.create(properties=automember_prop)
++    automember_def.add_regex_rule("regex1", GROUP_DN, include_regex=[REGEX_VALUE])
++
++    automemberplugin.enable()
++    topo.standalone.restart()
++
++    # Check errors log for invalid message
++    ERR_STR1 = "automember_parse_regex_rule - Unable to parse regex rule"
++    ERR_STR2 = "Skipping invalid inclusive regex rule in rule entry \"%s\" \\(rule = \"%s\"\\)" % (REGEX_DN, REGEX_ESC_VALUE)
++    assert topo.standalone.searchErrorsLog(ERR_STR1)
++    assert topo.standalone.searchErrorsLog(ERR_STR2)
++
++
++if __name__ == "__main__":
++    CURRENT_FILE = os.path.realpath(__file__)
++    pytest.main("-s -v %s" % CURRENT_FILE)
+diff --git a/ldap/servers/plugins/automember/automember.c b/ldap/servers/plugins/automember/automember.c
+index 24fd874aa..d06c6375e 100644
+--- a/ldap/servers/plugins/automember/automember.c
++++ b/ldap/servers/plugins/automember/automember.c
+@@ -1224,6 +1224,7 @@ automember_parse_regex_rule(char *rule_string)
+                       "automember_parse_regex_rule - Unable to parse "
+                       "regex rule (invalid regex).  Error \"%s\".\n",
+                       recomp_result ? recomp_result : "unknown");
++        goto bail;
+     }
+ 
+     /* Validation has passed, so create the regex rule struct and fill it in.
+-- 
+2.31.1
+
