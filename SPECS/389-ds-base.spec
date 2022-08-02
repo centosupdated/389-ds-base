@@ -48,7 +48,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.28
-Release:          %{?relprefix}6%{?prerel}%{?dist}
+Release:          %{?relprefix}7%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -266,6 +266,8 @@ Patch14:          0014-Issue-5127-run-restorecon-on-dev-shm-at-server-start.patc
 Patch15:          0015-Issue-5127-ds_selinux_restorecon.sh-always-exit-0.patch
 Patch16:          0016-Issue-4775-Add-entryuuid-CLI-and-Fixup-4776.patch
 Patch17:          0017-Issue-4775-Fix-cherry-pick-error.patch
+Patch18:          0018-Issue-5221-User-with-expired-password-can-still-logi.patch
+Patch19:          0019-Issue-5242-Craft-message-may-crash-the-server-5243.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -885,6 +887,11 @@ exit 0
 %doc README.md
 
 %changelog
+* Thu May 19 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.28-7
+- Bump version to 1.4.3.28-7
+- Resolves: Bug 2081008 - CVE-2022-0996 389-ds:1.4/389-ds-base: expired password was still allowed to access the database
+- Resolves: Bug 2081014 - CVE-2022-0918 389-ds:1.4/389-ds-base: sending crafted message could result in DoS
+
 * Thu Feb 3 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-6
 - Bump version to 1.4.3.28-6
 - Resolves: Bug 2047171 - Based on 1944494 (RFC 4530 entryUUID attribute) - plugin entryuuid failing
