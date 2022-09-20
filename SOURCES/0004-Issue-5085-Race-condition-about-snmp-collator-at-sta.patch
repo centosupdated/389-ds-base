@@ -1,0 +1,34 @@
+From 16536e5d306727761ffd10403f4762956f177147 Mon Sep 17 00:00:00 2001
+From: progier389 <progier@redhat.com>
+Date: Wed, 5 Jan 2022 12:09:27 +0100
+Subject: [PATCH] Issue 5085 - Race condition about snmp collator at startup
+ (#5086)
+
+---
+ ldap/servers/slapd/snmp_collator.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/ldap/servers/slapd/snmp_collator.c b/ldap/servers/slapd/snmp_collator.c
+index 10a99475d..ed34d2ac4 100644
+--- a/ldap/servers/slapd/snmp_collator.c
++++ b/ldap/servers/slapd/snmp_collator.c
+@@ -201,7 +201,7 @@ set_snmp_interaction_row(char *host, int port, int error)
+ 
+     /* The interactions table is using the default (first) snmp_vars*/
+     snmp_vars = g_get_first_thread_snmp_vars(&cookie);
+-    if (snmp_vars == NULL)
++    if (snmp_vars == NULL || interaction_table_mutex == NULL)
+         return;
+ 
+     /* stevross: our servers don't have a concept of dsName as a distinguished name
+@@ -856,7 +856,6 @@ snmp_update_cache_stats(void)
+ 
+         if (search_result == 0) {
+             int cookie;
+-            uint64_t total;
+             struct snmp_vars_t *snmp_vars;
+             slapi_pblock_get(search_result_pb, SLAPI_PLUGIN_INTOP_SEARCH_ENTRIES,
+                              &search_entries);
+-- 
+2.31.1
+

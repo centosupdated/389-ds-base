@@ -1,0 +1,27 @@
+From 4e712bcb7ce7bd972515d996b5659fc607e09e2f Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Mon, 8 Aug 2022 14:41:47 -0400
+Subject: [PATCH] Issue 3903 - Fix another cherry-pick error
+
+Description:  erroneous ")" was added to the replica struct which broke
+the build
+---
+ ldap/servers/plugins/replication/repl5_replica.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_replica.c b/ldap/servers/plugins/replication/repl5_replica.c
+index fa6419262..5dab57de4 100644
+--- a/ldap/servers/plugins/replication/repl5_replica.c
++++ b/ldap/servers/plugins/replication/repl5_replica.c
+@@ -66,7 +66,7 @@ struct replica
+     uint64_t agmt_count;               /* Number of agmts */
+     Slapi_Counter *release_timeout;    /* The amount of time to wait before releasing active replica */
+     uint64_t abort_session;            /* Abort the current replica session */
+-    int64_t keepalive_update_interval; /* interval to do dummy update to keep RUV fresh */)
++    int64_t keepalive_update_interval; /* interval to do dummy update to keep RUV fresh */
+ };
+ 
+ 
+-- 
+2.37.1
+

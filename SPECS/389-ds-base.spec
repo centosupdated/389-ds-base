@@ -25,7 +25,7 @@ ExcludeArch: i686
 
 %if %{bundle_jemalloc}
 %global jemalloc_name jemalloc
-%global jemalloc_ver 5.2.1
+%global jemalloc_ver 5.3.0
 %global __provides_exclude ^libjemalloc\\.so.*$
 %endif
 
@@ -47,9 +47,9 @@ ExcludeArch: i686
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          1.4.3.28
+Version:          1.4.3.30
 Release:          %{?relprefix}6%{?prerel}%{?dist}
-License:          GPLv3+
+License:          GPLv3+ and MIT and (ASL 2.0 or MIT) and (ASL 2.0 or Boost) and MPLv2.0 and ASL 2.0 and BSD and (ASL 2.0 with exceptions or ASL 2.0 or MIT) and (Unlicense or MIT)
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
 Conflicts:        selinux-policy-base < 3.9.8
@@ -58,61 +58,59 @@ Obsoletes:        %{name} <= 1.4.0.9
 Provides:         ldif2ldbm >= 0
 
 ##### Bundled cargo crates list - START #####
-Provides:  bundled(crate(ansi_term)) = 0.11.0
+Provides:  bundled(crate(ansi_term)) = 0.12.1
 Provides:  bundled(crate(atty)) = 0.2.14
-Provides:  bundled(crate(autocfg)) = 1.0.1
+Provides:  bundled(crate(autocfg)) = 1.1.0
 Provides:  bundled(crate(base64)) = 0.13.0
 Provides:  bundled(crate(bitflags)) = 1.3.2
 Provides:  bundled(crate(byteorder)) = 1.4.3
 Provides:  bundled(crate(cbindgen)) = 0.9.1
-Provides:  bundled(crate(cc)) = 1.0.71
+Provides:  bundled(crate(cc)) = 1.0.73
 Provides:  bundled(crate(cfg-if)) = 1.0.0
-Provides:  bundled(crate(clap)) = 2.33.3
+Provides:  bundled(crate(clap)) = 2.34.0
 Provides:  bundled(crate(entryuuid)) = 0.1.0
 Provides:  bundled(crate(entryuuid_syntax)) = 0.1.0
+Provides:  bundled(crate(fastrand)) = 1.7.0
 Provides:  bundled(crate(fernet)) = 0.1.4
 Provides:  bundled(crate(foreign-types)) = 0.3.2
 Provides:  bundled(crate(foreign-types-shared)) = 0.1.1
-Provides:  bundled(crate(getrandom)) = 0.2.3
+Provides:  bundled(crate(getrandom)) = 0.2.6
 Provides:  bundled(crate(hermit-abi)) = 0.1.19
-Provides:  bundled(crate(itoa)) = 0.4.8
+Provides:  bundled(crate(instant)) = 0.1.12
+Provides:  bundled(crate(itoa)) = 1.0.1
 Provides:  bundled(crate(jobserver)) = 0.1.24
 Provides:  bundled(crate(lazy_static)) = 1.4.0
-Provides:  bundled(crate(libc)) = 0.2.104
+Provides:  bundled(crate(libc)) = 0.2.125
 Provides:  bundled(crate(librnsslapd)) = 0.1.0
 Provides:  bundled(crate(librslapd)) = 0.1.0
-Provides:  bundled(crate(log)) = 0.4.14
-Provides:  bundled(crate(once_cell)) = 1.8.0
-Provides:  bundled(crate(openssl)) = 0.10.36
-Provides:  bundled(crate(openssl-sys)) = 0.9.67
+Provides:  bundled(crate(log)) = 0.4.17
+Provides:  bundled(crate(once_cell)) = 1.10.0
+Provides:  bundled(crate(openssl)) = 0.10.40
+Provides:  bundled(crate(openssl-macros)) = 0.1.0
+Provides:  bundled(crate(openssl-sys)) = 0.9.73
 Provides:  bundled(crate(paste)) = 0.1.18
 Provides:  bundled(crate(paste-impl)) = 0.1.18
-Provides:  bundled(crate(pkg-config)) = 0.3.20
-Provides:  bundled(crate(ppv-lite86)) = 0.2.14
+Provides:  bundled(crate(pkg-config)) = 0.3.25
 Provides:  bundled(crate(proc-macro-hack)) = 0.5.19
-Provides:  bundled(crate(proc-macro2)) = 1.0.30
-Provides:  bundled(crate(quote)) = 1.0.10
-Provides:  bundled(crate(rand)) = 0.8.4
-Provides:  bundled(crate(rand_chacha)) = 0.3.1
-Provides:  bundled(crate(rand_core)) = 0.6.3
-Provides:  bundled(crate(rand_hc)) = 0.3.1
-Provides:  bundled(crate(redox_syscall)) = 0.2.10
+Provides:  bundled(crate(proc-macro2)) = 1.0.38
+Provides:  bundled(crate(quote)) = 1.0.18
+Provides:  bundled(crate(redox_syscall)) = 0.2.13
 Provides:  bundled(crate(remove_dir_all)) = 0.5.3
 Provides:  bundled(crate(rsds)) = 0.1.0
-Provides:  bundled(crate(ryu)) = 1.0.5
-Provides:  bundled(crate(serde)) = 1.0.130
-Provides:  bundled(crate(serde_derive)) = 1.0.130
-Provides:  bundled(crate(serde_json)) = 1.0.68
+Provides:  bundled(crate(ryu)) = 1.0.9
+Provides:  bundled(crate(serde)) = 1.0.137
+Provides:  bundled(crate(serde_derive)) = 1.0.137
+Provides:  bundled(crate(serde_json)) = 1.0.81
 Provides:  bundled(crate(slapd)) = 0.1.0
 Provides:  bundled(crate(slapi_r_plugin)) = 0.1.0
 Provides:  bundled(crate(strsim)) = 0.8.0
-Provides:  bundled(crate(syn)) = 1.0.80
+Provides:  bundled(crate(syn)) = 1.0.94
 Provides:  bundled(crate(synstructure)) = 0.12.6
-Provides:  bundled(crate(tempfile)) = 3.2.0
+Provides:  bundled(crate(tempfile)) = 3.3.0
 Provides:  bundled(crate(textwrap)) = 0.11.0
-Provides:  bundled(crate(toml)) = 0.5.8
+Provides:  bundled(crate(toml)) = 0.5.9
 Provides:  bundled(crate(unicode-width)) = 0.1.9
-Provides:  bundled(crate(unicode-xid)) = 0.2.2
+Provides:  bundled(crate(unicode-xid)) = 0.2.3
 Provides:  bundled(crate(uuid)) = 0.8.2
 Provides:  bundled(crate(vcpkg)) = 0.2.15
 Provides:  bundled(crate(vec_map)) = 0.8.2
@@ -120,12 +118,12 @@ Provides:  bundled(crate(wasi)) = 0.10.2+wasi_snapshot_preview1
 Provides:  bundled(crate(winapi)) = 0.3.9
 Provides:  bundled(crate(winapi-i686-pc-windows-gnu)) = 0.4.0
 Provides:  bundled(crate(winapi-x86_64-pc-windows-gnu)) = 0.4.0
-Provides:  bundled(crate(zeroize)) = 1.4.2
-Provides:  bundled(crate(zeroize_derive)) = 1.2.0
+Provides:  bundled(crate(zeroize)) = 1.5.5
+Provides:  bundled(crate(zeroize_derive)) = 1.3.2
 ##### Bundled cargo crates list - END #####
 
-BuildRequires:    nspr-devel
-BuildRequires:    nss-devel >= 3.34
+BuildRequires:    nspr-devel >= 4.32
+BuildRequires:    nss-devel >= 3.67.0-7
 BuildRequires:    perl-generators
 BuildRequires:    openldap-devel
 BuildRequires:    libdb-devel
@@ -207,7 +205,8 @@ Requires:         python%{python3_pkgversion}-ldap
 # this is needed to setup SSL if you are not using the
 # administration server package
 Requires:         nss-tools
-Requires:         nss >= 3.34
+Requires:         nspr >= 4.32
+Requires:         nss >= 3.67.0-7
 
 # these are not found by the auto-dependency method
 # they are required to support the mandatory LDAP SASL mechs
@@ -249,23 +248,23 @@ Source4:          vendor-%{version}-1.tar.gz
 Source5:          Cargo.lock
 %endif
 
-Patch01:          0001-Issue-4678-RFE-automatique-disable-of-virtual-attrib.patch
-Patch02:          0002-Issue-4943-Fix-csn-generator-to-limit-time-skew-drif.patch
-Patch03:          0003-Issue-3584-Fix-PBKDF2_SHA256-hashing-in-FIPS-mode-49.patch
-Patch04:          0004-Issue-4956-Automember-allows-invalid-regex-and-does-.patch
-Patch05:          0005-Issue-4092-systemd-tmpfiles-warnings.patch
-Patch06:          0006-Issue-4973-installer-changes-permissions-on-run.patch
-Patch07:          0007-Issue-4973-update-snmp-to-use-run-dirsrv-for-PID-fil.patch
-Patch08:          0008-Issue-4978-make-installer-robust.patch
-Patch09:          0009-Issue-4972-gecos-with-IA5-introduces-a-compatibility.patch
-Patch10:          0010-Issue-4997-Function-declaration-compiler-error-on-1..patch
-Patch11:          0011-Issue-4978-use-more-portable-python-command-for-chec.patch
-Patch12:          0012-Issue-4959-Invalid-etc-hosts-setup-can-cause-isLocal.patch
-Patch13:          0013-CVE-2021-4091-BZ-2030367-double-free-of-the-virtual-.patch
-Patch14:          0014-Issue-5127-run-restorecon-on-dev-shm-at-server-start.patch
-Patch15:          0015-Issue-5127-ds_selinux_restorecon.sh-always-exit-0.patch
-Patch16:          0016-Issue-4775-Add-entryuuid-CLI-and-Fixup-4776.patch
-Patch17:          0017-Issue-4775-Fix-cherry-pick-error.patch
+Patch01:	0001-Revert-4866-cl-trimming-not-applicable-in-1.4.3.patch
+Patch02:	0002-Issue-4877-RFE-EntryUUID-to-validate-UUIDs-on-fixup-.patch
+Patch03:	0003-Issue-5126-Memory-leak-in-slapi_ldap_get_lderrno-515.patch
+Patch04:	0004-Issue-5085-Race-condition-about-snmp-collator-at-sta.patch
+Patch05:        0005-Issue-5079-BUG-multiple-ways-to-specific-primary-508.patch
+Patch06:        0006-Issue-3903-Supplier-should-do-periodic-updates.patch
+Patch07:        0007-Issue-5399-UI-LDAP-Editor-is-not-updated-when-we-swi.patch
+Patch08:        0008-Issue-5397-Fix-various-memory-leaks.patch
+Patch09:        0009-Issue-3903-keep-alive-update-event-starts-too-soon.patch
+Patch10:        0010-Issue-5397-Fix-check-pick-error.patch
+Patch11:        0011-Issue-5397-Fix-check-pick-error-2.patch
+Patch12:        0012-Issue-3903-Fix-another-cherry-pick-error.patch
+Patch13:        0013-Issue-5329-Improve-replication-extended-op-logging.patch
+Patch14:        0014-Issue-5412-lib389-do-not-set-backend-name-to-lowerca.patch
+Patch15:        0015-Issue-5418-Sync_repl-may-crash-while-managing-invali.patch
+Patch16:        0016-Issue-3903-fix-repl-keep-alive-event-interval.patch
+
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -279,8 +278,8 @@ Please see http://seclists.org/oss-sec/2016/q1/363 for more information.
 %package          libs
 Summary:          Core libraries for 389 Directory Server
 Group:            System Environment/Daemons
-BuildRequires:    nspr-devel
-BuildRequires:    nss-devel >= 3.34
+BuildRequires:    nspr-devel >= 4.32
+BuildRequires:    nss-devel >= 3.67.0-7
 BuildRequires:    openldap-devel
 BuildRequires:    libdb-devel
 BuildRequires:    cyrus-sasl-devel
@@ -333,8 +332,8 @@ Summary:          Development libraries for 389 Directory Server
 Group:            Development/Libraries
 Requires:         %{name}-libs = %{version}-%{release}
 Requires:         pkgconfig
-Requires:         nspr-devel
-Requires:         nss-devel >= 3.34
+Requires:         nspr-devel >= 4.32
+Requires:         nss-devel >= 3.67.0-7
 Requires:         openldap-devel
 Requires:         libtalloc
 Requires:         libevent
@@ -361,6 +360,7 @@ SNMP Agent for the 389 Directory Server base package.
 Summary:  A library for accessing, testing, and configuring the 389 Directory Server
 BuildArch:        noarch
 Group:            Development/Libraries
+Requires: 389-ds-base
 Requires: openssl
 Requires: iproute
 Requires: platform-python
@@ -885,42 +885,20 @@ exit 0
 %doc README.md
 
 %changelog
-* Thu Feb 3 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-6
-- Bump version to 1.4.3.28-6
-- Resolves: Bug 2047171 - Based on 1944494 (RFC 4530 entryUUID attribute) - plugin entryuuid failing
+* Thu Aug 18 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.20-6
+- Bump version to 1.4.3.30-6
+- Resolves: Bug 2113002 - ipa-replica-manage --connect --winsync fails with traceback
+- Resolves: Bug 2118763 - SIGSEGV in sync_repl
 
-* Fri Jan 28 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-5
-- Bump version to 1.4.3.28-5
-- Resolves: Bug 2045223 - ipa-restore command is failing when restore after uninstalling the server (aprt 2)
+* Mon Aug 8 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.20-5
+- Bump version to 1.4.3.30-5
+- Resolves: Bug 2113002 - ipa-replica-manage --connect --winsync fails with traceback
 
-* Tue Jan 25 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-4
-- Bump version to 1.4.3.28-4
-- Resolves: Bug 2045223 - ipa-restore command is failing when restore after uninstalling the server
+* Thu Jul 28 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.30-4
+- Bump version to 1.4.3.30-4
+- Resolves: Bug 2085562 - Rebase 389-ds-base in 8.7
 
-* Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-3
-- Bump version to 1.4.3.28-3
-- Resolves: Bug 2030367 - EMBARGOED CVE-2021-4091 389-ds:1.4/389-ds-base: double-free of the virtual attribute context in persistent search
-- Resolves: Bug 2033398 - PBKDF2 hashing does not work in FIPS mode
-
-* Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-2
-- Bump version to 1.4.3.28-2
-- Resolves: Bug 2024695 - DB corruption "_entryrdn_insert_key - Same DN (dn: nsuniqueid=ffffffff-ffffffff-ffffffff-ffffffff,<SUFFIX>) is already in the entryrdn file"
-- Resolves: Bug 1859210 - systemd-tmpfiles warnings
-- Resolves: Bug 1913199 - IPA server (389ds) is very slow in execution of some searches (`&(memberOf=...)(objectClass=ipaHost)` in particular)
-- Resolves: Bug 1974236 - automatique disable of virtual attribute checking
-- Resolves: Bug 1976882 - logconv.pl -j: Use of uninitialized value $first in numeric gt (>)
-- Resolves: Bug 1981281 - ipa user-add fails with "gecos: value invalid per syntax: Invalid syntax"
-- Resolves: Bug 2015998 - Log the Auto Member invalid regex rules in the LDAP errors log
-
-* Thu Oct 21 2021 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-1
-- Bump version to 1.4.3.28-1
-- Resolves: Bug 2016014 - rebase RHEL 8.6 with 389-ds-base-1.4.3
-- Resolves: Bug 1990002 - monitor displays wrong date for connection
-- Resolves: Bug 1950335 - upgrade password hash on bind also causes passwordExpirationtime to be updated
-- Resolves: Bug 1916292 - Indexing a single backend actually processes all configured backends
-- Resolves: Bug 1780842 - [RFE] set db home directory to /dev/shm by default
-- Resolves: Bug 2000975 - Retro Changelog does not trim changes
-
-
-
+* Fri Jun 10 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.30-3
+- Bump version to 1.4.3.30-3
+- Resolves: Bug 2085562 - Rebase 389-ds-base in 8.7
 
