@@ -1,0 +1,780 @@
+From 63e1ceac74cdfda7cf432537a18670e9562b58df Mon Sep 17 00:00:00 2001
+From: progier389 <progier@redhat.com>
+Date: Mon, 2 May 2022 18:43:25 +0200
+Subject: [PATCH] Issue 5126 - Memory leak in slapi_ldap_get_lderrno (#5153)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+* Issue 5126 - Memory leak in slapi_ldap_get_lderrno
+
+The problem is that some time ago libldap API replaced  ​LDAP_OPT_ERROR_STRING whose data should not be freed by
+LDAP_OPT_DIAGNOSTIC_MESSAGE whose data must be freed.
+slapi_ldap_get_lderrno was adapted to use the new option but the callers were not modified to free the value.
+
+The Solution:
+ Insure that we also need to free slapi_ldap_get_lderrno value if legacy LDAP_OPT_ERROR_STRING is used (by duping the value)
+ Insure that the callers free the value.
+
+Added test case about replication using SASL/Digest-md5 authentication
+Added test case to check this leak
+Also updated test case about SASL/GSSAPI to be comapatible with current lib389 framework but marked as skipped because it requires a specific configuration (This path should be tested by IPA tests)
+Fixed valgrind lib389 function to run on prefixed installation without needing to be root.
+At last I also improved lib389 mapped object to have a better diagnostic when LDAP operation fails (by adding the request within the exception)
+
+ issue: 5126 https://github.com/389ds/389-ds-base/issues/5126
+
+Reviewd by: @droideck
+
+(cherry picked from commit 4d89e11494233d8297896540bc752cfdbab2cc69)
+---
+ .../suites/gssapi_repl/gssapi_repl_test.py    |  31 ++-
+ .../tests/suites/replication/sasl_m2_test.py  | 185 ++++++++++++++++++
+ ldap/servers/plugins/chainingdb/cb_search.c   |   6 +-
+ ldap/servers/plugins/passthru/ptbind.c        |   2 +
+ .../plugins/replication/repl5_connection.c    |   4 +
+ .../plugins/replication/windows_connection.c  |   3 +
+ ldap/servers/slapd/ldaputil.c                 |   6 +
+ src/lib389/lib389/_mapped_object.py           |  76 ++++---
+ src/lib389/lib389/utils.py                    |  40 +++-
+ 9 files changed, 311 insertions(+), 42 deletions(-)
+ create mode 100644 dirsrvtests/tests/suites/replication/sasl_m2_test.py
+
+diff --git a/dirsrvtests/tests/suites/gssapi_repl/gssapi_repl_test.py b/dirsrvtests/tests/suites/gssapi_repl/gssapi_repl_test.py
+index 41f323c06..402684aab 100644
+--- a/dirsrvtests/tests/suites/gssapi_repl/gssapi_repl_test.py
++++ b/dirsrvtests/tests/suites/gssapi_repl/gssapi_repl_test.py
+@@ -9,6 +9,7 @@
+ import pytest
+ from lib389.tasks import *
+ from lib389.utils import *
++from lib389.agreement import *
+ from lib389.topologies import topology_m2
+ 
+ pytestmark = pytest.mark.tier2
+@@ -65,10 +66,27 @@ def _allow_machine_account(inst, name):
+     # First we need to get the mapping tree dn
+     mt = inst.mappingtree.list(suffix=DEFAULT_SUFFIX)[0]
+     inst.modify_s('cn=replica,%s' % mt.dn, [
+-        (ldap.MOD_REPLACE, 'nsDS5ReplicaBindDN', "uid=%s,ou=Machines,%s" % (name, DEFAULT_SUFFIX))
++        (ldap.MOD_REPLACE, 'nsDS5ReplicaBindDN', f"uid={name},ou=Machines,{DEFAULT_SUFFIX}".encode('utf-8'))
+     ])
+ 
+-
++def _verify_etc_hosts():
++    #Check if /etc/hosts is compatible with the test
++    NEEDED_HOSTS = ( ('ldapkdc.example.com', '127.0.0.1'),
++                     ('ldapkdc1.example.com', '127.0.1.1'),
++                     ('ldapkdc2.example.com', '127.0.2.1'))
++    found_hosts = {}
++    with open('/etc/hosts','r') as f:
++        for l in f:
++            s = l.split()
++            if len(s) < 2:
++                continue
++            for nh in NEEDED_HOSTS:
++                if (s[0] == nh[1] and s[1] == nh[0]):
++                    found_hosts[s[1]] = True
++    return len(found_hosts) == len(NEEDED_HOSTS)
++
++@pytest.mark.skipif(not _verify_etc_hosts(), reason="/etc/hosts does not contains the needed hosts.")
++@pytest.mark.skipif(True, reason="Test disabled because it requires specific kerberos requirement (server principal, keytab, etc ...")
+ def test_gssapi_repl(topology_m2):
+     """Test gssapi authenticated replication agreement of two suppliers using KDC
+ 
+@@ -94,8 +112,6 @@ def test_gssapi_repl(topology_m2):
+          6. Test User should be created on M1 and M2 both
+          7. Test User should be created on M1 and M2 both
+     """
+-
+-    return
+     supplier1 = topology_m2.ms["supplier1"]
+     supplier2 = topology_m2.ms["supplier2"]
+ 
+@@ -121,6 +137,7 @@ def test_gssapi_repl(topology_m2):
+     properties = {RA_NAME: r'meTo_$host:$port',
+                   RA_METHOD: 'SASL/GSSAPI',
+                   RA_TRANSPORT_PROT: defaultProperties[REPLICATION_TRANSPORT]}
++    supplier1.agreement.delete(suffix=SUFFIX, consumer_host=supplier2.host, consumer_port=supplier2.port)
+     m1_m2_agmt = supplier1.agreement.create(suffix=SUFFIX, host=supplier2.host, port=supplier2.port, properties=properties)
+     if not m1_m2_agmt:
+         log.fatal("Fail to create a supplier -> supplier replica agreement")
+@@ -133,6 +150,7 @@ def test_gssapi_repl(topology_m2):
+     properties = {RA_NAME: r'meTo_$host:$port',
+                   RA_METHOD: 'SASL/GSSAPI',
+                   RA_TRANSPORT_PROT: defaultProperties[REPLICATION_TRANSPORT]}
++    supplier2.agreement.delete(suffix=SUFFIX, consumer_host=supplier1.host, consumer_port=supplier1.port)
+     m2_m1_agmt = supplier2.agreement.create(suffix=SUFFIX, host=supplier1.host, port=supplier1.port, properties=properties)
+     if not m2_m1_agmt:
+         log.fatal("Fail to create a supplier -> supplier replica agreement")
+@@ -145,8 +163,9 @@ def test_gssapi_repl(topology_m2):
+     #
+     # Initialize all the agreements
+     #
+-    supplier1.agreement.init(SUFFIX, HOST_SUPPLIER_2, PORT_SUPPLIER_2)
+-    supplier1.waitForReplInit(m1_m2_agmt)
++    agmt = Agreement(supplier1, m1_m2_agmt)
++    agmt.begin_reinit()
++    agmt.wait_reinit()
+ 
+     # Check replication is working...
+     if supplier1.testReplication(DEFAULT_SUFFIX, supplier2):
+diff --git a/dirsrvtests/tests/suites/replication/sasl_m2_test.py b/dirsrvtests/tests/suites/replication/sasl_m2_test.py
+new file mode 100644
+index 000000000..d7406ac7e
+--- /dev/null
++++ b/dirsrvtests/tests/suites/replication/sasl_m2_test.py
+@@ -0,0 +1,185 @@
++# --- BEGIN COPYRIGHT BLOCK ---
++# Copyright (C) 2022 Red Hat, Inc.
++# All rights reserved.
++#
++# License: GPL (version 3 or any later version).
++# See LICENSE for details.
++# --- END COPYRIGHT BLOCK ---
++#
++import logging
++import os
++import pytest
++import ldap
++import uuid
++from lib389.utils import ds_is_older, valgrind_enable, valgrind_disable, valgrind_get_results_file, valgrind_check_file
++
++from lib389.idm.services import ServiceAccounts
++from lib389.idm.group import Groups
++from lib389.config import CertmapLegacy, Config
++from lib389._constants import DEFAULT_SUFFIX
++from lib389.agreement import Agreements
++from lib389._mapped_object import DSLdapObject
++from lib389.replica import ReplicationManager, Replicas, BootstrapReplicationManager
++from lib389.topologies import topology_m2 as topo_m2
++
++pytestmark = pytest.mark.tier1
++
++DEBUGGING = os.getenv("DEBUGGING", default=False)
++if DEBUGGING:
++    logging.getLogger(__name__).setLevel(logging.DEBUG)
++else:
++    logging.getLogger(__name__).setLevel(logging.INFO)
++log = logging.getLogger(__name__)
++
++def set_sasl_md5_client_auth(inst, to):
++    # Create the certmap before we restart
++    cm = CertmapLegacy(to)
++    certmaps = cm.list()
++    certmaps['default']['nsSaslMapRegexString'] = '^dn:\\(.*\\)'
++    certmaps['default']['nsSaslMapBaseDNTemplate'] = 'cn=config'
++    certmaps['default']['nsSaslMapFilterTemplate'] = '(objectclass=*)'
++    cm.set(certmaps)
++
++    Config(to).replace("passwordStorageScheme", 'CLEAR')
++
++    # Create a repl manager on the replica
++    replication_manager_pwd = 'secret12'
++    brm = BootstrapReplicationManager(to)
++    try:
++        brm.delete()
++    except ldap.NO_SUCH_OBJECT:
++        pass
++    brm.create(properties={
++        'cn': brm.common_name,
++        'userPassword': replication_manager_pwd
++    })
++    replication_manager_dn = brm.dn
++
++    replica = Replicas(inst).get(DEFAULT_SUFFIX)
++    replica.set('nsDS5ReplicaBindDN', brm.dn)
++    replica.remove_all('nsDS5ReplicaBindDNgroup')
++    agmt = replica.get_agreements().list()[0]
++    agmt.replace_many(
++        ('nsDS5ReplicaBindMethod', 'SASL/DIGEST-MD5'),
++        ('nsDS5ReplicaTransportInfo', 'LDAP'),
++        ('nsDS5ReplicaPort', str(to.port)),
++        ('nsDS5ReplicaBindDN', replication_manager_dn),
++        ('nsDS5ReplicaCredentials', replication_manager_pwd),
++    )
++
++
++def gen_valgrind_wrapper(dir):
++    name=f"{dir}/VALGRIND"
++    with open(name, 'w') as f:
++        f.write('#!/bin/sh\n')
++        f.write('export SASL_PATH=foo\n')
++        f.write(f'valgrind -q --tool=memcheck --leak-check=yes --leak-resolution=high --num-callers=50 --log-file=/var/tmp/slapd.vg.$$ {dir}/ns-slapd.original "$@"\n')
++    os.chmod(name, 0o755)
++    return name
++
++@pytest.fixture
++def use_valgrind(topo_m2, request):
++    """Adds entries to the supplier1"""
++
++    log.info("Enable valgrind")
++    m1 = topo_m2.ms['supplier1']
++    m2 = topo_m2.ms['supplier2']
++    if m1.has_asan():
++        pytest.skip('Tescase using valgring cannot run on asan enabled build')
++        return
++    set_sasl_md5_client_auth(m1, m2)
++    set_sasl_md5_client_auth(m2, m1)
++    m1.stop()
++    m2.stop()
++    m1.systemd_override = False
++    m2.systemd_override = False
++    valgrind_enable(m1.ds_paths.sbin_dir, gen_valgrind_wrapper(m1.ds_paths.sbin_dir))
++
++    def fin():
++        log.info("Disable valgrind")
++        valgrind_disable(m1.ds_paths.sbin_dir)
++
++    request.addfinalizer(fin)
++
++
++def test_repl_sasl_md5_auth(topo_m2):
++    """Test replication with SASL digest-md5 authentication
++
++    :id: 922d16f8-662a-4915-a39e-0aecd7c8e6e2
++    :setup: Two supplier replication
++    :steps:
++        1. Set sasl digest/md4 on both suppliers 
++        2. Restart the instance
++        3. Check that replication works
++    :expectedresults:
++        1. Success
++        2. Success
++        3. Replication works
++    """
++
++    m1 = topo_m2.ms['supplier1']
++    m2 = topo_m2.ms['supplier2']
++
++    set_sasl_md5_client_auth(m1, m2)
++    set_sasl_md5_client_auth(m2, m1)
++
++    m1.restart()
++    m2.restart()
++
++    repl = ReplicationManager(DEFAULT_SUFFIX)
++    repl.test_replication_topology(topo_m2)
++
++
++@pytest.mark.skipif(not os.path.exists('/usr/bin/valgrind'), reason="valgrind is not installed.")
++def test_repl_sasl_leak(topo_m2, use_valgrind):
++    """Test replication with SASL digest-md5 authentication
++
++    :id: 180e088e-841c-11ec-af4f-482ae39447e5
++    :setup: Two supplier replication,  valgrind
++    :steps:
++        1. Set sasl digest/md4 on both suppliers 
++        2. Break sasl by setting invalid PATH
++        3. Restart the instances
++        4. Perform a change
++        5. Poke replication 100 times
++        6. Stop server
++        7. Check presence of "SASL(-4): no mechanism available: No worthy mechs found" message in error log
++        8 Check that there is no leak about slapi_ldap_get_lderrno
++    :expectedresults:
++        1. Success
++        2. Success
++        2. Success
++        4. Success
++        5. Success
++        6. Success
++        7. Success
++        8. Success
++    """
++
++    m1 = topo_m2.ms['supplier1']
++    m2 = topo_m2.ms['supplier2']
++
++    os.environ["SASL_PATH"] = 'foo'
++
++    m1.start()
++    m2.start()
++
++    resfile=valgrind_get_results_file(m1)
++
++    # Perform a change
++    from_groups = Groups(m1, basedn=DEFAULT_SUFFIX, rdn=None)
++    from_group = from_groups.get('replication_managers')
++    change = str(uuid.uuid4())
++    from_group.replace('description', change)
++
++    # Poke replication to trigger thev leak
++    replica = Replicas(m1).get(DEFAULT_SUFFIX)
++    agmt = Agreements(m1, replica.dn).list()[0]
++    for i in range(0, 100):
++        agmt.pause()
++        agmt.resume()
++
++    m1.stop()
++    assert m1.searchErrorsLog("worthy")
++    assert not valgrind_check_file(resfile, 'slapi_ldap_get_lderrno');
++
+diff --git a/ldap/servers/plugins/chainingdb/cb_search.c b/ldap/servers/plugins/chainingdb/cb_search.c
+index ffc8f56f8..d6f30b357 100644
+--- a/ldap/servers/plugins/chainingdb/cb_search.c
++++ b/ldap/servers/plugins/chainingdb/cb_search.c
+@@ -348,10 +348,9 @@ chainingdb_build_candidate_list(Slapi_PBlock *pb)
+                     warned_rc = 1;
+                 }
+                 cb_send_ldap_result(pb, rc, NULL, ENDUSERMSG, 0, NULL);
+-                /* BEWARE: matched_msg and error_msg points */
++                /* BEWARE: matched_msg points */
+                 /* to ld fields.                */
+                 matched_msg = NULL;
+-                error_msg = NULL;
+                 rc = -1;
+             }
+ 
+@@ -695,10 +694,9 @@ chainingdb_next_search_entry(Slapi_PBlock *pb)
+                 }
+                 cb_send_ldap_result(pb, rc, matched_msg, ENDUSERMSG, 0, NULL);
+ 
+-                /* BEWARE: Don't free matched_msg && error_msg */
++                /* BEWARE: Don't free matched_msg */
+                 /* Points to the ld fields               */
+                 matched_msg = NULL;
+-                error_msg = NULL;
+                 retcode = -1;
+             } else {
+                 /* Add control response sent by the farm server */
+diff --git a/ldap/servers/plugins/passthru/ptbind.c b/ldap/servers/plugins/passthru/ptbind.c
+index 705ab2c3a..3e79b47f6 100644
+--- a/ldap/servers/plugins/passthru/ptbind.c
++++ b/ldap/servers/plugins/passthru/ptbind.c
+@@ -33,6 +33,8 @@ passthru_simple_bind_once_s(PassThruServer *srvr, const char *dn, struct berval
+  * are only interested in recovering silently when the remote server is up
+  * but decided to close our connection, we retry without pausing between
+  * attempts.
++ *
++ * Note that errmsgp must be freed by the caller.
+  */
+ int
+ passthru_simple_bind_s(Slapi_PBlock *pb, PassThruServer *srvr, int tries, const char *dn, struct berval *creds, LDAPControl **reqctrls, int *lderrnop, char **matcheddnp, char **errmsgp, struct berval ***refurlsp, LDAPControl ***resctrlsp)
+diff --git a/ldap/servers/plugins/replication/repl5_connection.c b/ldap/servers/plugins/replication/repl5_connection.c
+index 2dd74f9e7..b6bc21c46 100644
+--- a/ldap/servers/plugins/replication/repl5_connection.c
++++ b/ldap/servers/plugins/replication/repl5_connection.c
+@@ -244,6 +244,7 @@ conn_delete_internal(Repl_Connection *conn)
+     PR_ASSERT(NULL != conn);
+     close_connection_internal(conn);
+     /* slapi_ch_free accepts NULL pointer */
++    slapi_ch_free_string(&conn->last_ldap_errmsg);
+     slapi_ch_free((void **)&conn->hostname);
+     slapi_ch_free((void **)&conn->binddn);
+     slapi_ch_free((void **)&conn->plain);
+@@ -450,6 +451,7 @@ conn_read_result_ex(Repl_Connection *conn, char **retoidp, struct berval **retda
+         char *s = NULL;
+ 
+         rc = slapi_ldap_get_lderrno(conn->ld, NULL, &s);
++        slapi_ch_free_string(&conn->last_ldap_errmsg);
+         conn->last_ldap_errmsg = s;
+         conn->last_ldap_error = rc;
+         /* some errors will require a disconnect and retry the connection
+@@ -1937,6 +1939,7 @@ bind_and_check_pwp(Repl_Connection *conn, char *binddn, char *password)
+                           agmt_get_long_name(conn->agmt),
+                           mech ? mech : "SIMPLE", rc,
+                           ldap_err2string(rc), errmsg ? errmsg : "");
++            slapi_ch_free_string(&errmsg);
+         } else {
+             char *errmsg = NULL;
+             /* errmsg is a pointer directly into the ld structure - do not free */
+@@ -1946,6 +1949,7 @@ bind_and_check_pwp(Repl_Connection *conn, char *binddn, char *password)
+                           agmt_get_long_name(conn->agmt),
+                           mech ? mech : "SIMPLE", rc,
+                           ldap_err2string(rc), errmsg ? errmsg : "");
++            slapi_ch_free_string(&errmsg);
+         }
+ 
+         return (CONN_OPERATION_FAILED);
+diff --git a/ldap/servers/plugins/replication/windows_connection.c b/ldap/servers/plugins/replication/windows_connection.c
+index 5eca5fad1..d3f6a4e93 100644
+--- a/ldap/servers/plugins/replication/windows_connection.c
++++ b/ldap/servers/plugins/replication/windows_connection.c
+@@ -331,6 +331,7 @@ windows_perform_operation(Repl_Connection *conn, int optype, const char *dn, LDA
+                               "windows_perform_operation - %s: Received error %d: %s for %s operation\n",
+                               agmt_get_long_name(conn->agmt),
+                               rc, s ? s : "NULL", op_string);
++                slapi_ch_free_string(&s);
+                 conn->last_ldap_error = rc;
+                 /* some errors will require a disconnect and retry the connection
+                    later */
+@@ -1709,6 +1710,7 @@ bind_and_check_pwp(Repl_Connection *conn, char *binddn, char *password)
+                           agmt_get_long_name(conn->agmt),
+                           mech ? mech : "SIMPLE", rc,
+                           ldap_err2string(rc), errmsg);
++            slapi_ch_free_string(&errmsg);
+         } else {
+             char *errmsg = NULL;
+             /* errmsg is a pointer directly into the ld structure - do not free */
+@@ -1718,6 +1720,7 @@ bind_and_check_pwp(Repl_Connection *conn, char *binddn, char *password)
+                           agmt_get_long_name(conn->agmt),
+                           mech ? mech : "SIMPLE", rc,
+                           ldap_err2string(rc), errmsg);
++            slapi_ch_free_string(&errmsg);
+         }
+ 
+         slapi_log_err(SLAPI_LOG_TRACE, windows_repl_plugin_name, "<= bind_and_check_pwp - CONN_OPERATION_FAILED\n");
+diff --git a/ldap/servers/slapd/ldaputil.c b/ldap/servers/slapd/ldaputil.c
+index 336ca3912..db3300e30 100644
+--- a/ldap/servers/slapd/ldaputil.c
++++ b/ldap/servers/slapd/ldaputil.c
+@@ -375,6 +375,8 @@ slapi_ldap_url_parse(const char *url, LDAPURLDesc **ludpp, int require_dn, int *
+ 
+ #include <sasl/sasl.h>
+ 
++
++/* Warning: caller must free s (if not NULL) */
+ int
+ slapi_ldap_get_lderrno(LDAP *ld, char **m, char **s)
+ {
+@@ -389,6 +391,9 @@ slapi_ldap_get_lderrno(LDAP *ld, char **m, char **s)
+         ldap_get_option(ld, LDAP_OPT_DIAGNOSTIC_MESSAGE, s);
+ #else
+         ldap_get_option(ld, LDAP_OPT_ERROR_STRING, s);
++        if (*s) {
++            *s = slapi_ch_strdup(*s);
++        }
+ #endif
+     }
+     return rc;
+@@ -1517,6 +1522,7 @@ slapd_ldap_sasl_interactive_bind(
+                           mech ? mech : "SIMPLE",
+                           rc, ldap_err2string(rc), errmsg,
+                           errno, slapd_system_strerror(errno));
++            slapi_ch_free_string(&errmsg);
+             if (can_retry_bind(ld, mech, bindid, creds, rc, errmsg)) {
+                 ; /* pass through to retry one time */
+             } else {
+diff --git a/src/lib389/lib389/_mapped_object.py b/src/lib389/lib389/_mapped_object.py
+index 48d3879a3..1c314322b 100644
+--- a/src/lib389/lib389/_mapped_object.py
++++ b/src/lib389/lib389/_mapped_object.py
+@@ -67,6 +67,34 @@ def _gen_filter(attrtypes, values, extra=None):
+     return filt
+ 
+ 
++# Define wrappers around the ldap operation to have a clear diagnostic
++def _ldap_op_s(inst, f, fname, *args, **kwargs):
++    # f.__name__ says 'inner' so the wanted name is provided as argument
++    try:
++        return f(*args, **kwargs)
++    except ldap.LDAPError as e:
++        new_desc = f"{fname}({args},{kwargs}) on instance {inst.serverid}";
++        if len(e.args) >= 1:
++            e.args[0]['ldap_request'] = new_desc
++            logging.getLogger().error(f"args={e.args}")
++        raise
++
++def _add_ext_s(inst, *args, **kwargs):
++    return _ldap_op_s(inst, inst.add_ext_s, 'add_ext_s', *args, **kwargs)
++
++def _modify_ext_s(inst, *args, **kwargs):
++    return _ldap_op_s(inst, inst.modify_ext_s, 'modify_ext_s', *args, **kwargs)
++
++def _delete_ext_s(inst, *args, **kwargs):
++    return _ldap_op_s(inst, inst.delete_ext_s, 'delete_ext_s', *args, **kwargs)
++
++def _search_ext_s(inst, *args, **kwargs):
++    return _ldap_op_s(inst, inst.search_ext_s, 'search_ext_s', *args, **kwargs)
++
++def _search_s(inst, *args, **kwargs):
++    return _ldap_op_s(inst, inst.search_s, 'search_s', *args, **kwargs)
++
++
+ class DSLogging(object):
+     """The benefit of this is automatic name detection, and correct application
+     of level and verbosity to the object.
+@@ -129,7 +157,7 @@ class DSLdapObject(DSLogging, DSLint):
+         :returns: Entry object
+         """
+ 
+-        return self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter, attrlist=["*"],
++        return _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter, attrlist=["*"],
+                                            serverctrls=self._server_controls, clientctrls=self._client_controls,
+                                            escapehatch='i am sure')[0]
+ 
+@@ -140,7 +168,7 @@ class DSLdapObject(DSLogging, DSLint):
+         """
+ 
+         try:
+-            self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter, attrsonly=1,
++            _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter, attrsonly=1,
+                                         serverctrls=self._server_controls, clientctrls=self._client_controls,
+                                         escapehatch='i am sure')
+         except ldap.NO_SUCH_OBJECT:
+@@ -156,7 +184,7 @@ class DSLdapObject(DSLogging, DSLint):
+             search_scope = ldap.SCOPE_ONE
+         elif scope == 'subtree':
+             search_scope = ldap.SCOPE_SUBTREE
+-        return self._instance.search_ext_s(self._dn, search_scope, filter,
++        return _search_ext_s(self._instance,self._dn, search_scope, filter,
+                                            serverctrls=self._server_controls,
+                                            clientctrls=self._client_controls,
+                                            escapehatch='i am sure')
+@@ -166,7 +194,7 @@ class DSLdapObject(DSLogging, DSLint):
+ 
+         :returns: LDIF formatted string
+         """
+-        e = self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter, attrlist=attrlist,
++        e = _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter, attrlist=attrlist,
+                                         serverctrls=self._server_controls, clientctrls=self._client_controls,
+                                         escapehatch='i am sure')[0]
+         return e.__repr__()
+@@ -258,7 +286,7 @@ class DSLdapObject(DSLogging, DSLint):
+             raise ValueError("Invalid state. Cannot get presence on instance that is not ONLINE")
+         self._log.debug("%s present(%r) %s" % (self._dn, attr, value))
+ 
+-        self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter, attrlist=[attr, ],
++        _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter, attrlist=[attr, ],
+                                         serverctrls=self._server_controls, clientctrls=self._client_controls,
+                                         escapehatch='i am sure')[0]
+         values = self.get_attr_vals_bytes(attr)
+@@ -313,7 +341,7 @@ class DSLdapObject(DSLogging, DSLint):
+             else:
+                 value = [ensure_bytes(arg[1])]
+             mods.append((ldap.MOD_REPLACE, ensure_str(arg[0]), value))
+-        return self._instance.modify_ext_s(self._dn, mods, serverctrls=self._server_controls,
++        return _modify_ext_s(self._instance,self._dn, mods, serverctrls=self._server_controls,
+                                            clientctrls=self._client_controls, escapehatch='i am sure')
+ 
+     # This needs to work on key + val, and key
+@@ -457,7 +485,7 @@ class DSLdapObject(DSLogging, DSLint):
+         elif value is not None:
+             value = [ensure_bytes(value)]
+ 
+-        return self._instance.modify_ext_s(self._dn, [(action, key, value)],
++        return _modify_ext_s(self._instance,self._dn, [(action, key, value)],
+                                            serverctrls=self._server_controls, clientctrls=self._client_controls,
+                                            escapehatch='i am sure')
+ 
+@@ -497,7 +525,7 @@ class DSLdapObject(DSLogging, DSLint):
+             else:
+                 # Error too many items
+                 raise ValueError('Too many arguments in the mod op')
+-        return self._instance.modify_ext_s(self._dn, mod_list, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
++        return _modify_ext_s(self._instance,self._dn, mod_list, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
+ 
+     def _unsafe_compare_attribute(self, other):
+         """Compare two attributes from two objects. This is currently marked unsafe as it's
+@@ -593,7 +621,7 @@ class DSLdapObject(DSLogging, DSLint):
+             raise ValueError("Invalid state. Cannot get properties on instance that is not ONLINE")
+         else:
+             # retrieving real(*) and operational attributes(+)
+-            attrs_entry = self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter,
++            attrs_entry = _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter,
+                                                       attrlist=["*", "+"], serverctrls=self._server_controls,
+                                                       clientctrls=self._client_controls, escapehatch='i am sure')[0]
+             # getting dict from 'entry' object
+@@ -613,7 +641,7 @@ class DSLdapObject(DSLogging, DSLint):
+             raise ValueError("Invalid state. Cannot get properties on instance that is not ONLINE")
+         else:
+             # retrieving real(*) and operational attributes(+)
+-            attrs_entry = self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter,
++            attrs_entry = _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter,
+                                                       attrlist=["*", "+"], serverctrls=self._server_controls,
+                                                       clientctrls=self._client_controls, escapehatch='i am sure')[0]
+             # getting dict from 'entry' object
+@@ -627,7 +655,7 @@ class DSLdapObject(DSLogging, DSLint):
+         if self._instance.state != DIRSRV_STATE_ONLINE:
+             raise ValueError("Invalid state. Cannot get properties on instance that is not ONLINE")
+         else:
+-            entry = self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter,
++            entry = _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter,
+                                                 attrlist=keys, serverctrls=self._server_controls,
+                                                 clientctrls=self._client_controls, escapehatch='i am sure')[0]
+             return entry.getValuesSet(keys)
+@@ -636,7 +664,7 @@ class DSLdapObject(DSLogging, DSLint):
+         self._log.debug("%s get_attrs_vals_utf8(%r)" % (self._dn, keys))
+         if self._instance.state != DIRSRV_STATE_ONLINE:
+             raise ValueError("Invalid state. Cannot get properties on instance that is not ONLINE")
+-        entry = self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter, attrlist=keys,
++        entry = _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter, attrlist=keys,
+                                             serverctrls=self._server_controls, clientctrls=self._client_controls,
+                                             escapehatch='i am sure')[0]
+         vset = entry.getValuesSet(keys)
+@@ -655,7 +683,7 @@ class DSLdapObject(DSLogging, DSLint):
+         else:
+             # It would be good to prevent the entry code intercepting this ....
+             # We have to do this in this method, because else we ignore the scope base.
+-            entry = self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter,
++            entry = _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter,
+                                                 attrlist=[key], serverctrls=self._server_controls,
+                                                 clientctrls=self._client_controls, escapehatch='i am sure')[0]
+             vals = entry.getValues(key)
+@@ -675,7 +703,7 @@ class DSLdapObject(DSLogging, DSLint):
+             # In the future, I plan to add a mode where if local == true, we
+             # can use get on dse.ldif to get values offline.
+         else:
+-            entry = self._instance.search_ext_s(self._dn, ldap.SCOPE_BASE, self._object_filter,
++            entry = _search_ext_s(self._instance,self._dn, ldap.SCOPE_BASE, self._object_filter,
+                                                 attrlist=[key], serverctrls=self._server_controls,
+                                                 clientctrls=self._client_controls, escapehatch='i am sure')[0]
+             return entry.getValue(key)
+@@ -831,11 +859,11 @@ class DSLdapObject(DSLogging, DSLint):
+             # Is there a way to mark this as offline and kill it
+             if recursive:
+                 filterstr = "(|(objectclass=*)(objectclass=ldapsubentry))"
+-                ents = self._instance.search_s(self._dn, ldap.SCOPE_SUBTREE, filterstr, escapehatch='i am sure')
++                ents = _search_s(self._instance, self._dn, ldap.SCOPE_SUBTREE, filterstr, escapehatch='i am sure')
+                 for ent in sorted(ents, key=lambda e: len(e.dn), reverse=True):
+-                    self._instance.delete_ext_s(ent.dn, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
++                    _delete_ext_s(self._instance, ent.dn, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
+             else:
+-                self._instance.delete_ext_s(self._dn, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
++                _delete_ext_s(self._instance, self._dn, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
+ 
+     def _validate(self, rdn, properties, basedn):
+         """Used to validate a create request.
+@@ -933,7 +961,7 @@ class DSLdapObject(DSLogging, DSLint):
+             # If we are running in stateful ensure mode, we need to check if the object exists, and
+             # we can see the state that it is in.
+             try:
+-                self._instance.search_ext_s(dn, ldap.SCOPE_BASE, self._object_filter, attrsonly=1, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
++                _search_ext_s(self._instance,dn, ldap.SCOPE_BASE, self._object_filter, attrsonly=1, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
+                 exists = True
+             except ldap.NO_SUCH_OBJECT:
+                 pass
+@@ -946,7 +974,7 @@ class DSLdapObject(DSLogging, DSLint):
+             mods = []
+             for k, v in list(valid_props.items()):
+                 mods.append((ldap.MOD_REPLACE, k, v))
+-            self._instance.modify_ext_s(self._dn, mods, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
++            _modify_ext_s(self._instance,self._dn, mods, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
+         elif not exists:
+             # This case is reached in two cases. One is we are in ensure mode, and we KNOW the entry
+             # doesn't exist.
+@@ -957,7 +985,7 @@ class DSLdapObject(DSLogging, DSLint):
+             e.update({'objectclass': ensure_list_bytes(self._create_objectclasses)})
+             e.update(valid_props)
+             # We rely on exceptions here to indicate failure to the parent.
+-            self._instance.add_ext_s(e, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
++            _add_ext_s(self._instance, e, serverctrls=self._server_controls, clientctrls=self._client_controls, escapehatch='i am sure')
+             self._log.debug('Created entry %s : %s' % (dn, display_log_data(e.data)))
+             # If it worked, we need to fix our instance dn for the object's self reference. Because
+             # we may not have a self reference yet (just created), it may have changed (someone
+@@ -1104,7 +1132,7 @@ class DSLdapObjects(DSLogging, DSLints):
+         else:
+             # If not paged
+             try:
+-                results = self._instance.search_ext_s(
++                results = _search_ext_s(self._instance,
+                     base=self._basedn,
+                     scope=self._scope,
+                     filterstr=filterstr,
+@@ -1172,7 +1200,7 @@ class DSLdapObjects(DSLogging, DSLints):
+         filterstr = self._get_objectclass_filter()
+         self._log.debug('_gen_dn filter = %s' % filterstr)
+         self._log.debug('_gen_dn dn = %s' % dn)
+-        return self._instance.search_ext_s(
++        return _search_ext_s(self._instance,
+             base=dn,
+             scope=ldap.SCOPE_BASE,
+             filterstr=filterstr,
+@@ -1187,7 +1215,7 @@ class DSLdapObjects(DSLogging, DSLints):
+         # This will yield and & filter for objectClass with as many terms as needed.
+         filterstr = self._get_selector_filter(selector)
+         self._log.debug('_gen_selector filter = %s' % filterstr)
+-        return self._instance.search_ext_s(
++        return _search_ext_s(self._instance,
+             base=self._basedn,
+             scope=self._scope,
+             filterstr=filterstr,
+@@ -1261,7 +1289,7 @@ class DSLdapObjects(DSLogging, DSLints):
+             self._list_attrlist = attrlist
+         self._log.debug(f'list filter = {search_filter} with scope {scope} and attribute list {attrlist}')
+         try:
+-            results = self._instance.search_ext_s(
++            results = _search_ext_s(self._instance,
+                 base=self._basedn,
+                 scope=scope,
+                 filterstr=search_filter,
+diff --git a/src/lib389/lib389/utils.py b/src/lib389/lib389/utils.py
+index 6eba2d7b9..da966ed97 100644
+--- a/src/lib389/lib389/utils.py
++++ b/src/lib389/lib389/utils.py
+@@ -52,7 +52,7 @@ from ldapurl import LDAPUrl
+ from contextlib import closing
+ 
+ import lib389
+-from lib389.paths import Paths
++from lib389.paths import ( Paths, DEFAULTS_PATH )
+ from lib389.dseldif import DSEldif
+ from lib389._constants import (
+         DEFAULT_USER, VALGRIND_WRAPPER, DN_CONFIG, CFGSUFFIX, LOCALHOST,
+@@ -495,8 +495,10 @@ def valgrind_enable(sbin_dir, wrapper=None):
+     :raise EnvironmentError: If script is not run as 'root'
+     '''
+ 
+-    if os.geteuid() != 0:
+-        log.error('This script must be run as root to use valgrind')
++    if not os.access(sbin_dir, os.W_OK):
++        # Note: valgrind has no limitation but  ns-slapd must be replaced
++        # This check allows non root user to use custom install prefix
++        log.error('This script must be run as root to use valgrind (Should at least be able to write in {sbin_dir})')
+         raise EnvironmentError
+ 
+     if not wrapper:
+@@ -542,7 +544,20 @@ def valgrind_enable(sbin_dir, wrapper=None):
+                       e.strerror)
+ 
+     # Disable selinux
+-    os.system('setenforce 0')
++    if os.geteuid() == 0:
++        os.system('setenforce 0')
++
++    # Disable systemd by turning off with_system in .inf file
++    old_path = Paths()._get_defaults_loc(DEFAULTS_PATH)
++    new_path = f'{old_path}.orig'
++    os.rename(old_path, new_path)
++    with open(new_path, 'rt') as fin:
++       with open(old_path, 'wt') as fout:
++            for line in fin:
++                if line.startswith('with_systemd'):
++                    fout.write('with_systemd = 0\n')
++                else:
++                    fout.write(line)
+ 
+     log.info('Valgrind is now enabled.')
+ 
+@@ -559,8 +574,10 @@ def valgrind_disable(sbin_dir):
+     :raise EnvironmentError: If script is not run as 'root'
+     '''
+ 
+-    if os.geteuid() != 0:
+-        log.error('This script must be run as root to use valgrind')
++    if not os.access(sbin_dir, os.W_OK):
++        # Note: valgrind has no limitation but  ns-slapd must be replaced
++        # This check allows non root user to use custom install prefix
++        log.error('This script must be run as root to use valgrind (Should at least be able to write in {sbin_dir})')
+         raise EnvironmentError
+ 
+     nsslapd_orig = '%s/ns-slapd' % sbin_dir
+@@ -584,7 +601,14 @@ def valgrind_disable(sbin_dir):
+                          e.strerror)
+ 
+     # Enable selinux
+-    os.system('setenforce 1')
++    if os.geteuid() == 0:
++        os.system('setenforce 1')
++
++    # Restore .inf file (for systemd)
++    new_path = Paths()._get_defaults_loc(DEFAULTS_PATH)
++    old_path = f'{new_path}.orig'
++    if os.path.exists(old_path):
++        os.replace(old_path, new_path)
+ 
+     log.info('Valgrind is now disabled.')
+ 
+@@ -610,7 +634,7 @@ def valgrind_get_results_file(dirsrv_inst):
+ 
+     # Run the command and grab the output
+     p = os.popen(cmd)
+-    results_file = p.readline()
++    results_file = p.readline().strip()
+     p.close()
+ 
+     return results_file
+-- 
+2.31.1
+
