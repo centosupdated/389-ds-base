@@ -39,7 +39,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.10.2
-Release:          %{?relprefix}16%{?prerel}%{?dist}
+Release:          %{?relprefix}17%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -184,6 +184,9 @@ Patch35:          0035-Issue-5242-Craft-message-may-crash-the-server-5243.patch
 Patch36:          0036-Issue-4956-Automember-allows-invalid-regex-and-does-.patch
 Patch37:          0037-Issue-5155-RFE-Provide-an-option-to-abort-an-Auto-Me.patch
 Patch38:          0038-Issue-5221-User-with-expired-password-can-still-logi.patch
+Patch39:          0039-Issue-5098-Multiple-issues-around-replication-and-CI.patch
+Patch40:          0040-Issue-5418-Sync_repl-may-crash-while-managing-invali.patch
+
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -537,6 +540,11 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Fri Sep 30 2022 Mark Reynolds <mreynolds@redhat.com> - 1.3.10-2-17
+- Bump version to 1.3.10.2-17
+- Resolves: Bug 2113056 - Import may break replication because changelog starting csn may not be created
+- Resolves: Bug 2131083 - SIGSEGV in sync_repl 
+
 * Tue Jun 07 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.3.10.2-16
 - Bump version to 1.3.10.2-16
 - Resolves: Bug 2077395 - CVE-2022-0918 389-ds:1.4/389-ds-base: sending crafted message could result in DoS

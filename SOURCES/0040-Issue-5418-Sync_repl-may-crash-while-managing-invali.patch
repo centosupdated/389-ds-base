@@ -1,0 +1,38 @@
+From bd566957f85c889f13cd24f903c91c16c955acbd Mon Sep 17 00:00:00 2001
+From: Thierry Bordaz <tbordaz@redhat.com>
+Date: Thu, 18 Aug 2022 13:37:47 +0200
+Subject: [PATCH 2/3] Issue 5418 - Sync_repl may crash while managing invalid
+ cookie (#5420)
+
+Bug description:
+        If the servers receives an invalid cookie without separator '#',
+        it parses it into an empty cookie (Sync_Cookie) instead of a NULL
+        cookie (failure).
+        Later it sigsegv when using the empty cookie.
+
+Fix description:
+        If the parsing fails return NULL
+
+relates: #5418
+
+Reviewed by: Viktor Ashirov, Mark Reynolds, William Brown, Simon Pichugin (thanks !)
+---
+ ldap/servers/plugins/sync/sync_util.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/ldap/servers/plugins/sync/sync_util.c b/ldap/servers/plugins/sync/sync_util.c
+index 8c2c42d0d..73f003921 100644
+--- a/ldap/servers/plugins/sync/sync_util.c
++++ b/ldap/servers/plugins/sync/sync_util.c
+@@ -546,6 +546,8 @@ sync_cookie_parse(char *cookie)
+         } else {
+             goto error_return;
+         }
++    } else {
++            goto error_return;
+     }
+     return (sc);
+ error_return:
+-- 
+2.37.3
+
