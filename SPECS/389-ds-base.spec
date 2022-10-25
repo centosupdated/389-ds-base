@@ -48,7 +48,7 @@ ExcludeArch: i686
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
 Version:          1.4.3.28
-Release:          %{?relprefix}7%{?prerel}%{?dist}
+Release:          %{?relprefix}8%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org
 Group:            System Environment/Daemons
@@ -268,6 +268,7 @@ Patch16:          0016-Issue-4775-Add-entryuuid-CLI-and-Fixup-4776.patch
 Patch17:          0017-Issue-4775-Fix-cherry-pick-error.patch
 Patch18:          0018-Issue-5221-User-with-expired-password-can-still-logi.patch
 Patch19:          0019-Issue-5242-Craft-message-may-crash-the-server-5243.patch
+Patch20:          0020-Issue-5418-Sync_repl-may-crash-while-managing-invali.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -887,6 +888,10 @@ exit 0
 %doc README.md
 
 %changelog
+* Tue Oct 11 2022 Mark Reynolds <mreynolds@redhat.com> - 1.4.3.28-8
+- Bump version to 1.4.3.28-8
+- Resolves: Bug 2131743 - SIGSEGV in sync_repl
+
 * Thu May 19 2022 Thierry Bordaz <tbordaz@redhat.com> - 1.4.3.28-7
 - Bump version to 1.4.3.28-7
 - Resolves: Bug 2081008 - CVE-2022-0996 389-ds:1.4/389-ds-base: expired password was still allowed to access the database
