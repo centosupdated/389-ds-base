@@ -1,0 +1,60 @@
+From 27f0c60a54514773e3ffaa09cfbb71c350f44143 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Sat, 6 Aug 2022 14:03:16 -0400
+Subject: [PATCH 5/5] Issue 3903 - keep alive update event starts too soon
+
+Description: THe keep alive update needs a little more time to start to
+allow changelog, and other replication protocols to startup
+
+relates: https://github.com/389ds/389-ds-base/issues/3903
+
+Reviewed by: tbordaz (Thanks!)
+---
+ dirsrvtests/tests/suites/replication/regression_m2_test.py | 5 +++++
+ ldap/servers/plugins/replication/repl5_replica.c           | 7 ++++---
+ 2 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/dirsrvtests/tests/suites/replication/regression_m2_test.py b/dirsrvtests/tests/suites/replication/regression_m2_test.py
+index 7dd0f2984..bbf9c8486 100644
+--- a/dirsrvtests/tests/suites/replication/regression_m2_test.py
++++ b/dirsrvtests/tests/suites/replication/regression_m2_test.py
+@@ -821,6 +821,11 @@ def test_keepalive_entries(topo_m2):
+     assert keep_alive_s1 != str(entries[0].data['keepalivetimestamp'])
+     assert keep_alive_s2 != str(entries[1].data['keepalivetimestamp'])
+ 
++    # Test replication
++    supplier = topo_m2.ms['supplier1']
++    replica = Replicas(supplier).get(DEFAULT_SUFFIX)
++    assert replica.test_replication([topo_m2.ms['supplier2']])
++
+ 
+ @pytest.mark.ds49915
+ @pytest.mark.bz1626375
+diff --git a/ldap/servers/plugins/replication/repl5_replica.c b/ldap/servers/plugins/replication/repl5_replica.c
+index ded4cf754..fa6419262 100644
+--- a/ldap/servers/plugins/replication/repl5_replica.c
++++ b/ldap/servers/plugins/replication/repl5_replica.c
+@@ -239,7 +239,7 @@ replica_new_from_entry(Slapi_Entry *e, char *errortext, PRBool is_add_operation,
+     /* create supplier update event */
+     if (r->repl_eqcxt_ka_update == NULL && replica_get_type(r) == REPLICA_TYPE_UPDATABLE) {
+         r->repl_eqcxt_ka_update = slapi_eq_repeat_rel(replica_subentry_update, r,
+-                                                   slapi_current_rel_time_t() + START_UPDATE_DELAY,
++                                                   slapi_current_rel_time_t() + 30,
+                                                    replica_get_keepalive_update_interval(r));
+     }
+ 
+@@ -415,8 +415,9 @@ replica_subentry_create(const char *repl_root, ReplicaId rid)
+     int return_value;
+     int rc = 0;
+ 
+-    entry_string = slapi_ch_smprintf("dn: cn=%s %d,%s\nobjectclass: top\nobjectclass: ldapsubentry\nobjectclass: extensibleObject\ncn: %s %d",
+-                                     KEEP_ALIVE_ENTRY, rid, repl_root, KEEP_ALIVE_ENTRY, rid);
++    entry_string = slapi_ch_smprintf("dn: cn=%s %d,%s\nobjectclass: top\nobjectclass: ldapsubentry\n"
++                                     "objectclass: extensibleObject\n%s: 0\ncn: %s %d",
++                                     KEEP_ALIVE_ENTRY, rid, repl_root, KEEP_ALIVE_ATTR, KEEP_ALIVE_ENTRY, rid);
+     if (entry_string == NULL) {
+         slapi_log_err(SLAPI_LOG_ERR, repl_plugin_name,
+                       "replica_subentry_create - Failed in slapi_ch_smprintf\n");
+-- 
+2.37.1
+

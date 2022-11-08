@@ -1,7 +1,7 @@
-From 2310b48089755fb5b8e3dedf12e8a786b9819c19 Mon Sep 17 00:00:00 2001
+From 48ef747b731b5debfefc20757f3b3775828504c2 Mon Sep 17 00:00:00 2001
 From: tbordaz <tbordaz@redhat.com>
 Date: Thu, 18 Aug 2022 11:17:30 +0200
-Subject: [PATCH] Issue 5418 - Sync_repl may crash while managing invalid
+Subject: [PATCH 3/4] Issue 5418 - Sync_repl may crash while managing invalid
  cookie (#5420)
 
 Bug description:
@@ -106,5 +106,5 @@ index 533460e8f..375517693 100644
 +
 +    request.addfinalizer(fin)
 -- 
-2.37.3
+2.37.1
 

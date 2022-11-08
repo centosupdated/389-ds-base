@@ -1,0 +1,41 @@
+From 2ee8d9d2ce8bf252287089d18e15b519f15e9538 Mon Sep 17 00:00:00 2001
+From: Firstyear <william@blackhats.net.au>
+Date: Thu, 6 Jan 2022 09:49:30 +1000
+Subject: [PATCH 1/5] Issue 5079 - BUG - multiple ways to specific primary
+ (#5087)
+
+Bug Description: In a winsync environment, we can only sync
+changes to a primary replica. There are however, multiple
+ways to specify which server is a primary for a replication
+agreement, and I only accounted for one of them.
+
+Fix Description: Improve the check to account for the
+other primary replica flags.
+
+fixes: https://github.com/389ds/389-ds-base/issues/5079
+
+Author: William Brown <william@blackhats.net.au>
+
+Review by: @droideck
+---
+ ldap/servers/plugins/replication/repl5_agmt.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/ldap/servers/plugins/replication/repl5_agmt.c b/ldap/servers/plugins/replication/repl5_agmt.c
+index 82efdcd15..a71343dec 100644
+--- a/ldap/servers/plugins/replication/repl5_agmt.c
++++ b/ldap/servers/plugins/replication/repl5_agmt.c
+@@ -482,7 +482,9 @@ agmt_new_from_entry(Slapi_Entry *e)
+ 
+     /* DBDB: review this code */
+     if (slapi_entry_attr_hasvalue(e, "objectclass", "nsDSWindowsReplicationAgreement")) {
+-        if (replica && replica_get_type(replica) == REPLICA_TYPE_PRIMARY) {
++        if (replica_get_type(replica) == REPLICA_TYPE_PRIMARY
++           || (replica_get_type(replica) == REPLICA_TYPE_UPDATABLE && replica_is_flag_set(replica, REPLICA_LOG_CHANGES))
++        ) {
+             ra->agreement_type = REPLICA_TYPE_WINDOWS;
+             windows_init_agreement_from_entry(ra, e);
+         } else {
+-- 
+2.37.1
+
