@@ -17,7 +17,7 @@ ExcludeArch: i686
 
 %if %{bundle_jemalloc}
 %global jemalloc_name jemalloc
-%global jemalloc_ver 5.2.1
+%global jemalloc_ver 5.3.0
 %global __provides_exclude ^libjemalloc\\.so.*$
 %endif
 
@@ -46,9 +46,9 @@ ExcludeArch: i686
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          2.0.14
-Release:          1%{?dist}
-License:          GPLv3+ and ASL 2.0
+Version:          2.1.3
+Release:          4%{?dist}
+License:          GPLv3+ and (ASL 2.0 or MIT)
 URL:              https://www.port389.org
 Conflicts:        selinux-policy-base < 3.9.8
 Conflicts:        freeipa-server < 4.0.3
@@ -61,94 +61,96 @@ Provides:         ldif2ldbm >= 0
 Provides:  bundled(crate(ahash)) = 0.7.6
 Provides:  bundled(crate(ansi_term)) = 0.12.1
 Provides:  bundled(crate(atty)) = 0.2.14
-Provides:  bundled(crate(autocfg)) = 1.0.1
+Provides:  bundled(crate(autocfg)) = 1.1.0
 Provides:  bundled(crate(base64)) = 0.13.0
 Provides:  bundled(crate(bitflags)) = 1.3.2
 Provides:  bundled(crate(byteorder)) = 1.4.3
 Provides:  bundled(crate(cbindgen)) = 0.9.1
-Provides:  bundled(crate(cc)) = 1.0.72
+Provides:  bundled(crate(cc)) = 1.0.73
 Provides:  bundled(crate(cfg-if)) = 1.0.0
 Provides:  bundled(crate(clap)) = 2.34.0
 Provides:  bundled(crate(concread)) = 0.2.21
-Provides:  bundled(crate(crossbeam)) = 0.8.1
-Provides:  bundled(crate(crossbeam-channel)) = 0.5.2
-Provides:  bundled(crate(crossbeam-deque)) = 0.8.1
-Provides:  bundled(crate(crossbeam-epoch)) = 0.9.6
-Provides:  bundled(crate(crossbeam-queue)) = 0.3.3
-Provides:  bundled(crate(crossbeam-utils)) = 0.8.6
+Provides:  bundled(crate(crossbeam)) = 0.8.2
+Provides:  bundled(crate(crossbeam-channel)) = 0.5.6
+Provides:  bundled(crate(crossbeam-deque)) = 0.8.2
+Provides:  bundled(crate(crossbeam-epoch)) = 0.9.10
+Provides:  bundled(crate(crossbeam-queue)) = 0.3.6
+Provides:  bundled(crate(crossbeam-utils)) = 0.8.11
 Provides:  bundled(crate(entryuuid)) = 0.1.0
 Provides:  bundled(crate(entryuuid_syntax)) = 0.1.0
-Provides:  bundled(crate(fastrand)) = 1.7.0
+Provides:  bundled(crate(fastrand)) = 1.8.0
 Provides:  bundled(crate(fernet)) = 0.1.4
 Provides:  bundled(crate(foreign-types)) = 0.3.2
 Provides:  bundled(crate(foreign-types-shared)) = 0.1.1
-Provides:  bundled(crate(getrandom)) = 0.2.4
-Provides:  bundled(crate(hashbrown)) = 0.11.2
+Provides:  bundled(crate(getrandom)) = 0.2.7
+Provides:  bundled(crate(hashbrown)) = 0.12.3
 Provides:  bundled(crate(hermit-abi)) = 0.1.19
 Provides:  bundled(crate(instant)) = 0.1.12
-Provides:  bundled(crate(itoa)) = 1.0.1
+Provides:  bundled(crate(itoa)) = 1.0.3
 Provides:  bundled(crate(jobserver)) = 0.1.24
-Provides:  bundled(crate(lazy_static)) = 1.4.0
-Provides:  bundled(crate(libc)) = 0.2.113
+Provides:  bundled(crate(libc)) = 0.2.132
 Provides:  bundled(crate(librnsslapd)) = 0.1.0
 Provides:  bundled(crate(librslapd)) = 0.1.0
-Provides:  bundled(crate(lock_api)) = 0.4.5
-Provides:  bundled(crate(log)) = 0.4.14
-Provides:  bundled(crate(lru)) = 0.7.2
+Provides:  bundled(crate(lock_api)) = 0.4.7
+Provides:  bundled(crate(log)) = 0.4.17
+Provides:  bundled(crate(lru)) = 0.7.8
 Provides:  bundled(crate(memoffset)) = 0.6.5
-Provides:  bundled(crate(once_cell)) = 1.9.0
-Provides:  bundled(crate(openssl)) = 0.10.38
-Provides:  bundled(crate(openssl-sys)) = 0.9.72
+Provides:  bundled(crate(once_cell)) = 1.13.1
+Provides:  bundled(crate(openssl)) = 0.10.41
+Provides:  bundled(crate(openssl-macros)) = 0.1.0
+Provides:  bundled(crate(openssl-sys)) = 0.9.75
 Provides:  bundled(crate(parking_lot)) = 0.11.2
 Provides:  bundled(crate(parking_lot_core)) = 0.8.5
 Provides:  bundled(crate(paste)) = 0.1.18
 Provides:  bundled(crate(paste-impl)) = 0.1.18
-Provides:  bundled(crate(pin-project-lite)) = 0.2.8
-Provides:  bundled(crate(pkg-config)) = 0.3.24
+Provides:  bundled(crate(pin-project-lite)) = 0.2.9
+Provides:  bundled(crate(pkg-config)) = 0.3.25
 Provides:  bundled(crate(ppv-lite86)) = 0.2.16
 Provides:  bundled(crate(proc-macro-hack)) = 0.5.19
-Provides:  bundled(crate(proc-macro2)) = 1.0.36
+Provides:  bundled(crate(proc-macro2)) = 1.0.43
 Provides:  bundled(crate(pwdchan)) = 0.1.0
-Provides:  bundled(crate(quote)) = 1.0.15
-Provides:  bundled(crate(rand)) = 0.8.4
+Provides:  bundled(crate(quote)) = 1.0.21
+Provides:  bundled(crate(rand)) = 0.8.5
 Provides:  bundled(crate(rand_chacha)) = 0.3.1
 Provides:  bundled(crate(rand_core)) = 0.6.3
-Provides:  bundled(crate(rand_hc)) = 0.3.1
-Provides:  bundled(crate(redox_syscall)) = 0.2.10
+Provides:  bundled(crate(redox_syscall)) = 0.2.16
 Provides:  bundled(crate(remove_dir_all)) = 0.5.3
-Provides:  bundled(crate(ryu)) = 1.0.9
+Provides:  bundled(crate(ryu)) = 1.0.11
 Provides:  bundled(crate(scopeguard)) = 1.1.0
-Provides:  bundled(crate(serde)) = 1.0.135
-Provides:  bundled(crate(serde_derive)) = 1.0.135
-Provides:  bundled(crate(serde_json)) = 1.0.78
+Provides:  bundled(crate(serde)) = 1.0.143
+Provides:  bundled(crate(serde_derive)) = 1.0.143
+Provides:  bundled(crate(serde_json)) = 1.0.83
 Provides:  bundled(crate(slapd)) = 0.1.0
 Provides:  bundled(crate(slapi_r_plugin)) = 0.1.0
-Provides:  bundled(crate(smallvec)) = 1.8.0
+Provides:  bundled(crate(smallvec)) = 1.9.0
 Provides:  bundled(crate(strsim)) = 0.8.0
-Provides:  bundled(crate(syn)) = 1.0.86
+Provides:  bundled(crate(syn)) = 1.0.99
 Provides:  bundled(crate(synstructure)) = 0.12.6
 Provides:  bundled(crate(tempfile)) = 3.3.0
 Provides:  bundled(crate(textwrap)) = 0.11.0
-Provides:  bundled(crate(tokio)) = 1.15.0
-Provides:  bundled(crate(tokio-macros)) = 1.7.0
-Provides:  bundled(crate(toml)) = 0.5.8
+Provides:  bundled(crate(tokio)) = 1.20.1
+Provides:  bundled(crate(tokio-macros)) = 1.8.0
+Provides:  bundled(crate(toml)) = 0.5.9
+Provides:  bundled(crate(unicode-ident)) = 1.0.3
 Provides:  bundled(crate(unicode-width)) = 0.1.9
-Provides:  bundled(crate(unicode-xid)) = 0.2.2
+Provides:  bundled(crate(unicode-xid)) = 0.2.3
 Provides:  bundled(crate(uuid)) = 0.8.2
 Provides:  bundled(crate(vcpkg)) = 0.2.15
 Provides:  bundled(crate(vec_map)) = 0.8.2
 Provides:  bundled(crate(version_check)) = 0.9.4
-Provides:  bundled(crate(wasi)) = 0.10.2+wasi_snapshot_preview1
+Provides:  bundled(crate(wasi)) = 0.11.0+wasi_snapshot_preview1
 Provides:  bundled(crate(winapi)) = 0.3.9
 Provides:  bundled(crate(winapi-i686-pc-windows-gnu)) = 0.4.0
 Provides:  bundled(crate(winapi-x86_64-pc-windows-gnu)) = 0.4.0
-Provides:  bundled(crate(zeroize)) = 1.5.0
-Provides:  bundled(crate(zeroize_derive)) = 1.3.1
+Provides:  bundled(crate(zeroize)) = 1.5.7
+Provides:  bundled(crate(zeroize_derive)) = 1.3.2
 ##### Bundled cargo crates list - END #####
 
-BuildRequires:    nspr-devel
-BuildRequires:    nss-devel >= 3.34
+BuildRequires:    nspr-devel >= 4.32
+BuildRequires:    nss-devel >= 3.67.0-7
+
 BuildRequires:    openldap-devel
+BuildRequires:    lmdb-devel
 BuildRequires:    libdb-devel
 BuildRequires:    cyrus-sasl-devel
 BuildRequires:    icu
@@ -213,23 +215,25 @@ BuildRequires:    rsync
 
 Requires:         %{name}-libs = %{version}-%{release}
 Requires:         python%{python3_pkgversion}-lib389 = %{version}-%{release}
+Requires:         lmdb-libs
 
 # this is needed for using semanage from our setup scripts
 Requires:         policycoreutils-python-utils
 Requires:         /usr/sbin/semanage
 Requires:         libsemanage-python%{python3_pkgversion}
-
 Requires:         selinux-policy >= 3.14.1-29
 
 # the following are needed for some of our scripts
 Requires:         openldap-clients
 Requires:         /usr/bin/c_rehash
 Requires:         python%{python3_pkgversion}-ldap
+Requires:         acl
 
 # this is needed to setup SSL if you are not using the
 # administration server package
+Requires:         nspr >= 4.32
+Requires:         nss >= 3.67.0-7
 Requires:         nss-tools
-Requires:         nss >= 3.34
 %dirsrv_requires_ge nss
 
 # these are not found by the auto-dependency method
@@ -262,7 +266,7 @@ Source2:          %{name}-devel.README
 %if %{bundle_jemalloc}
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
-Patch01:          0001-Bug-2027783-CVE-2021-4091-389-ds-base-double-free-of.patch
+Patch01:          0001-Issue-5254-dscreate-create-template-regression-due-t.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -275,8 +279,8 @@ Please see http://seclists.org/oss-sec/2016/q1/363 for more information.
 
 %package          libs
 Summary:          Core libraries for 389 Directory Server
-BuildRequires:    nspr-devel
-BuildRequires:    nss-devel >= 3.34
+BuildRequires:    nspr >= 4.32
+BuildRequires:    nss >= 3.67.0-7
 BuildRequires:    openldap-devel
 BuildRequires:    libdb-devel
 BuildRequires:    cyrus-sasl-devel
@@ -330,6 +334,7 @@ Summary:  A library for accessing, testing, and configuring the 389 Directory Se
 BuildArch:        noarch
 Requires: openssl
 Requires: iproute
+Requires: 389-ds-base
 Recommends: bash-completion
 Requires: python%{python3_pkgversion}
 Requires: python%{python3_pkgversion}-distro
@@ -441,7 +446,7 @@ autoreconf -fiv
            --with-systemdgroupname=%{groupname}  \
            --libexecdir=%{_libexecdir}/%{pkgname} \
            $NSSARGS $ASAN_FLAGS $RUST_FLAGS $CLANG_FLAGS $COCKPIT_FLAGS \
-           --enable-cmocka --enable-new-dtags
+           --enable-cmocka --enable-new-dtags --with-libldap-r=no
 
 
 # lib389
@@ -712,300 +717,42 @@ exit 0
 %endif
 
 %changelog
-* Fri Jan 28 2022 Mark Reynolds <mreynolds@redhat.com> - 2.0.14-1
-- Bump version to 2.0.14-1
-- Resolves: Bug 2034880 - ipa-restore command is failing when restore after uninstalling the server (part2)
+* Thu Oct 6 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.3-4
+- Bump version to 2.1.3-4
+- Resolves: Bug 1872451 - Fix regression with dscreate template
 
-* Tue Jan 25 2022 Mark Reynolds <mreynolds@redhat.com> - 2.0.13-1
-- Bump version to 2.0.13-1
-- Resolves: Bug 2034880 - ipa-restore command is failing when restore after uninstalling the server
-- Resolves: Bug 2045098 - Demoting a supplier to a consumer crashes the server
+* Fri Aug 19 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.3-3
+- Bump version to 2.1.3-3
+- Resolves: Bug 2118765
 
-* Wed Nov 24 2021 Simon Pichugin <spichugi@redhat.com> - 2.0.11-2
-- Bump version to 2.0.11-2
-- Revert commit "Set db home directory by default"
+* Thu Aug 18 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.3-2
+- Bump version to 2.1.3-2
+- Resolves: Bug 2118765 - SIGSEGV in sync_repl
 
-* Thu Nov 18 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.11-1
-- Bump version to 2.0.11-1
-- Resolves: Bug 2024693 - Rebase RHEL 9.0 with 389-ds-base
-- Resolves: Bug 2015996 - Log the Auto Member invalid regex rules in the LDAP errors log
-- Resolves: Bug 2020554 - ipa user-add fails with "gecos: value invalid per syntax: Invalid syntax"
-- Resolves: Bug 1779685 - PBKDF2 hashing does not work in FIPS mode
+* Mon Jul 11 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.3-1
+- Bump version to 2.1.3-1
+- Resolves: Bug 2061801 - rebase 389-ds-base to 2.1.3
+- Resolves: Bug 1872451 - RFE - run as non-root
+- Resolves: Bug 2052527 - RFE - Provide an option to abort an Auto Member rebuild task
+- Resolves: Bug 2057056 - Import may break the replication because changelog starting csn may not be created
+- Resolves: Bug 2057063 - Add support for recursively deleting subentries
+- Resolves: Bug 2062778 - sending crafted message could result in DoS
+- Resolves: Bug 2064781 - expired password was still allowed to access the database
+- Resolves: Bug 2100337 - dsconf backend export userroot fails ldap.DECODING_ERROR
 
-* Fri Sep 17 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.8-6
-- Bump version to 2.0.8-6
-- Resolves: Bug 2000420 - Not able to preserve users using "ipa user-del --preserve"
+* Mon Jun 13 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.1-3
+- Bump version to 2.1.1-3
+- Resolves: Bug 2061801 - Fix nss-tools requirement
 
-* Fri Sep 17 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.8-5
-- Bump version to 2.0.8-5
-- Resolves: Bug 2000420 - Not able to preserve users using "ipa user-del --preserve"
+* Mon Jun 13 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.1-2
+- Bump version to 2.1.1-2
+- Resolves: Bug 2061801 - Fix lmdb-libs requirement
 
-* Mon Aug 30 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.8-4
-- Bump version to 2.0.8-4
-- Resolves: Bug 1992609 - Fix specfile issue with applying patches
+* Thu May 12 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.1-1
+- Bump version to 2.1.1-1
+- Resolves: Bug 2061801 - rebase 389-ds-base to 2.1.1
 
-* Mon Aug 30 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.8-3
-- Bump version to 2.0.8-3
-- Resolves: Bug 1992609 - Fix specfile issue with applying patches
-
-* Fri Aug 27 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.8-2
-- Bump version to 2.0.8-2
-- Resolves: Bug 1998464 - LDAP server crashes when dnaInterval attribute is set to 0
-
-* Mon Aug 23 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.8-1
-- Bump version to 2.0.8-1
-- Resolves: Bug 1992609 - EntryUUID syntax plugin breaks replication with older versions
-
-* Thu Aug 12 2021 Viktor Ashirov <vashirov@redhat.com> - 2.0.7-3
-- Remove unused relprefix and prerel macros that break rpmdev-bumpspec logic
-  Related: rhbz#1991688
-
-* Mon Aug 09 2021 Mohan Boddu <mboddu@redhat.com> - 2.0.7-2.1
-- Rebuilt for IMA sigs, glibc 2.34, aarch64 flags
-  Related: rhbz#1991688
-
-* Thu Aug  5 2021 Simon Pichugin <spichugi@redhat.com> - 2.0.7-2
-- Resolves: Bug 1988759 - 389-ds-base: Rebuild does not switch to OpenSSL 3.0 Beta ABI
-- Force to require nss version greater or equal as the version available at the build time
-
-* Fri Jul 16 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.7-1
-- Bump version to 2.0.7-1
-- Resolves: Bug 1982789 - 389-ds-base: CRYPT password hash with asterisk allows any bind attempt to succeed
-
-* Thu Jul 8 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.6-3
-- Bump version to 2.0.6-3
-- Resolves: Bug 1978618 - Drop argparse-manpage runtime dependency
-
-* Mon Jun 28 2021 Simon Pichugin <spichugi@redhat.com> - 2.0.6-2
-- Roll back to openssl 0.10.33 rust crate as it's required for OpenSSL 3.0.0-alpha16
-
-* Thu Jun 24 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.6-1
-- Bump version to 2.0.6
-- Resolves: Bug 1970559 - Crash in dynamic_plugins_test.py::test_acceptance
-- Resolves: Bug 1843522 - move CL followup (1) - don't use hardcoded filename
-- Resolves: Bug 1843524 - move CL followup (3) - import ldif2cl task should not close all changelogs
-- Resolves: Bug 220222 - [RFE] support for RFC 4530 entryUUID attribute
-- Resolves: Bug 1859296 - Remove DES to AES conversion code
-- Resolves: Bug 1970586 - MODRDN fails with err=32 in managed_entry_test.py::test_mentry01
-- Resolves: Bug 1970613 - dbscan crashes with SIGABRT in dirsrvtests/tests/suites/password/regression_test.py::test_unhashed_pw_switch
-- Resolves: Bug 1970620 - memberofAutoAddOC attribute can't be added to Memberof plugin when dynamic plugins are on
-- Resolves: Bug 1970586 - MODRDN fails with err=32 in managed_entry_test.py::test_mentry01
-- Resolves: Bug 1910941 - CVE-2020-35518 389-ds-base: information disclosure during the binding of a DN
-
-* Wed Jun 16 2021 Mohan Boddu <mboddu@redhat.com> - 2.0.5-1.1
-- Rebuilt for RHEL 9 BETA for openssl 3.0
-  Related: rhbz#1971065
-
-* Sun May 30 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.5-1
-- Bump version to 2.0.5
-- Issue 4778 - RFE - Allow setting TOD for db compaction and add task
-- Issue 4169 - UI - Port plugin tables to PF4
-- Issue 4656 - Allow backward compatilbity for replication plugin name change
-- Issue 4764 - replicated operation sometime checks ACI (#4783)
-- Issue 2820 - Fix CI test suite issues
-- Issue 4781 - There are some typos in man-pages
-- Issue 4773 - Enable interval feature of DNA plugin
-- Issue 4623 - RFE - Monitor the current DB locks (#4762)
-- Issue 3555 - Fix UI audit issue
-- Issue 4725 - Fix compiler warnings
-- Issue 4770 - Lower FIPS logging severity
-- Issue 4765 - database suffix unexpectdly changed from .db to .db4 (#4766)
-- Issue 4725 - [RFE] DS - Update the password policy to support a Temporary Password Rules (#4727)
-- Issue 4747 - Remove unstable/unstatus tests from PRCI (#4748)
-- Issue 4759 - Fix coverity issue (#4760)
-- Issue 4169 - UI - Migrate Buttons to PF4 (#4745)
-- Issue 4714 - dscontainer fails with rootless podman
-- Issue 4750 - Fix compiler warning in retrocl (#4751)
-- Issue 4742 - UI - should always use LDAPI path when calling CLI
-- Issue 4169 - UI - Migrate Server, Security, and Schema tables to PF4
-- Issue 4667 - incorrect accounting of readers in vattr rwlock (#4732)
-- Issue 4701 - RFE - Exclude attributes from retro changelog (#4723)
-- Issue 4740 - Fix CI lib389 userPwdPolicy and subtreePwdPolicy (#4741)
-- Issue 4711 - SECURITY FIX - SIGSEV with sync_repl (#4738)
-- Issue 4734 - import of entry with no parent warning (#4735)
-- Issue 4729 - GitHub Actions fails to run pytest tests
-- Issue 4656 - Remove problematic language from source code
-- Issue 4632 - dscontainer: SyntaxWarning: "is" with a literal.
-- Issue 4169 - UI - migrate replication tables to PF4
-- Issue 4637 - ndn cache leak (#4724)
-- Issue 4577 - Fix ASAN flags in specfile
-- Issue 4169 - UI - PF4 migration - database tables
-- issue 4653 - refactor ldbm backend to allow replacement of BDB - phase 3e - dbscan (#4709)
-
-* Mon May 24 2021 Simon Pichugin <spichugi@redhat.com> - 2.0.3-4
-- Initial support for OpenSSL 3.0.0-alpha16
-
-* Thu Apr 15 2021 Mohan Boddu <mboddu@redhat.com> - 2.0.3-3.1
-- Rebuilt for RHEL 9 BETA on Apr 15th 2021. Related: rhbz#1947937
-
-* Fri Feb 26 2021 Alexander Bokovoy <abokovoy@redhat.com> - 2.0.3-3
-- Remove a revert of the fix for Issue 4609 - CVE - info disclosure when authenticating(breaks Dogtag)
-- Dogtag has fixed own code that failed in the presence of the fix for Issue 4609
-
-* Fri Feb 19 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.3-2
-- Bump version to 2.0.3-2
-- Revert Issue 4609 - CVE - info disclosure when authenticating(breaks DogTag)
-
-* Fri Feb 12 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.3-1
-- Bump version to 2.0.3
-- Issue 4619 - remove pytest requirement from lib389
-- Issue 4615 - log message when psearch first exceeds max threads per conn
-- Issue 4469 - Backend redesing phase 3a - implement dbimpl API and use it in back-ldbm (#4618)
-- Issue 4324 - Some architectures the cache line size file does not exist
-- Issue 4593 - RFE - Print help when nsSSLPersonalitySSL is not found (#4614)
-- Issue 4469 - Backend redesign phase 3a - bdb dependency removal from back-ldbm
-- PR 4564 - Update dscontainer
-- Issue 4149 - UI - port TreeView and opther components to PF4
-- Issue 4577 - Add GitHub actions
-- Issue 4591 - RFE - improve openldap_to_ds help and features (#4607)
-- issue 4612 - Fix pytest fourwaymmr_test for non root user (#4613)
-- Issue 4609 - CVE - info disclosure when authenticating
-- Issue 4348 - Add tests for dsidm
-- Issue 4571 - Stale libdb-utils dependency
-- Issue 4600 - performance modify rate: reduce lock contention on the object extension factory (#4601)
-- Issue 4577 - Add GitHub actions
-- Issue 4588 - BUG - unable to compile without xcrypt (#4589)
-- Issue 4579 - libasan detects heap-use-after-free in URP test (#4584)
-- Issue 4581 - A failed re-indexing leaves the database in broken state (#4582)
-- Issue 4348 - Add tests for dsidm
-- Issue 4577 - Add GitHub actions
-- Issue 4563 - Failure on s390x: 'Fails to split RDN "o=pki-tomcat-CA" into components' (#4573)
-- Issue 4093 - fix compiler warnings and update doxygen
-- Issue 4575 - Update test docstrings metadata
-- Issue 4526 - sync_repl: when completing an operation in the pending list, it can select the wrong operation (#4553)
-- Issue 4324 - Performance search rate: change entry cache monitor to recursive pthread mutex (#4569)
-- Issue 4513 - Add DS version check to SSL version test (#4570)
-- Issue 5442 - Search results are different between RHDS10 and RHDS11
-- Issue 4396 - Minor memory leak in backend (#4558)
-- Issue 4513 - Fix replication CI test failures (#4557)
-- Issue 4513 - Fix replication CI test failures (#4557)
-- Issue 4153 - Added a CI test (#4556)
-- Issue 4506 - BUG - fix oob alloc for fds (#4555)
-- Issue 4548 - CLI - dsconf needs better root DN access control plugin validation
-- Issue 4506 - Temporary fix for io issues (#4516)
-- Issue 4535 - lib389 - Fix log function in backends.py
-- Issue 4534 - libasan read buffer overflow in filtercmp (#4541)
-- Issue 4544 - Compiler warnings on krb5 functions (#4545)
-- Update rpm.mk for RUST tarballs
-
-* Mon Jan 25 2021 Fedora Release Engineering <releng@fedoraproject.org> - 2.0.2-1.1
-- Rebuilt for https://fedoraproject.org/wiki/Fedora_34_Mass_Rebuild
-
-* Thu Jan 14 2021 Mark Reynolds <mreynolds@redhat.com> - 2.0.2-1
-- Bump version to 2.0.2
-- Issue 4539 - BUG - no such file if no overlays in openldap during migration (#4540)
-- Issue 4528 - Fix cn=monitor SCOPE_ONE search (#4529)
-- Issue 4535 - lib389 - healthcheck throws exception if backend is not replicated
-- Issue 4537 - Use KRB5_CLIENT_KTNAME for client keytabs (#4523)
-- Issue 4513 - CI Tests - fix test failures
-- Issue 4504 - insure that repl_monitor_test use ldapi (for RHEL) - fix merge issue (#4533)
-- Issue 4315 - performance search rate: nagle triggers high rate of setsocketopt
-- Issue 4504 - pytest test_dsconf_replication_monitor fails on RHEL - Fix merging issue (#4530)
-- Issue 4504 - Insure ldapi is enabled in repl_monitor_test.py (Needed on RHEL) (#4527)
-- Issue 4506 - BUG - Fix bounds on fd table population (#4520)
-- Issue 4521 - DS crash in deref plugin if dereferenced entry exists but is not returned by internal search (#4525)
-- Issue 4219 - Log internal unindexed searches (notes=A)
-- Issue 4384 - Separate eventq into REALTIME and MONOTONIC
-- Issue 4381 - RFE - LDAPI authentication DN rewritter
-- Issue 4513 - Fix schema test and lib389 task module (#4514)
-- Issue 4414 - disk monitoring - prevent division by zero crash
-- Issue 4517 - BUG: Multiple systemd pin warnings (#4518)
-- Issue 4507 - Improve csngen testing task (#4508)
-- Issue 4498 - BUG - entryuuid replication may not work (#4503)
-- Issue 4480 - Unexpected info returned to ldap request (#4491)
-- Issue 4504 - Fix pytest test_dsconf_replication_monitor (#4505)
-- Issue 4373 - BUG - one line cleanup, free results in mt if ent 0 (#4502)
-- Issue 4500 - Add cockpit enabling to dsctl
-- Issue 4272 - RFE - add support for gost-yescrypt for hashing passwords (#4497)
-- Issue 1795 - RFE - Enable logging for libldap and libber in error log (#4481)
-- Issue 3522 - Remove DES to AES conversion code
-- Issue 4492 - Changelog cache can upload updates from a wrong starting point (CSN) (#4493)
-- Issue 4373 - BUG - calloc of size 0 in MT build (#4496)
-- Issue 4483 - heap-use-after-free in slapi_be_getsuffix
-- Issue 4486 - Remove random ldif file generation from import test (#4487)
-- Issue 4224 - cleanup specfile after libsds removal
-- Issue 4421 - Unable to build with Rust enabled in closed environment
-- Issue 4489 - Remove return statement from a void function (#4490)
-- Issue 4229 - RFE - Improve rust linking and build performance (#4474)
-- Issue 4224 - openldap can become confused with entryuuid
-- Issue 4313 - improve tests and improve readme re refdel
-- Issue 4313 - fix potential syncrepl data corruption
-- Issue 4419 - Warn users of skipped entries during ldif2db online import (#4476)
-- Issue 4243 - Fix test (4th): SyncRepl plugin provides a wrong (#4475)
-- Issue 4315 - performance search rate: nagle triggers high rate of setsocketopt (#4437)
-- Issue 4460 - BUG - add machine name to subject alt names in SSCA (#4472)
-- Issue 4446 - RFE - openldap password hashers
-- Issue 4284 - dsidm fails to delete an organizationalUnit entry
-- Issue 4243 - Fix test: SyncRepl plugin provides a wrong cookie (#4466) (#4466)
-- Issue 4464 - RFE - clang with ds+asan+rust
-- Issue 4105 - Remove python.six (fix regression)
-- Issue 4384 - Use MONOTONIC clock for all timing events and conditions
-- Issue 4418 - ldif2db - offline. Warn the user of skipped entries
-- Issue 4243 - Fix test: SyncRepl plugin provides a wrong cookie (#4467)
-- Issue 4460 - BUG  - lib389 should use system tls policy
-- Issue 3657 - Add options to dsctl for dsrc file
-- Issue 4454 - RFE - fix version numbers to allow object caching
-- Issue 3986 - UI - Handle objectclasses that do not have X-ORIGIN set
-- Issue 4297 - 2nd fix for on ADD replication URP issue internal searches with filter containing unescaped chars (#4439)
-- Issue 4112 - Added a CI test (#4441)
-- Issue 4449 - dsconf replication monitor fails to retrieve database RUV - consumer (Unavailable) (#4451)
-- Issue 4105 - Remove python.six from lib389 (#4456)
-- Issue 4440 - BUG - ldifgen with --start-idx option fails with unsupported operand (#4444)
-- Issue 4410 - RFE - ndn cache with arc in rust
-- Issue 4373 - BUG - Mapping Tree nodes can be created that are invalid
-- Issue 4428 - BUG Paged Results with critical false causes sigsegv in chaining
-- Issue 4428 - Paged Results with Chaining Test Case
-- Issue 2054 - do not add referrals for masters with different data generation
-- Issue 4383 - Do not normalize escaped spaces in a DN
-- Issue 4432 - After a failed online import the next imports are very slow
-- Issue 4316 - performance search rate: useless poll on network send callback (#4424)
-- Issue 4281 - dsidm user status fails with Error: 'nsUserAccount' object has no attribute 'is_locked'
-- Issue 4429 - NULL dereference in revert_cache()
-- Issue 4412 - Fix CLI repl-agmt requirement for parameters (#4422)
-- Issue 4407 - RFE - remove http client and presence plugin (#4409)
-- Issue 4398 - build problems at alpine linux
-- Issue 4415 - unable to query schema if there are extra parenthesis
-
-* Thu Oct 29 2020 Mark Reynolds <mreynolds@redhat.com> - 2.0.1-1
-- Bump version to 2.0.1
-- Issue 4420 - change NVR to use X.X.X instead of X.X.X.X
-- Issue 4391 - DSE config modify does not call be_postop (#4394)
-- Issue 4218 - Verify the new wtime and optime access log keywords (#4397)
-- Issue 4176 - CL trimming causes high CPU
-- Issue 2058 - Add keep alive entry after on-line initialization - second version (#4399)
-- Issue 4403 - RFE - OpenLDAP pw hash migration tests (#4408)
-
-* Wed Oct 28 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.5.0-1
-- Bump version to 1.4.5.0
-- Issue 4262 - more perl removal cleanup
-- Issue 2526 - retrocl backend created out of order
-
-* Mon Oct 26 2020 Mark Reynolds <mreynolds@redhat.com> - 1.4.4.6-1
-- Bump version to 1.4.4.6
-- Issue 4262 - Remove legacy tools subpackage (final cleanup)
-- Issue 4262 - Remove legacy tools subpackage (restart instances after rpm install)
-- Issue 4262 - Remove legacy tools subpackage
-- Issue 2526 - revert API change in slapi_be_getsuffix()
-- Issue 4363 - Sync repl: per thread structure was incorrectly initialized (#4395)
-- Issue 4392 - Update create_test.py
-- Issue 2820 - Fix CI tests (#4365)
-- Issue 2526 - suffix management in backends incorrect
-- Issue 4389 - errors log with incorrectly formatted message parent_update_on_childchange
-- Issue 4295 - Fix a closing quote issue (#4386)
-- Issue 1199 - Misleading message in access log for idle timeout (#4385)
-- Issue 3600 - RFE - openldap migration tooling (#4318)
-- Issue 4176 - import ldif2cl task should not close all changelogs
-- Issue 4159 - Healthcheck code DSBLE0002 not returned on disabled suffix
-- Issue 4379 - allow more than 1 empty AttributeDescription for ldapsearch, without the risk of denial of service (#4380)
-- Issue 4329 - Sync repl - if a serie of updates target the same entry then the cookie get wrong changenumber (#4356)
-- Issue 3555 - Fix npm audit issues (#4370)
-- Issue 4372 - BUG - Chaining DB did not validate bind mech parameters (#4374)
-- Issue 4334 - RFE - Task timeout may cause larger dataset imports to fail (#4359)
-- Issue 4361 - RFE - add - dscreate --advanced flag to avoid user confusion
-- Issue 4368 - ds-replcheck crashes when processing glue entries
-- Issue 4366 - lib389 - Fix account status inactivity checks
-- Issue 4265 - UI - Make the secondary plugins read-only (#4364)
-- Issue 4360 - password policy max sequence sets is not working as expected
-- Issue 4348 - Add tests for dsidm
-- Issue 4350 - One line, fix invalid type error in tls_cacertdir check (#4358)
+* Tue Mar 8 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.0-1
+- Bump version to 2.1.0-1
+- Resolves: Bug 2061801 - rebase 389-ds-base to 2.1.0
 
