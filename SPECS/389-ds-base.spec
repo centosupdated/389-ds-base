@@ -14,6 +14,7 @@
 # This is used in certain builds to help us know if it has extra features.
 %global variant base
 %global use_asan 0
+%global use_rust 1
 
 %if %{use_asan}
 %global use_tcmalloc 0
@@ -25,6 +26,7 @@
 %global use_tcmalloc 0
 %endif
 %endif
+%global rust_version      1.62
 
 # fedora 15 and later uses tmpfiles.d
 # otherwise, comment this out
@@ -38,8 +40,8 @@
 
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
-Version:          1.3.10.2
-Release:          %{?relprefix}17%{?prerel}%{?dist}
+Version:          1.3.11.1
+Release:          %{?relprefix}1%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -74,6 +76,13 @@ BuildRequires:    systemd-units
 BuildRequires:    systemd-devel
 %if %{use_asan}
 BuildRequires:    libasan
+%endif
+# If rust is enabled
+%if %{use_rust}
+BuildRequires:    scl-utils
+BuildRequires:    rust-toolset-%{rust_version}
+BuildRequires:    rust-toolset-%{rust_version}-cargo
+BuildRequires:    rust-toolset-%{rust_version}-rust
 %endif
 # Needed to support regeneration of the autotool artifacts.
 BuildRequires:    autoconf
@@ -145,6 +154,10 @@ Requires:         gperftools-libs
 Source0:          https://releases.pagure.org/389-ds-base/%{name}-%{version}%{?prerel}.tar.bz2
 Source1:          %{name}-git.sh
 Source2:          %{name}-devel.README
+%if %{use_rust}
+Source3:          vendor-%{version}-1.tar.gz
+Source4:          Cargo.lock
+%endif
 Patch00:          0000-Issue-50800-wildcards-in-rootdn-allow-ip-attribute-a.patch
 Patch01:          0001-Issue-49437-Fix-memory-leak-with-indirect-COS.patch
 Patch02:          0002-Ticket-50905-intermittent-SSL-hang-with-rhds.patch
@@ -152,7 +165,7 @@ Patch03:          0003-Issue-51029-Add-db_home_dir-defaults.inf.patch
 Patch04:          0004-Ticket-51068-deadlock-when-updating-the-schema.patch
 Patch05:          0005-Issue-50745-ns-slapd-hangs-during-CleanAllRUV-tests.patch
 Patch06:          0006-Issue-51095-abort-operation-if-CSN-can-not-be-genera.patch
-Patch07:          0007-Issue-51132-Winsync-setting-winSyncWindowsFilter-not.patch 
+Patch07:          0007-Issue-51132-Winsync-setting-winSyncWindowsFilter-not.patch
 Patch08:          0008-Issue-4389-errors-log-with-incorrectly-formatted-mes.patch
 Patch09:          0009-Issue-4297-On-ADD-replication-URP-issue-internal-sea.patch
 Patch10:          0010-Issue-4379-allow-more-than-1-empty-AttributeDescript.patch
@@ -186,6 +199,9 @@ Patch37:          0037-Issue-5155-RFE-Provide-an-option-to-abort-an-Auto-Me.patc
 Patch38:          0038-Issue-5221-User-with-expired-password-can-still-logi.patch
 Patch39:          0039-Issue-5098-Multiple-issues-around-replication-and-CI.patch
 Patch40:          0040-Issue-5418-Sync_repl-may-crash-while-managing-invali.patch
+Patch41:          0041-Issue-5565-Change-default-password-storage-scheme-to.patch
+Patch42:          0042-Issue-5440-memberof-is-slow-on-update-fixup-if-there.patch
+Patch43:          0043-Issue-5497-boolean-attributes-should-be-case-insensi.patch
 
 
 %description
@@ -255,6 +271,10 @@ The lib389 CI tests that can be run against the Directory Server.
 
 %prep
 %autosetup -p1 -n %{name}-%{version}%{?prerel}
+%if %{use_rust}
+tar xvzf %{SOURCE3}
+cp %{SOURCE4} src/
+%endif
 cp %{SOURCE2} README.devel
 
 %build
@@ -271,6 +291,14 @@ TCMALLOC_FLAGS="--enable-tcmalloc"
 ASAN_FLAGS="--enable-asan --enable-debug"
 %endif
 
+%if %{use_rust}
+RUST_FLAGS="--enable-rust --enable-rust-offline"
+
+set +e
+source scl_source enable rust-toolset-%{rust_version}
+set -e
+%endif
+
 # Rebuild the autotool artifacts now.
 autoreconf -fiv
 
@@ -279,7 +307,7 @@ autoreconf -fiv
            --with-systemdsystemconfdir=%{_sysconfdir}/systemd/system \
            --with-perldir=/usr/bin \
            --with-systemdgroupname=%{groupname} $NSSARGS \
-           --with-systemd --enable-cmocka $TCMALLOC_FLAGS $ASAN_FLAGS
+           --with-systemd --enable-cmocka $RUST_FLAGS $TCMALLOC_FLAGS $ASAN_FLAGS
 
 # Generate symbolic info for debuggers
 export XCFLAGS=$RPM_OPT_FLAGS
@@ -540,6 +568,12 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Tue Feb 21 2023 Simon Pichugin <spichugi@redhat.com> - 1.3.11.1-1
+- Bump version to 1.3.11.1-1
+- Resolves: Bug 2170224 - Backport Rust password storage PBKDF2 schemes
+- Resolves: Bug 2170221 - Boolean attributes should be case insensitive
+- Resolves: Bug 2170218 - Slow memberof fixup task for large static groups, high CPU use
+
 * Fri Sep 30 2022 Mark Reynolds <mreynolds@redhat.com> - 1.3.10-2-17
 - Bump version to 1.3.10.2-17
 - Resolves: Bug 2113056 - Import may break replication because changelog starting csn may not be created
