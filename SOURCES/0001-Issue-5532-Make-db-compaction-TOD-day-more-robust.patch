@@ -1,0 +1,440 @@
+From 9cdb6cb41b9c87c44e788cd1e354b14dbf4eb5f7 Mon Sep 17 00:00:00 2001
+From: Mark Reynolds <mreynolds@redhat.com>
+Date: Wed, 16 Nov 2022 16:37:05 -0500
+Subject: [PATCH 1/3] Issue 5532 - Make db compaction TOD day more robust.
+
+Bug Description:
+
+The time of day compaction setting does not promise that the compaction
+will happen as configured.  This is becuase the compaction interval
+starts when the server is started.  Once it wakes up and we are "past"
+the TOD setting then we compact, but it can happen at any time
+once the TOD has passed.
+
+Fix Description:
+
+Once the compaction interval is hit we create an "event" with the
+exact time the compaction should start.
+
+relates: #5532
+
+Reviewed by: tbordaz & spichugi(Thanks!!)
+---
+ .../tests/suites/config/compact_test.py       |  29 +++--
+ ldap/servers/plugins/replication/cl5_api.c    |  58 +++++----
+ .../slapd/back-ldbm/db-bdb/bdb_layer.c        | 118 ++++++++++++------
+ .../slapd/back-ldbm/db-bdb/bdb_layer.h        |   2 +-
+ 4 files changed, 136 insertions(+), 71 deletions(-)
+
+diff --git a/dirsrvtests/tests/suites/config/compact_test.py b/dirsrvtests/tests/suites/config/compact_test.py
+index 1f1c097e4..2e8dee4bb 100644
+--- a/dirsrvtests/tests/suites/config/compact_test.py
++++ b/dirsrvtests/tests/suites/config/compact_test.py
+@@ -2,6 +2,7 @@ import logging
+ import pytest
+ import os
+ import time
++import datetime
+ from lib389.tasks import DBCompactTask
+ from lib389.backend import DatabaseConfig
+ from lib389.replica import Changelog5
+@@ -53,22 +54,34 @@ def test_compaction_interval_and_time(topo):
+ 
+     inst = topo.ms["supplier1"]
+ 
+-    # Configure DB compaction
+-    config = DatabaseConfig(inst)
+-    config.set([('nsslapd-db-compactdb-interval', '2'), ('nsslapd-db-compactdb-time', '00:01')])
++    # Calculate the compaction time (2 minutes from now)
++    now = datetime.datetime.now()
++    current_hour = now.hour
++    current_minute = now.minute + 2
++    if current_hour < 10:
++        hour = "0" + str(current_hour)
++    else:
++        hour = str(current_hour)
++    if current_minute < 10:
++        minute = "0" + str(current_minute)
++    else:
++        minute = str(current_minute)
++    compact_time = hour + ":" + minute
+ 
+     # Configure changelog compaction
+     cl5 = Changelog5(inst)
+     cl5.replace_many(
+         ('nsslapd-changelogcompactdb-interval', '2'),
+-        ('nsslapd-changelogcompactdb-time', '00:01'),
+-        ('nsslapd-changelogtrim-interval',  '2')
++        ('nsslapd-changelogcompactdb-time', compact_time),
++        ('nsslapd-changelogtrim-interval', '2')
+     )
+     inst.deleteErrorLogs()
+ 
+-    # Check is compaction occurred
+-    time.sleep(6)
+-    assert inst.searchErrorsLog("Compacting databases")
++    # Check compaction occurred as expected
++    time.sleep(60)
++    assert not inst.searchErrorsLog("compacting replication changelogs")
++
++    time.sleep(61)
+     assert inst.searchErrorsLog("compacting replication changelogs")
+     inst.deleteErrorLogs(restart=False)
+ 
+diff --git a/ldap/servers/plugins/replication/cl5_api.c b/ldap/servers/plugins/replication/cl5_api.c
+index 43fa5bd46..5d4edea92 100644
+--- a/ldap/servers/plugins/replication/cl5_api.c
++++ b/ldap/servers/plugins/replication/cl5_api.c
+@@ -103,6 +103,7 @@
+ 
+ #define NO_DISK_SPACE 1024
+ #define MIN_DISK_SPACE 10485760 /* 10 MB */
++#define _SEC_PER_DAY 86400
+ 
+ /***** Data Definitions *****/
+ 
+@@ -293,6 +294,7 @@ static int _cl5FileEndsWith(const char *filename, const char *ext);
+ 
+ static PRLock *cl5_diskfull_lock = NULL;
+ static int cl5_diskfull_flag = 0;
++static PRBool compacting = PR_FALSE;
+ 
+ static void cl5_set_diskfull(void);
+ static void cl5_set_no_diskfull(void);
+@@ -3099,7 +3101,7 @@ _cl5TrimCleanup(void)
+ static time_t
+ _cl5_get_tod_expiration(char *expire_time)
+ {
+-    time_t start_time, todays_elapsed_time, now = time(NULL);
++    time_t todays_elapsed_time, now = time(NULL);
+     struct tm *tm_struct = localtime(&now);
+     char hour_str[3] = {0};
+     char min_str[3] = {0};
+@@ -3109,9 +3111,8 @@ _cl5_get_tod_expiration(char *expire_time)
+ 
+     /* Get today's start time */
+     todays_elapsed_time = (tm_struct->tm_hour * 3600) + (tm_struct->tm_min * 60) + (tm_struct->tm_sec);
+-    start_time = slapi_current_utc_time() - todays_elapsed_time;
+ 
+-    /* Get the hour and minute and calculate the expiring time.  The time was
++    /* Get the hour and minute and calculate the expiring TOD.  The time was
+      * already validated in bdb_config.c:  HH:MM */
+     hour_str[0] = *s++;
+     hour_str[1] = *s++;
+@@ -3122,7 +3123,34 @@ _cl5_get_tod_expiration(char *expire_time)
+     min = strtoll(min_str, &endp, 10);
+     expiring_time = (hour * 60 * 60) + (min * 60);
+ 
+-    return start_time + expiring_time;
++    /* Calculate the time in seconds when the compaction should start, midnight
++     * requires special treatment (for both current time and configured TOD) */
++    if (expiring_time == 0) {
++        /* Compaction TOD configured for midnight */
++        if (todays_elapsed_time == 0) {
++            /* It's currently midnight, compact now! */
++            return 0;
++        } else {
++            /* Return the time until it's midnight */
++            return _SEC_PER_DAY - todays_elapsed_time;
++        }
++    } else if (todays_elapsed_time == 0) {
++        /* It's currently midnight, just use the configured TOD */
++        return expiring_time;
++    } else if (todays_elapsed_time > expiring_time) {
++        /* We missed TOD today, do it tomorrow */
++        return _SEC_PER_DAY - (todays_elapsed_time - expiring_time);
++    } else {
++        /* Compaction is coming up */
++        return expiring_time - todays_elapsed_time;
++    }
++}
++
++static void
++do_cl_compact(time_t when, void *arg)
++{
++    cl5CompactDBs();
++    compacting = PR_FALSE;
+ }
+ 
+ static int
+@@ -3131,7 +3159,6 @@ _cl5TrimMain(void *param __attribute__((unused)))
+     time_t timePrev = slapi_current_utc_time();
+     time_t timeCompactPrev = slapi_current_utc_time();
+     time_t timeNow;
+-    PRBool compacting = PR_FALSE;
+     int32_t compactdb_time = 0;
+ 
+     PR_AtomicIncrement(&s_cl5Desc.threadCount);
+@@ -3144,25 +3171,14 @@ _cl5TrimMain(void *param __attribute__((unused)))
+             _cl5DoTrimming();
+         }
+ 
+-        if (!compacting) {
+-            /* Once we know we want to compact we need to stop refreshing the
+-             * TOD expiration. Otherwise if the compact time is close to
+-             * midnight we could roll over past midnight during the checkpoint
+-             * sleep interval, and we'd never actually compact the databases.
+-             * We also need to get this value before the sleep.
+-            */
+-            compactdb_time = _cl5_get_tod_expiration(s_cl5Desc.dbTrim.compactTime);
+-        }
+         if ((s_cl5Desc.dbTrim.compactInterval > 0) &&
+-            (timeNow - timeCompactPrev >= s_cl5Desc.dbTrim.compactInterval))
++            (timeNow - timeCompactPrev >= s_cl5Desc.dbTrim.compactInterval) &&
++            !compacting)
+         {
+             compacting = PR_TRUE;
+-            if (slapi_current_utc_time() > compactdb_time) {
+-				/* time to trim */
+-				timeCompactPrev = timeNow;
+-				cl5CompactDBs();
+-				compacting = PR_FALSE;
+-            }
++            compactdb_time = _cl5_get_tod_expiration(s_cl5Desc.dbTrim.compactTime);
++            slapi_eq_once_rel(do_cl_compact, NULL, slapi_current_rel_time_t() + compactdb_time);
++			timeCompactPrev = timeNow;
+         }
+         if (NULL == s_cl5Desc.clLock) {
+             /* most likely, emergency */
+diff --git a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c
+index 3e29feb50..b433fa919 100644
+--- a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c
++++ b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.c
+@@ -95,6 +95,7 @@ static int trans_batch_txn_max_sleep = 50;
+ static PRBool log_flush_thread = PR_FALSE;
+ static int txn_in_progress_count = 0;
+ static int *txn_log_flush_pending = NULL;
++static PRBool compacting = PR_FALSE;
+ 
+ static pthread_mutex_t sync_txn_log_flush;
+ static pthread_cond_t sync_txn_log_flush_done;
+@@ -3646,13 +3647,12 @@ log_flush_threadmain(void *param)
+ }
+ 
+ /*
+- * This refreshes the TOD expiration.  So live changes to the configuration
+- * will take effect immediately.
++ * Get the time in seconds when the compaction should occur
+  */
+ static time_t
+ bdb_get_tod_expiration(char *expire_time)
+ {
+-    time_t start_time, todays_elapsed_time, now = time(NULL);
++    time_t todays_elapsed_time, now = time(NULL);
+     struct tm *tm_struct = localtime(&now);
+     char hour_str[3] = {0};
+     char min_str[3] = {0};
+@@ -3662,9 +3662,8 @@ bdb_get_tod_expiration(char *expire_time)
+ 
+     /* Get today's start time */
+     todays_elapsed_time = (tm_struct->tm_hour * 3600) + (tm_struct->tm_min * 60) + (tm_struct->tm_sec);
+-    start_time = slapi_current_utc_time() - todays_elapsed_time;
+ 
+-    /* Get the hour and minute and calculate the expiring time.  The time was
++    /* Get the hour and minute and calculate the expiring TOD.  The time was
+      * already validated in bdb_config.c:  HH:MM */
+     hour_str[0] = *s++;
+     hour_str[1] = *s++;
+@@ -3675,7 +3674,55 @@ bdb_get_tod_expiration(char *expire_time)
+     min = strtoll(min_str, &endp, 10);
+     expiring_time = (hour * 60 * 60) + (min * 60);
+ 
+-    return start_time + expiring_time;
++    /* Calculate the time in seconds when the compaction should start, midnight
++     * requires special treatment (for both current time and configured TOD) */
++    if (expiring_time == 0) {
++        /* Compaction TOD configured for midnight */
++        if (todays_elapsed_time == 0) {
++            /* It's currently midnight, compact now! */
++            return 0;
++        } else {
++            /* Return the time until it's midnight */
++            return _SEC_PER_DAY - todays_elapsed_time;
++        }
++    } else if (todays_elapsed_time == 0) {
++        /* It's currently midnight, just use the configured TOD */
++        return expiring_time;
++    } else if (todays_elapsed_time > expiring_time) {
++        /* We missed TOD today, do it tomorrow */
++        return _SEC_PER_DAY - (todays_elapsed_time - expiring_time);
++    } else {
++        /* Compaction is coming up */
++        return expiring_time - todays_elapsed_time;
++    }
++}
++
++static void
++bdb_compact(time_t when, void *arg)
++{
++    struct ldbminfo *li = (struct ldbminfo *)arg;
++    Object *inst_obj;
++    ldbm_instance *inst;
++    DB *db = NULL;
++    int rc = 0;
++
++    for (inst_obj = objset_first_obj(li->li_instance_set);
++         inst_obj;
++         inst_obj = objset_next_obj(li->li_instance_set, inst_obj))
++    {
++        inst = (ldbm_instance *)object_get_data(inst_obj);
++        rc = dblayer_get_id2entry(inst->inst_be, &db);
++        if (!db || rc) {
++            continue;
++        }
++        slapi_log_err(SLAPI_LOG_NOTICE, "bdb_compact", "Compacting DB start: %s\n",
++                      inst->inst_name);
++        /* Time to compact the DB's */
++        dblayer_force_checkpoint(li);
++        bdb_do_compact(li);
++        dblayer_force_checkpoint(li);
++    }
++    compacting = PR_FALSE;
+ }
+ 
+ /*
+@@ -3763,15 +3810,6 @@ checkpoint_threadmain(void *param)
+         PR_Lock(li->li_config_mutex);
+         checkpoint_interval_update = (time_t)BDB_CONFIG(li)->bdb_checkpoint_interval;
+         compactdb_interval_update = (time_t)BDB_CONFIG(li)->bdb_compactdb_interval;
+-        if (!compacting) {
+-            /* Once we know we want to compact we need to stop refreshing the
+-             * TOD expiration. Otherwise if the compact time is close to
+-             * midnight we could roll over past midnight during the checkpoint
+-             * sleep interval, and we'd never actually compact the databases.
+-             * We also need to get this value before the sleep.
+-             */
+-            compactdb_time = bdb_get_tod_expiration((char *)BDB_CONFIG(li)->bdb_compactdb_time);
+-        }
+         PR_Unlock(li->li_config_mutex);
+ 
+         if (compactdb_interval_update != compactdb_interval) {
+@@ -3861,23 +3899,21 @@ checkpoint_threadmain(void *param)
+          * this could have been a bug in fact, where compactdb_interval
+          * was 0, if you change while running it would never take effect ....
+          */
+-        if (slapi_timespec_expire_check(&compactdb_expire) == TIMER_EXPIRED) {
+-            compacting = PR_TRUE;
+-            if (slapi_current_utc_time() < compactdb_time) {
+-                /* We have passed the interval, but we need to wait for a
+-                 * particular TOD to pass before compacting */
+-                continue;
+-            }
++        if (compactdb_interval_update != compactdb_interval ||
++            (slapi_timespec_expire_check(&compactdb_expire) == TIMER_EXPIRED && !compacting))
++        {
++            /* Get the time in second when the compaction should occur */
++            PR_Lock(li->li_config_mutex);
++            compactdb_time = bdb_get_tod_expiration((char *)BDB_CONFIG(li)->bdb_compactdb_time);
++            PR_Unlock(li->li_config_mutex);
+ 
+-            /* Time to compact the DB's */
+-            dblayer_force_checkpoint(li);
+-            bdb_compact(li);
+-            dblayer_force_checkpoint(li);
++            /* Start compaction event */
++            compacting = PR_TRUE;
++            slapi_eq_once_rel(bdb_compact, (void *)li, slapi_current_rel_time_t() + compactdb_time);
+ 
+-            /* Now reset the timer and compacting flag */
++            /* reset interval timer */
+             compactdb_interval = compactdb_interval_update;
+             slapi_timespec_expire_at(compactdb_interval, &compactdb_expire);
+-            compacting = PR_FALSE;
+         }
+     }
+     slapi_log_err(SLAPI_LOG_HOUSE, "checkpoint_threadmain", "Check point before leaving\n");
+@@ -6210,14 +6246,14 @@ ldbm_back_compact(Slapi_Backend *be)
+ 
+     li = (struct ldbminfo *)be->be_database->plg_private;
+     dblayer_force_checkpoint(li);
+-    rc = bdb_compact(li);
++    rc = bdb_do_compact(li);
+     dblayer_force_checkpoint(li);
+     return rc;
+ }
+ 
+ 
+ int32_t
+-bdb_compact(struct ldbminfo *li)
++bdb_do_compact(struct ldbminfo *li)
+ {
+     Object *inst_obj;
+     ldbm_instance *inst;
+@@ -6237,7 +6273,7 @@ bdb_compact(struct ldbminfo *li)
+         if (!db || rc) {
+             continue;
+         }
+-        slapi_log_err(SLAPI_LOG_NOTICE, "bdb_compact", "Compacting DB start: %s\n",
++        slapi_log_err(SLAPI_LOG_NOTICE, "bdb_do_compact", "Compacting DB start: %s\n",
+                       inst->inst_name);
+ 
+         /*
+@@ -6249,15 +6285,15 @@ bdb_compact(struct ldbminfo *li)
+         DBTYPE type;
+         rc = db->get_type(db, &type);
+         if (rc) {
+-            slapi_log_err(SLAPI_LOG_ERR, "bdb_compact",
+-                          "compactdb: failed to determine db type for %s: db error - %d %s\n",
++            slapi_log_err(SLAPI_LOG_ERR, "bdb_do_compact",
++                          "Failed to determine db type for %s: db error - %d %s\n",
+                           inst->inst_name, rc, db_strerror(rc));
+             continue;
+         }
+ 
+         rc = dblayer_txn_begin(inst->inst_be, NULL, &txn);
+         if (rc) {
+-            slapi_log_err(SLAPI_LOG_ERR, "bdb_compact", "compactdb: transaction begin failed: %d\n", rc);
++            slapi_log_err(SLAPI_LOG_ERR, "bdb_do_compact", "Transaction begin failed: %d\n", rc);
+             break;
+         }
+         /*
+@@ -6274,26 +6310,26 @@ bdb_compact(struct ldbminfo *li)
+         rc = db->compact(db, txn.back_txn_txn, NULL /*start*/, NULL /*stop*/,
+                          &c_data, compact_flags, NULL /*end*/);
+         if (rc) {
+-            slapi_log_err(SLAPI_LOG_ERR, "bdb_compact",
+-                    "compactdb: failed to compact %s; db error - %d %s\n",
++            slapi_log_err(SLAPI_LOG_ERR, "bdb_do_compact",
++                    "Failed to compact %s; db error - %d %s\n",
+                     inst->inst_name, rc, db_strerror(rc));
+             if ((rc = dblayer_txn_abort(inst->inst_be, &txn))) {
+-                slapi_log_err(SLAPI_LOG_ERR, "bdb_compact", "compactdb: failed to abort txn (%s) db error - %d %s\n",
++                slapi_log_err(SLAPI_LOG_ERR, "bdb_do_compact", "Failed to abort txn (%s) db error - %d %s\n",
+                               inst->inst_name, rc, db_strerror(rc));
+                 break;
+             }
+         } else {
+-            slapi_log_err(SLAPI_LOG_NOTICE, "bdb_compact",
+-                          "compactdb: compact %s - %d pages freed\n",
++            slapi_log_err(SLAPI_LOG_NOTICE, "bdb_do_compact",
++                          "compact %s - %d pages freed\n",
+                           inst->inst_name, c_data.compact_pages_free);
+             if ((rc = dblayer_txn_commit(inst->inst_be, &txn))) {
+-                slapi_log_err(SLAPI_LOG_ERR, "bdb_compact", "compactdb: failed to commit txn (%s) db error - %d %s\n",
++                slapi_log_err(SLAPI_LOG_ERR, "bdb_do_compact", "failed to commit txn (%s) db error - %d %s\n",
+                               inst->inst_name, rc, db_strerror(rc));
+                 break;
+             }
+         }
+     }
+-    slapi_log_err(SLAPI_LOG_NOTICE, "bdb_compact", "Compacting databases finished.\n");
++    slapi_log_err(SLAPI_LOG_NOTICE, "bdb_do_compact", "Compacting databases finished.\n");
+ 
+     return rc;
+ }
+diff --git a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.h b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.h
+index e3a49dbac..65a633193 100644
+--- a/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.h
++++ b/ldap/servers/slapd/back-ldbm/db-bdb/bdb_layer.h
+@@ -97,7 +97,7 @@ int bdb_db_size(Slapi_PBlock *pb);
+ int bdb_upgradedb(Slapi_PBlock *pb);
+ int bdb_upgradednformat(Slapi_PBlock *pb);
+ int bdb_upgradeddformat(Slapi_PBlock *pb);
+-int32_t bdb_compact(struct ldbminfo *li);
++int32_t bdb_do_compact(struct ldbminfo *li);
+ int bdb_restore(struct ldbminfo *li, char *src_dir, Slapi_Task *task);
+ int bdb_cleanup(struct ldbminfo *li);
+ int bdb_txn_begin(struct ldbminfo *li, back_txnid parent_txn, back_txn *txn, PRBool use_lock);
+-- 
+2.38.1
+
