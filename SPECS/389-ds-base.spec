@@ -46,7 +46,7 @@ ExcludeArch: i686
 
 Summary:          389 Directory Server (base)
 Name:             389-ds-base
-Version:          2.1.3
+Version:          2.2.4
 Release:          3%{?dist}
 License:          GPLv3+ and (ASL 2.0 or MIT)
 URL:              https://www.port389.org
@@ -157,6 +157,7 @@ BuildRequires:    icu
 BuildRequires:    libicu-devel
 BuildRequires:    pcre-devel
 BuildRequires:    cracklib-devel
+BuildRequires:    json-c-devel
 %if %{use_clang}
 BuildRequires:    libatomic
 BuildRequires:    clang
@@ -228,6 +229,8 @@ Requires:         openldap-clients
 Requires:         /usr/bin/c_rehash
 Requires:         python%{python3_pkgversion}-ldap
 Requires:         acl
+Requires:         zlib
+Requires:         json-c
 
 # this is needed to setup SSL if you are not using the
 # administration server package
@@ -266,6 +269,9 @@ Source2:          %{name}-devel.README
 %if %{bundle_jemalloc}
 Source3:          https://github.com/jemalloc/%{jemalloc_name}/releases/download/%{jemalloc_ver}/%{jemalloc_name}-%{jemalloc_ver}.tar.bz2
 %endif
+Patch01:          0001-Issue-3729-cont-RFE-Extend-log-of-operations-statist.patch
+Patch02:          0002-Issue-5544-Increase-default-task-TTL.patch
+Patch03:          0003-Issue-5413-Allow-mutliple-MemberOf-fixup-tasks-with-.patch
 
 
 %description
@@ -717,38 +723,31 @@ exit 0
 %endif
 
 %changelog
-* Fri Aug 19 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.3-3
-- Bump version to 2.1.3-3
-- Resolves: Bug 2118765
+* Tue Dec 13 2022 Mark Reynolds <mreynolds@redhat.com> - 2.2.4-3
+- Bump version to 2.2.4-3
+- Resolves: rhbz#2142636 - pam mutex lock causing high etimes, affecting red hat internal sso
+- Resolves: rhbz#2093981 - RFE - Create Security Audit Log
+- Resolves: rhbz#2132697 - [RFE] 389ds: run as non-root
+- Resolves: rhbz#2124660 - Retro changelog trimming uses maxage incorrectly
+- Resolves: rhbz#2114039 - Current pbkdf2 hardcoded parameters are no longer secure
+- Resolves: rhbz#2112998 - performance search rate: checking if an entry is a referral is expensive
+- Resolves: rhbz#2112361 - Supplier should do periodic update to avoid slow replication when a new direct update happen
+- Resolves: rhbz#2109891 - Migrate 389 to pcre2
 
-* Thu Aug 18 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.3-2
-- Bump version to 2.1.3-2
-- Resolves: Bug 2118765 - SIGSEGV in sync_repl
 
-* Mon Jul 11 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.3-1
-- Bump version to 2.1.3-1
-- Resolves: Bug 2061801 - rebase 389-ds-base to 2.1.3
-- Resolves: Bug 1872451 - RFE - run as non-root
-- Resolves: Bug 2052527 - RFE - Provide an option to abort an Auto Member rebuild task
-- Resolves: Bug 2057056 - Import may break the replication because changelog starting csn may not be created
-- Resolves: Bug 2057063 - Add support for recursively deleting subentries
-- Resolves: Bug 2062778 - sending crafted message could result in DoS
-- Resolves: Bug 2064781 - expired password was still allowed to access the database
-- Resolves: Bug 2100337 - dsconf backend export userroot fails ldap.DECODING_ERROR
+* Mon Dec 12 2022 Mark Reynolds <mreynolds@redhat.com> - 2.2.4-2
+- Bump version to 2.2.4-2
+- Resolves: Bug 1859271 - RFE - Extend log of operations statistics in access log
+- Resolves: Bug 2093981 - RFE - Create Security Audit Log
+- Resolves: Bug 2109891 - Migrate 389 to pcre2
+- Resolves: Bug 2112361 - Supplier should do periodic update to avoid slow replication when a new direct update happen
+- Resolves: Bug 2112998 - performance search rate: checking if an entry is a referral is expensive
+- Resolves: Bug 2114039 - Current pbkdf2 hardcoded parameters are no longer secure
+- Resolves: Bug 2124660 - Retro changelog trimming uses maxage incorrectly
+- Resolves: Bug 2132697 - RFE - run as non-root
+- Resolves: Bug 2142636 - pam mutex lock causing high etimes, affecting red hat internal sso
 
-* Mon Jun 13 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.1-3
-- Bump version to 2.1.1-3
-- Resolves: Bug 2061801 - Fix nss-tools requirement
-
-* Mon Jun 13 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.1-2
-- Bump version to 2.1.1-2
-- Resolves: Bug 2061801 - Fix lmdb-libs requirement
-
-* Thu May 12 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.1-1
-- Bump version to 2.1.1-1
-- Resolves: Bug 2061801 - rebase 389-ds-base to 2.1.1
-
-* Tue Mar 8 2022 Mark Reynolds <mreynolds@redhat.com> - 2.1.0-1
-- Bump version to 2.1.0-1
-- Resolves: Bug 2061801 - rebase 389-ds-base to 2.1.0
+* Fri Nov 11 2022 Mark Reynolds <mreynolds@redhat.com> - 2.2.4-1
+- Bump version to 2.2.4-1
+- Resolves:  Bug 1132524 - [RFE] Compression of log files
 
