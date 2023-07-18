@@ -41,7 +41,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.11.1
-Release:          %{?relprefix}1%{?prerel}%{?dist}
+Release:          %{?relprefix}2%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -202,7 +202,8 @@ Patch40:          0040-Issue-5418-Sync_repl-may-crash-while-managing-invali.patc
 Patch41:          0041-Issue-5565-Change-default-password-storage-scheme-to.patch
 Patch42:          0042-Issue-5440-memberof-is-slow-on-update-fixup-if-there.patch
 Patch43:          0043-Issue-5497-boolean-attributes-should-be-case-insensi.patch
-
+Patch44:          0044-Issue-5565-Add-upgrade-script-for-new-Rust-password-.patch
+Patch45:          0045-Bump-version-to-1.3.11.1-1.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -568,6 +569,10 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Tue May 23 2023 Mark Reynolds <mreynolds@redhat.com> - 1.3.11.1-2
+- Bump version to 1.3.11.1-2
+- Resolves: Bug 2170224 - Fix upgrade scripts and version string
+
 * Tue Feb 21 2023 Simon Pichugin <spichugi@redhat.com> - 1.3.11.1-1
 - Bump version to 1.3.11.1-1
 - Resolves: Bug 2170224 - Backport Rust password storage PBKDF2 schemes
