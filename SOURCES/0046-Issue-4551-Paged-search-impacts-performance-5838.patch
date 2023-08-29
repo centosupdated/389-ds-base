@@ -1,0 +1,620 @@
+From e7ef85ce90412ab2a7256a27bdd55fa94beb2921 Mon Sep 17 00:00:00 2001
+From: progier389 <progier@redhat.com>
+Date: Tue, 18 Jul 2023 11:17:07 +0200
+Subject: [PATCH 1/2] Issue 4551 - Paged search impacts performance (#5838)
+
+Problem:
+Having a script looping doing a search with paged result impact greatly the performance of other clients
+(for example ldclt bind+search rate decreased by 80% in the test case)
+
+Cause:
+Page result field in connection were protected by the connection mutex that is also used by the listener thread, in some cases this cause contention that delays the handling of new operations
+
+Solution:
+Do not rely on the connection mutex to protect the page result context but on a dedicated array of locks.
+
+(cherry picked from commit 3c510e0a26e321949b552b5e8c887634d9d7e63e)
+---
+ ldap/servers/slapd/daemon.c       |   4 +-
+ ldap/servers/slapd/main.c         |   2 +
+ ldap/servers/slapd/opshared.c     |  26 +++---
+ ldap/servers/slapd/pagedresults.c | 137 ++++++++++++++++++------------
+ ldap/servers/slapd/proto-slap.h   |   3 +
+ 5 files changed, 105 insertions(+), 67 deletions(-)
+
+diff --git a/ldap/servers/slapd/daemon.c b/ldap/servers/slapd/daemon.c
+index 5d8767df6..71c2bf911 100644
+--- a/ldap/servers/slapd/daemon.c
++++ b/ldap/servers/slapd/daemon.c
+@@ -1275,7 +1275,9 @@ slapd_daemon(daemon_ports_t *ports, ns_thrpool_t *tp)
+     slapi_log_err(SLAPI_LOG_TRACE, "slapd_daemon",
+                   "slapd shutting down - waiting for backends to close down\n");
+ 
+-    eq_stop();
++    pageresult_lock_cleanup();
++    eq_stop(); /* deprecated */
++
+     if (!in_referral_mode) {
+         task_shutdown();
+         uniqueIDGenCleanup();
+diff --git a/ldap/servers/slapd/main.c b/ldap/servers/slapd/main.c
+index 5ca52ce74..d3ff99408 100644
+--- a/ldap/servers/slapd/main.c
++++ b/ldap/servers/slapd/main.c
+@@ -1094,6 +1094,7 @@ main(int argc, char **argv)
+         }
+ 
+         ps_init_psearch_system(); /* must come before plugin_startall() */
++        pageresult_lock_init();
+ 
+ 
+         /* initialize UniqueID generator - must be done once backends are started
+@@ -2311,6 +2312,7 @@ slapd_exemode_db2ldif(int argc, char **argv, struct main_config *mcfg)
+ 
+             eq_init();                /* must be done before plugins started */
+             ps_init_psearch_system(); /* must come before plugin_startall() */
++            pageresult_lock_init();
+             plugin_startall(argc, argv, plugin_list);
+             eq_start(); /* must be done after plugins started */
+             charray_free(plugin_list);
+diff --git a/ldap/servers/slapd/opshared.c b/ldap/servers/slapd/opshared.c
+index a1630e134..ec316dfb9 100644
+--- a/ldap/servers/slapd/opshared.c
++++ b/ldap/servers/slapd/opshared.c
+@@ -266,6 +266,7 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+     int pr_idx = -1;
+     Slapi_DN *orig_sdn = NULL;
+     int free_sdn = 0;
++    pthread_mutex_t *pagedresults_mutex = NULL;
+ 
+     be_list[0] = NULL;
+     referral_list[0] = NULL;
+@@ -549,6 +550,7 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+             int32_t tlimit;
+             slapi_pblock_get(pb, SLAPI_SEARCH_TIMELIMIT, &tlimit);
+             pagedresults_set_timelimit(pb_conn, operation, (time_t)tlimit, pr_idx);
++            pagedresults_mutex = pageresult_lock_get_addr(pb_conn);
+         }
+ 
+         /*
+@@ -665,10 +667,10 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+             /* PAGED RESULTS and already have the search results from the prev op */
+             pagedresults_lock(pb_conn, pr_idx);
+             /*
+-       * In async paged result case, the search result might be released
+-       * by other theads.  We need to double check it in the locked region.
+-       */
+-            PR_EnterMonitor(pb_conn->c_mutex);
++             * In async paged result case, the search result might be released
++             * by other theads.  We need to double check it in the locked region.
++             */
++            pthread_mutex_lock(pagedresults_mutex);
+             pr_search_result = pagedresults_get_search_result(pb_conn, operation, 1 /*locked*/, pr_idx);
+             if (pr_search_result) {
+                 if (pagedresults_is_abandoned_or_notavailable(pb_conn, 1 /*locked*/, pr_idx)) {
+@@ -676,7 +678,7 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+                     /* Previous operation was abandoned and the simplepaged object is not in use. */
+                     send_ldap_result(pb, 0, NULL, "Simple Paged Results Search abandoned", 0, NULL);
+                     rc = LDAP_SUCCESS;
+-                    PR_ExitMonitor(pb_conn->c_mutex);
++                    pthread_mutex_unlock(pagedresults_mutex);
+                     goto free_and_return;
+                 } else {
+                     slapi_pblock_set(pb, SLAPI_SEARCH_RESULT_SET, pr_search_result);
+@@ -690,7 +692,7 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+                 pr_stat = PAGEDRESULTS_SEARCH_END;
+                 rc = LDAP_SUCCESS;
+             }
+-            PR_ExitMonitor(pb_conn->c_mutex);
++            pthread_mutex_unlock(pagedresults_mutex);
+             pagedresults_unlock(pb_conn, pr_idx);
+ 
+             if ((PAGEDRESULTS_SEARCH_END == pr_stat) || (0 == pnentries)) {
+@@ -811,10 +813,10 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+                 /* PAGED RESULTS */
+                 if (op_is_pagedresults(operation)) {
+                     /* cleanup the slot */
+-                    PR_EnterMonitor(pb_conn->c_mutex);
++                    pthread_mutex_lock(pagedresults_mutex);
+                     pagedresults_set_search_result(pb_conn, operation, NULL, 1, pr_idx);
+                     rc = pagedresults_set_current_be(pb_conn, NULL, pr_idx, 1);
+-                    PR_ExitMonitor(pb_conn->c_mutex);
++                    pthread_mutex_unlock(pagedresults_mutex);
+                 }
+                 if (1 == flag_no_such_object) {
+                     break;
+@@ -855,11 +857,11 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+                     slapi_pblock_get(pb, SLAPI_SEARCH_RESULT_SET, &sr);
+                     if ((PAGEDRESULTS_SEARCH_END == pr_stat) || (0 == pnentries)) {
+                         /* no more entries, but at least another backend */
+-                        PR_EnterMonitor(pb_conn->c_mutex);
++                        pthread_mutex_lock(pagedresults_mutex);
+                         pagedresults_set_search_result(pb_conn, operation, NULL, 1, pr_idx);
+                         be->be_search_results_release(&sr);
+                         rc = pagedresults_set_current_be(pb_conn, next_be, pr_idx, 1);
+-                        PR_ExitMonitor(pb_conn->c_mutex);
++                        pthread_mutex_unlock(pagedresults_mutex);
+                         pr_stat = PAGEDRESULTS_SEARCH_END; /* make sure stat is SEARCH_END */
+                         if (NULL == next_be) {
+                             /* no more entries && no more backends */
+@@ -887,9 +889,9 @@ op_shared_search(Slapi_PBlock *pb, int send_result)
+                     next_be = NULL; /* to break the loop */
+                     if (operation->o_status & SLAPI_OP_STATUS_ABANDONED) {
+                         /* It turned out this search was abandoned. */
+-                        PR_EnterMonitor(pb_conn->c_mutex);
++                        pthread_mutex_lock(pagedresults_mutex);
+                         pagedresults_free_one_msgid_nolock(pb_conn, operation->o_msgid);
+-                        PR_ExitMonitor(pb_conn->c_mutex);
++                        pthread_mutex_unlock(pagedresults_mutex);
+                         /* paged-results-request was abandoned; making an empty cookie. */
+                         pagedresults_set_response_control(pb, 0, estimate, -1, pr_idx);
+                         send_ldap_result(pb, 0, NULL, "Simple Paged Results Search abandoned", 0, NULL);
+diff --git a/ldap/servers/slapd/pagedresults.c b/ldap/servers/slapd/pagedresults.c
+index 8cefe164e..8c043f6af 100644
+--- a/ldap/servers/slapd/pagedresults.c
++++ b/ldap/servers/slapd/pagedresults.c
+@@ -12,6 +12,34 @@
+ 
+ #include "slap.h"
+ 
++#define LOCK_HASH_SIZE 997 /* Should be a prime number */
++
++static pthread_mutex_t *lock_hash = NULL;
++
++void
++pageresult_lock_init()
++{
++    lock_hash = (pthread_mutex_t *)slapi_ch_calloc(LOCK_HASH_SIZE, sizeof(pthread_mutex_t));
++    for (size_t i=0; i<LOCK_HASH_SIZE; i++) {
++        pthread_mutex_init(&lock_hash[i], NULL);
++    }
++}
++
++void
++pageresult_lock_cleanup()
++{
++    for (size_t i=0; i<LOCK_HASH_SIZE; i++) {
++        pthread_mutex_destroy(&lock_hash[i]);
++    }
++    slapi_ch_free((void**)&lock_hash);
++}
++
++pthread_mutex_t *
++pageresult_lock_get_addr(Connection *conn)
++{
++    return &lock_hash[(((size_t)conn)/sizeof (Connection))%LOCK_HASH_SIZE];
++}
++
+ /* helper function to clean up one prp slot */
+ static void
+ _pr_cleanup_one_slot(PagedResults *prp)
+@@ -98,7 +126,7 @@ pagedresults_parse_control_value(Slapi_PBlock *pb,
+         return LDAP_UNWILLING_TO_PERFORM;
+     }
+ 
+-    PR_EnterMonitor(conn->c_mutex);
++    pthread_mutex_lock(pageresult_lock_get_addr(conn));
+     /* the ber encoding is no longer needed */
+     ber_free(ber, 1);
+     if (cookie.bv_len <= 0) {
+@@ -206,7 +234,7 @@ bail:
+             }
+         }
+     }
+-    PR_ExitMonitor(conn->c_mutex);
++    pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+ 
+     slapi_log_err(SLAPI_LOG_TRACE, "pagedresults_parse_control_value",
+                   "<= idx %d\n", *index);
+@@ -300,7 +328,7 @@ pagedresults_free_one(Connection *conn, Operation *op, int index)
+     slapi_log_err(SLAPI_LOG_TRACE, "pagedresults_free_one",
+                   "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (conn->c_pagedresults.prl_count <= 0) {
+             slapi_log_err(SLAPI_LOG_TRACE, "pagedresults_free_one",
+                           "conn=%" PRIu64 " paged requests list count is %d\n",
+@@ -311,7 +339,7 @@ pagedresults_free_one(Connection *conn, Operation *op, int index)
+             conn->c_pagedresults.prl_count--;
+             rc = 0;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+ 
+     slapi_log_err(SLAPI_LOG_TRACE, "pagedresults_free_one", "<= %d\n", rc);
+@@ -319,7 +347,7 @@ pagedresults_free_one(Connection *conn, Operation *op, int index)
+ }
+ 
+ /*
+- * Used for abandoning - conn->c_mutex is already locked in do_abandone.
++ * Used for abandoning - pageresult_lock_get_addr(conn) is already locked in do_abandone.
+  */
+ int
+ pagedresults_free_one_msgid_nolock(Connection *conn, ber_int_t msgid)
+@@ -363,11 +391,11 @@ pagedresults_get_current_be(Connection *conn, int index)
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_current_be", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             be = conn->c_pagedresults.prl_list[index].pr_current_be;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_current_be", "<= %p\n", be);
+@@ -382,13 +410,13 @@ pagedresults_set_current_be(Connection *conn, Slapi_Backend *be, int index, int
+                   "pagedresults_set_current_be", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+         if (!nolock)
+-            PR_EnterMonitor(conn->c_mutex);
++            pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_current_be = be;
+         }
+         rc = 0;
+         if (!nolock)
+-            PR_ExitMonitor(conn->c_mutex);
++            pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_set_current_be", "<= %d\n", rc);
+@@ -407,13 +435,13 @@ pagedresults_get_search_result(Connection *conn, Operation *op, int locked, int
+                   locked ? "locked" : "not locked", index);
+     if (conn && (index > -1)) {
+         if (!locked) {
+-            PR_EnterMonitor(conn->c_mutex);
++            pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         }
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             sr = conn->c_pagedresults.prl_list[index].pr_search_result_set;
+         }
+         if (!locked) {
+-            PR_ExitMonitor(conn->c_mutex);
++            pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+         }
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+@@ -433,7 +461,7 @@ pagedresults_set_search_result(Connection *conn, Operation *op, void *sr, int lo
+                   index, sr);
+     if (conn && (index > -1)) {
+         if (!locked)
+-            PR_EnterMonitor(conn->c_mutex);
++            pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             PagedResults *prp = conn->c_pagedresults.prl_list + index;
+             if (!(prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED) || !sr) {
+@@ -443,7 +471,7 @@ pagedresults_set_search_result(Connection *conn, Operation *op, void *sr, int lo
+             rc = 0;
+         }
+         if (!locked)
+-            PR_ExitMonitor(conn->c_mutex);
++            pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_set_search_result", "=> %d\n", rc);
+@@ -460,11 +488,11 @@ pagedresults_get_search_result_count(Connection *conn, Operation *op, int index)
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_search_result_count", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             count = conn->c_pagedresults.prl_list[index].pr_search_result_count;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_search_result_count", "<= %d\n", count);
+@@ -481,11 +509,11 @@ pagedresults_set_search_result_count(Connection *conn, Operation *op, int count,
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_set_search_result_count", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_search_result_count = count;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+         rc = 0;
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+@@ -506,11 +534,11 @@ pagedresults_get_search_result_set_size_estimate(Connection *conn,
+                   "pagedresults_get_search_result_set_size_estimate",
+                   "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             count = conn->c_pagedresults.prl_list[index].pr_search_result_set_size_estimate;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_search_result_set_size_estimate", "<= %d\n",
+@@ -532,11 +560,11 @@ pagedresults_set_search_result_set_size_estimate(Connection *conn,
+                   "pagedresults_set_search_result_set_size_estimate",
+                   "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_search_result_set_size_estimate = count;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+         rc = 0;
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+@@ -555,11 +583,11 @@ pagedresults_get_with_sort(Connection *conn, Operation *op, int index)
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_with_sort", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             flags = conn->c_pagedresults.prl_list[index].pr_flags & CONN_FLAG_PAGEDRESULTS_WITH_SORT;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_with_sort", "<= %d\n", flags);
+@@ -576,14 +604,14 @@ pagedresults_set_with_sort(Connection *conn, Operation *op, int flags, int index
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_set_with_sort", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             if (flags & OP_FLAG_SERVER_SIDE_SORTING) {
+                 conn->c_pagedresults.prl_list[index].pr_flags |=
+                     CONN_FLAG_PAGEDRESULTS_WITH_SORT;
+             }
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+         rc = 0;
+     }
+     slapi_log_err(SLAPI_LOG_TRACE, "pagedresults_set_with_sort", "<= %d\n", rc);
+@@ -600,11 +628,11 @@ pagedresults_get_unindexed(Connection *conn, Operation *op, int index)
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_unindexed", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             flags = conn->c_pagedresults.prl_list[index].pr_flags & CONN_FLAG_PAGEDRESULTS_UNINDEXED;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_unindexed", "<= %d\n", flags);
+@@ -621,12 +649,12 @@ pagedresults_set_unindexed(Connection *conn, Operation *op, int index)
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_set_unindexed", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_flags |=
+                 CONN_FLAG_PAGEDRESULTS_UNINDEXED;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+         rc = 0;
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+@@ -644,11 +672,11 @@ pagedresults_get_sort_result_code(Connection *conn, Operation *op, int index)
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_sort_result_code", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             code = conn->c_pagedresults.prl_list[index].pr_sort_result_code;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_get_sort_result_code", "<= %d\n", code);
+@@ -665,11 +693,11 @@ pagedresults_set_sort_result_code(Connection *conn, Operation *op, int code, int
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_set_sort_result_code", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_sort_result_code = code;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+         rc = 0;
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+@@ -687,11 +715,11 @@ pagedresults_set_timelimit(Connection *conn, Operation *op, time_t timelimit, in
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_set_timelimit", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             slapi_timespec_expire_at(timelimit, &(conn->c_pagedresults.prl_list[index].pr_timelimit_hr));
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+         rc = 0;
+     }
+     slapi_log_err(SLAPI_LOG_TRACE, "pagedresults_set_timelimit", "<= %d\n", rc);
+@@ -746,7 +774,7 @@ pagedresults_cleanup(Connection *conn, int needlock)
+     }
+ 
+     if (needlock) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+     }
+     for (i = 0; conn->c_pagedresults.prl_list &&
+                 i < conn->c_pagedresults.prl_maxlen;
+@@ -765,7 +793,7 @@ pagedresults_cleanup(Connection *conn, int needlock)
+     }
+     conn->c_pagedresults.prl_count = 0;
+     if (needlock) {
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE, "pagedresults_cleanup", "<= %d\n", rc);
+     return rc;
+@@ -792,7 +820,7 @@ pagedresults_cleanup_all(Connection *conn, int needlock)
+     }
+ 
+     if (needlock) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+     }
+     for (i = 0; conn->c_pagedresults.prl_list &&
+                 i < conn->c_pagedresults.prl_maxlen;
+@@ -812,7 +840,7 @@ pagedresults_cleanup_all(Connection *conn, int needlock)
+     conn->c_pagedresults.prl_maxlen = 0;
+     conn->c_pagedresults.prl_count = 0;
+     if (needlock) {
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE, "pagedresults_cleanup_all", "<= %d\n", rc);
+     return rc;
+@@ -831,7 +859,7 @@ pagedresults_check_or_set_processing(Connection *conn, int index)
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_check_or_set_processing", "=>\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             ret = (conn->c_pagedresults.prl_list[index].pr_flags &
+                    CONN_FLAG_PAGEDRESULTS_PROCESSING);
+@@ -839,7 +867,7 @@ pagedresults_check_or_set_processing(Connection *conn, int index)
+             conn->c_pagedresults.prl_list[index].pr_flags |=
+                                               CONN_FLAG_PAGEDRESULTS_PROCESSING;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_check_or_set_processing", "<= %d\n", ret);
+@@ -858,7 +886,7 @@ pagedresults_reset_processing(Connection *conn, int index)
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_reset_processing", "=> idx=%d\n", index);
+     if (conn && (index > -1)) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             ret = (conn->c_pagedresults.prl_list[index].pr_flags &
+                    CONN_FLAG_PAGEDRESULTS_PROCESSING);
+@@ -866,7 +894,7 @@ pagedresults_reset_processing(Connection *conn, int index)
+             conn->c_pagedresults.prl_list[index].pr_flags &=
+                                              ~CONN_FLAG_PAGEDRESULTS_PROCESSING;
+         }
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_reset_processing", "<= %d\n", ret);
+@@ -885,7 +913,7 @@ pagedresults_reset_processing(Connection *conn, int index)
+  * Do not return timed out here.  But let the next request take care the
+  * timedout slot(s).
+  *
+- * must be called within conn->c_mutex
++ * must be called within pageresult_lock_get_addr(conn)
+  */
+ int
+ pagedresults_is_timedout_nolock(Connection *conn)
+@@ -912,7 +940,7 @@ pagedresults_is_timedout_nolock(Connection *conn)
+ 
+ /*
+  * reset all timeout
+- * must be called within conn->c_mutex
++ * must be called within pageresult_lock_get_addr(conn)
+  */
+ int
+ pagedresults_reset_timedout_nolock(Connection *conn)
+@@ -977,9 +1005,9 @@ pagedresults_lock(Connection *conn, int index)
+     if (!conn || (index < 0) || (index >= conn->c_pagedresults.prl_maxlen)) {
+         return;
+     }
+-    PR_EnterMonitor(conn->c_mutex);
++    pthread_mutex_lock(pageresult_lock_get_addr(conn));
+     prp = conn->c_pagedresults.prl_list + index;
+-    PR_ExitMonitor(conn->c_mutex);
++    pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     if (prp->pr_mutex) {
+         PR_Lock(prp->pr_mutex);
+     }
+@@ -993,9 +1021,9 @@ pagedresults_unlock(Connection *conn, int index)
+     if (!conn || (index < 0) || (index >= conn->c_pagedresults.prl_maxlen)) {
+         return;
+     }
+-    PR_EnterMonitor(conn->c_mutex);
++    pthread_mutex_lock(pageresult_lock_get_addr(conn));
+     prp = conn->c_pagedresults.prl_list + index;
+-    PR_ExitMonitor(conn->c_mutex);
++    pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     if (prp->pr_mutex) {
+         PR_Unlock(prp->pr_mutex);
+     }
+@@ -1010,11 +1038,11 @@ pagedresults_is_abandoned_or_notavailable(Connection *conn, int locked, int inde
+         return 1; /* not abandoned, but do not want to proceed paged results op. */
+     }
+     if (!locked) {
+-        PR_EnterMonitor(conn->c_mutex);
++        pthread_mutex_lock(pageresult_lock_get_addr(conn));
+     }
+     prp = conn->c_pagedresults.prl_list + index;
+     if (!locked) {
+-        PR_ExitMonitor(conn->c_mutex);
++        pthread_mutex_unlock(pageresult_lock_get_addr(conn));
+     }
+     return prp->pr_flags & CONN_FLAG_PAGEDRESULTS_ABANDONED;
+ }
+@@ -1039,13 +1067,14 @@ pagedresults_set_search_result_pb(Slapi_PBlock *pb, void *sr, int locked)
+                   "pagedresults_set_search_result_pb", "=> idx=%d, sr=%p\n", index, sr);
+     if (conn && (index > -1)) {
+         if (!locked)
+-            PR_EnterMonitor(conn->c_mutex);
++            pthread_mutex_lock(pageresult_lock_get_addr(conn));
+         if (index < conn->c_pagedresults.prl_maxlen) {
+             conn->c_pagedresults.prl_list[index].pr_search_result_set = sr;
+             rc = 0;
+         }
+-        if (!locked)
+-            PR_ExitMonitor(conn->c_mutex);
++        if (!locked) {
++            pthread_mutex_unlock(pageresult_lock_get_addr(conn));
++        }
+     }
+     slapi_log_err(SLAPI_LOG_TRACE,
+                   "pagedresults_set_search_result_pb", "<= %d\n", rc);
+diff --git a/ldap/servers/slapd/proto-slap.h b/ldap/servers/slapd/proto-slap.h
+index 50f1ff75a..b8f736107 100644
+--- a/ldap/servers/slapd/proto-slap.h
++++ b/ldap/servers/slapd/proto-slap.h
+@@ -1489,6 +1489,9 @@ int slapd_do_all_nss_ssl_init(int slapd_exemode, int importexport_encrypt, int s
+ /*
+  * pagedresults.c
+  */
++void pageresult_lock_init();
++void pageresult_lock_cleanup();
++pthread_mutex_t *pageresult_lock_get_addr(Connection *conn);
+ int pagedresults_parse_control_value(Slapi_PBlock *pb, struct berval *psbvp, ber_int_t *pagesize, int *index, Slapi_Backend *be);
+ void pagedresults_set_response_control(Slapi_PBlock *pb, int iscritical, ber_int_t estimate, int curr_search_count, int index);
+ Slapi_Backend *pagedresults_get_current_be(Connection *conn, int index);
+-- 
+2.41.0
+

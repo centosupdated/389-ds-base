@@ -41,7 +41,7 @@
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.11.1
-Release:          %{?relprefix}2%{?prerel}%{?dist}
+Release:          %{?relprefix}3%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -204,6 +204,7 @@ Patch42:          0042-Issue-5440-memberof-is-slow-on-update-fixup-if-there.patc
 Patch43:          0043-Issue-5497-boolean-attributes-should-be-case-insensi.patch
 Patch44:          0044-Issue-5565-Add-upgrade-script-for-new-Rust-password-.patch
 Patch45:          0045-Bump-version-to-1.3.11.1-1.patch
+Patch46:          0046-Issue-4551-Paged-search-impacts-performance-5838.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -569,6 +570,10 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Mon Aug 14 2023 Mark Reynolds <mreynolds@redhat.com> - 1.3.11.1-3
+- Bump version to 1.3.11.1-3
+- Resolves: rhbz#2224507 - Paged search impacts performance 
+
 * Tue May 23 2023 Mark Reynolds <mreynolds@redhat.com> - 1.3.11.1-2
 - Bump version to 1.3.11.1-2
 - Resolves: Bug 2170224 - Fix upgrade scripts and version string
