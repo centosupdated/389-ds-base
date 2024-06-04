@@ -38,10 +38,28 @@
 # set PIE flag
 %global _hardened_build 1
 
+# You might be surprised to see the 1.3.11 version in the filename, but inside, it's actually 1.3.10.
+# Additionally, all of the patches below look intimidating, especially when one of them is bumping
+# the version to 1.3.11, but the tarball already has the 1.3.11 version...
+#
+# [Simon] Explanation follows:
+# It was done so because 389-ds-base-1.3.10+patches in RHEL 7.9 were not equal to
+# 389-ds-base-1.3.10+all of the commits before I created 1.3.11.
+# (I've made a full directory comparison, and a lot of stuff was missing - something from 2019, 2020 years)
+# If we release a full rebase based on Upstream, we will find a lot of new issues,
+# and we may break our customers in an unexpected way.
+# That's not what we want in a stable, nearly EOF release...
+#
+# So what I did was I used the old tarball from 7.9, then I added the vendor directory to that and repacked.
+# After that, I added the required patches (for the PBKDF2-SHA512 change and a couple more).
+#
+# Additionally, remember that you should use the following "--target" while doing the rhpkg build. It is needed for Rust:
+# --target rhel-7.9-z-389-ds-base-stack-candidate
+
 Summary:          389 Directory Server (%{variant})
 Name:             389-ds-base
 Version:          1.3.11.1
-Release:          %{?relprefix}4%{?prerel}%{?dist}
+Release:          %{?relprefix}5%{?prerel}%{?dist}
 License:          GPLv3+
 URL:              https://www.port389.org/
 Group:            System Environment/Daemons
@@ -206,6 +224,8 @@ Patch44:          0044-Issue-5565-Add-upgrade-script-for-new-Rust-password-.patc
 Patch45:          0045-Bump-version-to-1.3.11.1-1.patch
 Patch46:          0046-Issue-4551-Paged-search-impacts-performance-5838.patch
 Patch47:          0047-Issue-5984-Crash-when-paged-result-search-are-abando.patch
+Patch48:          0048-CVE-2024-2199.patch
+Patch49:          0049-CVE-2024-3657-7.9.patch
 
 %description
 389 Directory Server is an LDAPv3 compliant server.  The base package includes
@@ -571,6 +591,11 @@ fi
 %{_sysconfdir}/%{pkgname}/dirsrvtests
 
 %changelog
+* Wed Apr 24 2024 James Chapman <jachapma@redhat.com> - 1.3.11.1-5
+- Bump version to 1.3.11.1-5
+- Resolves: RHEL-33337 - redhat-ds:11/389-ds-base: potential denial of service via specially crafted kerberos AS-REQ request
+- Resolves: RHEL-34817 - redhat-ds:11/389-ds-base: Malformed userPassword may cause crash at do_modify in slapd/modify.c
+
 * Wed Dec 13 2023 Thierry Bordaz <tbordaz@redhat.com> - 1.3.11.1-4
 - Bump version to 1.3.11.1-4
 - Resolves: RHEL-17332 - ns-slapd crash in slapi_attr_basetype
